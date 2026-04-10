@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Research-Flow Celery Worker"
 requires-python = ">=3.13"
 dependencies = [
+    "agno>=2.5.15",
     "celery[redis]>=5.4",
+    "duckduckgo-search>=8.1.1",
+    "openai>=2.31.0",
+    "pypdf>=6.10.0",
     "redis>=5.0",
+    "tortoise-orm>=0.25.4",
 ]

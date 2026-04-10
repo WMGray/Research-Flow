@@ -9,7 +9,8 @@
 | Web 框架 | FastAPI |
 | 包管理 | uv |
 | 任务队列 | Celery + Redis |
-| 数据库 | SQLite（SQLAlchemy ORM） |
+| 数据库 | SQLite（Tortoise-ORM） |
+| 数据库迁移 | aerich |
 | 数据校验 | Pydantic v2 |
 | Python 版本 | 3.13+ |
 
@@ -22,7 +23,7 @@ backend/
 ├── app/                    # FastAPI 主服务
 │   ├── api/                # 接口层：路由定义，只处理 HTTP 请求/响应
 │   ├── core/               # 基础层：配置加载、数据库连接、日志初始化
-│   ├── models/             # 数据层：SQLAlchemy ORM 表定义
+│   ├── models/             # 数据层：Tortoise-ORM 模型定义
 │   ├── schemas/            # 契约层：Pydantic 请求/响应 Schema
 │   ├── services/           # 业务层：核心业务逻辑，调用 LLM、处理数据
 │   ├── tasks/              # 投递层：向 Celery 队列投递异步任务的入口
@@ -69,7 +70,7 @@ HTTP 请求
 ┌──────────────────┐    ┌──────────────────────────┐
 │  app/models/     │    │  worker/tasks/            │
 │  数据层           │    │  任务执行层                │
-│  · ORM 表定义    │    │  · 异步任务实现             │
+│  · Tortoise 模型  │    │  · 异步任务实现             │
 │  · 数据库读写    │    │  · 定时任务实现             │
 └──────────────────┘    └──────────────────────────┘
 ```
