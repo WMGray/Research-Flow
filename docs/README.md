@@ -23,6 +23,7 @@ docs/
 ├── 02_backend/                  ← 后端需求
 │   ├── 架构概览.md
 │   ├── 数据模型.md
+│   ├── 表设计.md
 │   ├── modules/
 │   │   ├── 文献管理.md
 │   │   ├── Zotero集成.md
