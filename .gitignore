@@ -35,6 +35,7 @@ build/
 .dmypy.json
 .ruff_cache/
 .pytest_cache/
+backend/tmp*/
 .coverage
 coverage.xml
 htmlcov/
