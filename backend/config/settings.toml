@@ -1,0 +1,24 @@
+# =============================================================================
+# 仓库内默认配置
+# 这里放“可以提交”的通用默认值；
+# 本机覆盖和敏感信息请放到 backend/.env
+# =============================================================================
+
+[app]
+# 应用默认监听配置
+host = "127.0.0.1"
+port = 8000
+env = "development"
+debug = true
+
+[zotero]
+# Zotero MCP 默认运行配置
+enabled = true
+command = "zotero-mcp"
+args = ["serve"]
+transport = "stdio"
+local_mode = "local"
+library_type = "user"
+pythonioencoding = "utf-8"
+pythonutf8 = "1"
+timeout_seconds = 60

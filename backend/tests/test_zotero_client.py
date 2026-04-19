@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings, reset_settings
 from app.main import app
 from app.services.mcp.zotero_client import zotero_client
 
@@ -38,6 +39,47 @@ def test_zotero_client_reads_env_and_defaults_local_mode(monkeypatch) -> None:
         assert summary["timeout_seconds"] == 45
         assert "ZOTERO_API_KEY" in summary["env_keys"]
     finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_settings_can_load_toml_file_and_env_override(monkeypatch) -> None:
+    temp_dir = Path(".uv-cache") / f"test-settings-{uuid.uuid4().hex}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        config_dir = temp_dir / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "settings.toml"
+        config_file.write_text(
+            "\n".join(
+                [
+                    "[app]",
+                    'host = "0.0.0.0"',
+                    "port = 9000",
+                    "",
+                    "[zotero]",
+                    "enabled = true",
+                    'args = ["serve", "--stdio"]',
+                    'local_mode = "web"',
+                    "timeout_seconds = 12",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("RESEARCH_FLOW_CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("APP_PORT", "9100")
+        monkeypatch.setenv("ZOTERO_MCP_TIMEOUT_SECONDS", "45")
+        reset_settings()
+
+        settings = get_settings()
+
+        assert settings.app.host == "0.0.0.0"
+        assert settings.app.port == 9100
+        assert settings.zotero.args == ["serve", "--stdio"]
+        assert settings.zotero.local_mode == "web"
+        assert settings.zotero.timeout_seconds == 45
+    finally:
+        reset_settings()
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
