@@ -10,8 +10,10 @@
 推荐约定：
 
 - `settings.toml` 存放可提交的非敏感默认值
-- `.env` 存放本机密钥和本地覆盖
+- `.env` 只存放本机密钥和必要的本地覆盖
+- 已经迁移到 `settings.toml` 的默认项不要在 `.env.example` 里重复列出
 - 需要切换配置文件时，设置 `RESEARCH_FLOW_CONFIG_FILE`
+- 需要跳过本机 `.env` 时，设置 `RESEARCH_FLOW_ENV_FILE=none`
 
 当前实现位置：
 

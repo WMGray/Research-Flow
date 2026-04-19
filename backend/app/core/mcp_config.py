@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from mcp.client.stdio import StdioServerParameters
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 # 这些键只用于展示当前启用了哪些 MCP 相关配置，
 # 不会暴露真实密钥内容，因此可以出现在摘要接口里。
@@ -25,6 +25,8 @@ MANAGED_ENV_KEYS = (
 
 class ZoteroConfig(BaseModel):
     """Zotero MCP 进程的运行时配置模型。"""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     enabled: bool = Field(
         default=True,

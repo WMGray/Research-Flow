@@ -1,18 +1,19 @@
 # =============================================================================
-# 仓库内默认配置
-# 这里放“可以提交”的通用默认值；
-# 本机覆盖和敏感信息请放到 backend/.env
+# Research-Flow 后端默认配置
+# 这里只放“可以提交”的非敏感默认值。
+# 本机覆盖项、密钥、账号 ID 等请放到 backend/.env。
 # =============================================================================
 
 [app]
-# 应用默认监听配置
+# FastAPI 默认监听配置
 host = "127.0.0.1"
 port = 8000
 env = "development"
 debug = true
 
 [zotero]
-# Zotero MCP 默认运行配置
+# Zotero MCP 默认运行配置。
+# 如本机 zotero-mcp 不在 PATH 中，请在 backend/.env 覆盖 command。
 enabled = true
 command = "zotero-mcp"
 args = ["serve"]

@@ -19,6 +19,7 @@ def test_zotero_client_reads_env_and_defaults_local_mode(monkeypatch) -> None:
         fake_binary.write_text("", encoding="utf-8")
 
         monkeypatch.setenv("APPDATA", str(fake_roaming))
+        monkeypatch.setenv("RESEARCH_FLOW_ENV_FILE", "none")
         monkeypatch.setenv("ZOTERO_MCP_ENABLED", "true")
         monkeypatch.setenv("ZOTERO_MCP_COMMAND", "zotero-mcp")
         monkeypatch.setenv("ZOTERO_MCP_ARGS", "serve")
@@ -67,6 +68,7 @@ def test_settings_can_load_toml_file_and_env_override(monkeypatch) -> None:
         )
 
         monkeypatch.setenv("RESEARCH_FLOW_CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("RESEARCH_FLOW_ENV_FILE", "none")
         monkeypatch.setenv("APP_PORT", "9100")
         monkeypatch.setenv("ZOTERO_MCP_TIMEOUT_SECONDS", "45")
         reset_settings()
@@ -84,6 +86,7 @@ def test_settings_can_load_toml_file_and_env_override(monkeypatch) -> None:
 
 
 def test_mcp_service_status_endpoint_exposes_zotero_summary(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_FLOW_ENV_FILE", "none")
     monkeypatch.setenv("ZOTERO_MCP_ENABLED", "true")
     monkeypatch.setenv("ZOTERO_MCP_COMMAND", "zotero-mcp")
     monkeypatch.setenv("ZOTERO_MCP_ARGS", "serve")
