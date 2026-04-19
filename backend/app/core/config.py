@@ -12,6 +12,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from app.core.llm_config import LLMConfig
 from app.core.mcp_config import ZoteroConfig
 
 
@@ -94,6 +95,7 @@ class Settings(BaseSettings):
     )
 
     app: AppConfig = AppConfig()
+    llm: LLMConfig = LLMConfig()
     zotero: ZoteroConfig = ZoteroConfig()
 
     @classmethod
