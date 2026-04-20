@@ -1,76 +1,81 @@
-.PHONY: help init dev dev-backend dev-frontend install install-backend install-frontend lint fmt clean
+.PHONY: help init dev dev-backend dev-frontend install install-backend install-frontend test-paper-download lint fmt clean
 
-# 默认目标：显示帮助
+# Show common development commands.
 help:
 	@echo ""
-	@echo "Research-Flow 开发命令"
-	@echo "========================"
-	@echo "  make init              初始化完整开发环境"
-	@echo "  make dev               同时启动前后端开发服务"
-	@echo "  make dev-backend       仅启动后端服务"
-	@echo "  make dev-frontend      仅启动前端服务"
-	@echo "  make install           安装前后端全部依赖"
-	@echo "  make install-backend   安装后端依赖"
-	@echo "  make install-frontend  安装前端依赖"
-	@echo "  make lint              检查前后端代码风格"
-	@echo "  make fmt               格式化前后端代码"
-	@echo "  make clean             清理构建产物与缓存"
+	@echo "Research-Flow commands"
+	@echo "======================"
+	@echo "  make init                 Initialize development environment"
+	@echo "  make dev                  Start backend and frontend"
+	@echo "  make dev-backend          Start backend only"
+	@echo "  make dev-frontend         Start frontend only"
+	@echo "  make install              Install all dependencies"
+	@echo "  make install-backend      Install backend dependencies"
+	@echo "  make install-frontend     Install frontend dependencies"
+	@echo "  make test-paper-download  Run gPaper paper_download check"
+	@echo "  make lint                 Run linters"
+	@echo "  make fmt                  Format code"
+	@echo "  make clean                Clean generated artifacts"
 	@echo ""
 
-# 初始化开发环境（首次克隆后执行）
+# Initialize local development environment.
 init:
-	@echo ">>> 初始化开发环境..."
-	@if [ ! -f backend/.env ]; then cp backend/.env.example backend/.env; echo ">>> 已生成 backend/.env，请填写必要配置"; fi
+	@echo ">>> Initializing development environment..."
+	@if [ ! -f backend/.env ]; then cp backend/.env.example backend/.env; echo ">>> Created backend/.env; please fill required values"; fi
 	@$(MAKE) install
-	@echo ">>> 初始化完成"
+	@echo ">>> Initialization complete"
 
-# 同时启动前后端（需要系统安装 concurrently 或 make 支持并行）
+# Start backend and frontend in parallel.
 dev:
-	@echo ">>> 启动前后端开发服务..."
+	@echo ">>> Starting backend and frontend..."
 	@$(MAKE) -j2 dev-backend dev-frontend
 
-# 仅启动后端
+# Start backend only.
 dev-backend:
-	@echo ">>> 启动后端..."
+	@echo ">>> Starting backend..."
 	cd backend && python -m uvicorn app.main:app --reload --port 8000
 
-# 仅启动前端
+# Start frontend only.
 dev-frontend:
-	@echo ">>> 启动前端..."
+	@echo ">>> Starting frontend..."
 	cd frontend && npm run dev
 
-# 安装全部依赖
+# Install all dependencies.
 install: install-backend install-frontend
 
-# 安装后端依赖
+# Install backend dependencies.
 install-backend:
-	@echo ">>> 安装后端依赖..."
+	@echo ">>> Installing backend dependencies..."
 	cd backend && pip install -r requirements.txt
 
-# 安装前端依赖
+# Install frontend dependencies.
 install-frontend:
-	@echo ">>> 安装前端依赖..."
+	@echo ">>> Installing frontend dependencies..."
 	cd frontend && npm install
 
-# 代码风格检查
+# Manual gPaper / paper_download integration check.
+test-paper-download:
+	cd backend && python tests/run_paper_download_cases.py --case direct_pdf
+
+# Run code style checks.
 lint:
-	@echo ">>> 检查后端代码..."
+	@echo ">>> Checking backend code..."
 	cd backend && ruff check .
-	@echo ">>> 检查前端代码..."
+	@echo ">>> Checking frontend code..."
 	cd frontend && npm run lint
 
-# 代码格式化
+# Format code.
 fmt:
-	@echo ">>> 格式化后端代码..."
+	@echo ">>> Formatting backend code..."
 	cd backend && ruff format .
-	@echo ">>> 格式化前端代码..."
+	@echo ">>> Formatting frontend code..."
 	cd frontend && npm run fmt
 
-# 清理构建产物与缓存
+# Clean generated artifacts.
 clean:
-	@echo ">>> 清理中..."
+	@echo ">>> Cleaning..."
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf frontend/dist frontend/.vite 2>/dev/null || true
-	@echo ">>> 清理完成"
+	@echo ">>> Clean complete"

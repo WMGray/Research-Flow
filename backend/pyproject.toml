@@ -7,6 +7,7 @@ dependencies = [
     "agno>=2.5.17",
     "anthropic>=0.57,<1",
     "fastapi>=0.115,<1",
+    "gpaper @ git+https://github.com/WMGray/getPaper.git",
     "mcp>=1.27.0",
     "openai>=1.76,<2",
     "pydantic>=2.13,<3",
@@ -34,6 +35,9 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-p", "no:cacheprovider"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.ruff]
 exclude = [

@@ -23,6 +23,15 @@ pythonioencoding = "utf-8"
 pythonutf8 = "1"
 timeout_seconds = 60
 
+[paper_download]
+output_dir = "data/papers"
+timeout = 30
+retries = 2
+retry_wait = 2
+rate_limit_wait = 20
+min_pdf_size = 4096
+overwrite = false
+
 [llm]
 # 当请求未显式传入 feature 时，默认使用这个功能配置。
 # 任何新增的 [llm.platforms.xxx] 都会被 LLMRegistry 自动识别和注册。

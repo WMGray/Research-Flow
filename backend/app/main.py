@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.paper_download import router as paper_download_router
 from app.services.mcp.zotero_client import zotero_client
 
 
@@ -21,6 +22,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.include_router(paper_download_router)
 
 
 @app.get("/health")

@@ -14,6 +14,7 @@ from pydantic_settings import (
 
 from app.core.llm_config import LLMConfig
 from app.core.mcp_config import ZoteroConfig
+from app.core.paper_download_config import PaperDownloadConfig
 
 
 def backend_root() -> Path:
@@ -96,6 +97,7 @@ class Settings(BaseSettings):
 
     app: AppConfig = AppConfig()
     llm: LLMConfig = LLMConfig()
+    paper_download: PaperDownloadConfig = PaperDownloadConfig()
     zotero: ZoteroConfig = ZoteroConfig()
 
     @classmethod
@@ -168,6 +170,30 @@ def _apply_flat_env_overrides(settings: Settings) -> Settings:
             "ZOTERO_MCP_TIMEOUT_SECONDS",
         )
     )
+    paper_download_overrides = _env_subset(
+        (
+            "PAPER_DOWNLOAD_OUTPUT_DIR",
+            "PAPER_DOWNLOAD_EMAIL",
+            "PAPER_DOWNLOAD_S2_API_KEY",
+            "PAPER_DOWNLOAD_OPENALEX_API_KEY",
+            "PAPER_DOWNLOAD_TIMEOUT",
+            "PAPER_DOWNLOAD_RETRIES",
+            "PAPER_DOWNLOAD_RETRY_WAIT",
+            "PAPER_DOWNLOAD_RATE_LIMIT_WAIT",
+            "PAPER_DOWNLOAD_MIN_PDF_SIZE",
+            "PAPER_DOWNLOAD_OVERWRITE",
+            "EXTRACT_REFS_OUTPUT_DIR",
+            "EXTRACT_REFS_EMAIL",
+            "EXTRACT_REFS_S2_API_KEY",
+            "EXTRACT_REFS_OPENALEX_API_KEY",
+            "EXTRACT_REFS_TIMEOUT",
+            "EXTRACT_REFS_RETRIES",
+            "EXTRACT_REFS_RETRY_WAIT",
+            "EXTRACT_REFS_RATE_LIMIT_WAIT",
+            "EXTRACT_REFS_MIN_PDF_SIZE",
+            "EXTRACT_REFS_OVERWRITE",
+        )
+    )
 
     app = settings.app
     if app_overrides:
@@ -179,4 +205,13 @@ def _apply_flat_env_overrides(settings: Settings) -> Settings:
         zotero_update = ZoteroConfig.model_validate(zotero_overrides)
         zotero = zotero.model_copy(update=zotero_update.model_dump(exclude_unset=True))
 
-    return settings.model_copy(update={"app": app, "zotero": zotero})
+    paper_download = settings.paper_download
+    if paper_download_overrides:
+        paper_download_update = PaperDownloadConfig.model_validate(paper_download_overrides)
+        paper_download = paper_download.model_copy(
+            update=paper_download_update.model_dump(exclude_unset=True)
+        )
+
+    return settings.model_copy(
+        update={"app": app, "zotero": zotero, "paper_download": paper_download}
+    )
