@@ -62,10 +62,19 @@ frontend/.vite/
 *.db
 *.sqlite
 *.sqlite3
-backend/data/*
+backend/storage/
+
+# Keep only placeholder files for the versioned data directory structure.
+backend/data/**
+!backend/data/
 !backend/data/**/
 !backend/data/**/.gitkeep
-backend/storage/
+
+# Runtime-only data directories should not be versioned.
+backend/data/archive/
+backend/data/tmp/
+backend/data/upload/
+backend/data/uploads/
 
 # ------------------------------------------------------------
 # 日志
