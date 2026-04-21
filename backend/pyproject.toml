@@ -8,6 +8,7 @@ dependencies = [
     "anthropic>=0.57,<1",
     "fastapi>=0.115,<1",
     "gpaper @ git+https://github.com/WMGray/getPaper.git",
+    "httpx>=0.28,<1",
     "mcp>=1.27.0",
     "openai>=1.76,<2",
     "pydantic>=2.13,<3",
@@ -17,7 +18,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<1",
     "pytest>=8.3,<9",
     "ruff>=0.11,<1",
 ]

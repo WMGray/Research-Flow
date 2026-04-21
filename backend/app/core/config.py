@@ -14,6 +14,7 @@ from pydantic_settings import (
 
 from app.core.llm_config import LLMConfig
 from app.core.mcp_config import ZoteroConfig
+from app.core.mineru_config import MinerUConfig
 from app.core.paper_download_config import PaperDownloadConfig
 
 
@@ -97,6 +98,7 @@ class Settings(BaseSettings):
 
     app: AppConfig = AppConfig()
     llm: LLMConfig = LLMConfig()
+    mineru: MinerUConfig = MinerUConfig()
     paper_download: PaperDownloadConfig = PaperDownloadConfig()
     zotero: ZoteroConfig = ZoteroConfig()
 
@@ -194,6 +196,30 @@ def _apply_flat_env_overrides(settings: Settings) -> Settings:
             "EXTRACT_REFS_OVERWRITE",
         )
     )
+    mineru_overrides = _env_subset(
+        (
+            "RFLOW_MINERU_BASE_URL",
+            "RFLOW_MINERU_API_TOKEN",
+            "RFLOW_MINERU_MODEL",
+            "RFLOW_MINERU_HTTP_TIMEOUT_SECONDS",
+            "RFLOW_MINERU_POLL_INTERVAL_SECONDS",
+            "RFLOW_MINERU_POLL_TIMEOUT_SECONDS",
+            "RFLOW_PDF_PARSE_EXCERPT_CHARS",
+            "RFLOW_PDF_PARSE_MIN_CHARS",
+            "RFLOW_LLM_PDF_CONTEXT_CHARS",
+            "RFLOW_LLM_PDF_SECTION_CHARS",
+            "MINERU__BASE_URL",
+            "MINERU__API_TOKEN",
+            "MINERU__MODEL",
+            "MINERU__HTTP_TIMEOUT_SECONDS",
+            "MINERU__POLL_INTERVAL_SECONDS",
+            "MINERU__POLL_TIMEOUT_SECONDS",
+            "MINERU__PDF_PARSE_EXCERPT_CHARS",
+            "MINERU__PDF_PARSE_MIN_CHARS",
+            "MINERU__LLM_PDF_CONTEXT_CHARS",
+            "MINERU__LLM_PDF_SECTION_CHARS",
+        )
+    )
 
     app = settings.app
     if app_overrides:
@@ -212,6 +238,11 @@ def _apply_flat_env_overrides(settings: Settings) -> Settings:
             update=paper_download_update.model_dump(exclude_unset=True)
         )
 
+    mineru = settings.mineru
+    if mineru_overrides:
+        mineru_update = MinerUConfig.model_validate(mineru_overrides)
+        mineru = mineru.model_copy(update=mineru_update.model_dump(exclude_unset=True))
+
     return settings.model_copy(
-        update={"app": app, "zotero": zotero, "paper_download": paper_download}
+        update={"app": app, "zotero": zotero, "paper_download": paper_download, "mineru": mineru}
     )

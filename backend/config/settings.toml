@@ -1,18 +1,15 @@
 # =============================================================================
-# Research-Flow backend 默认配置
-# 这里放可提交到仓库的非敏感默认值。
-# 本机覆盖项和凭证请放到 backend/.env。
+# Research-Flow backend shared defaults
+# Put non-secret defaults here. Put local credentials in backend/.env.
 # =============================================================================
 
 [app]
-# FastAPI 默认配置
 host = "127.0.0.1"
 port = 8000
 env = "development"
 debug = true
 
 [zotero]
-# Zotero MCP 默认运行配置
 enabled = true
 command = "zotero-mcp"
 args = ["serve"]
@@ -32,14 +29,21 @@ rate_limit_wait = 20
 min_pdf_size = 4096
 overwrite = false
 
+[mineru]
+base_url = "https://mineru.net"
+model = "vlm"
+http_timeout_seconds = 300
+poll_interval_seconds = 5
+poll_timeout_seconds = 900
+pdf_parse_excerpt_chars = 1200
+pdf_parse_min_chars = 200
+llm_pdf_context_chars = 14000
+llm_pdf_section_chars = 2600
+
 [llm]
-# 当请求未显式传入 feature 时，默认使用这个功能配置。
-# 任何新增的 [llm.platforms.xxx] 都会被 LLMRegistry 自动识别和注册。
 default_feature = "default_chat"
 
 [llm.platforms.deepseek]
-# provider_type 表示协议适配器类型，不表示厂商名。
-# DeepSeek 官方接口走 OpenAI-compatible 协议，所以这里写 openai_compatible。
 provider_type = "openai_compatible"
 base_url = "https://api.deepseek.com/v1"
 api_key = "${DEEPSEEK_API_KEY}"
@@ -53,9 +57,7 @@ api_key = "${SILICONFLOW_API_KEY}"
 timeout = 60
 max_retries = 2
 
-
 [llm.models.chat_fast]
-# models 是模型库条目，定义真实模型、默认参数和能力标签。
 platform = "deepseek"
 model = "deepseek-chat"
 purpose = "通用快速对话"
@@ -85,9 +87,7 @@ purpose = "月之暗面 Kimi 模型"
 temperature = 0.3
 max_tokens = 4096
 
-
 [llm.features.default_chat]
-# features 负责把具体业务功能绑定到模型库条目，并可继续叠加业务默认参数。
 model = "chat_fast"
 
 [llm.features.fast_chat]
