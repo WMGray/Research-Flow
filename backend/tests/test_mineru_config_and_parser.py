@@ -56,6 +56,7 @@ def test_pdf_parser_reads_existing_mineru_markdown(tmp_path: Path) -> None:
 
     assert parsed.artifact_markdown_path == markdown_path
     assert parsed.artifact_image_dir == image_dir
+    assert parsed.artifact_section_dir == markdown_path.parent / "sections"
     assert parsed.char_count >= 20
-    assert [section.key for section in parsed.sections] == ["abstract", "introduction", "references"]
-    assert "[Section: Abstract]" in parser.build_llm_context(parsed)
+    assert [section.key for section in parsed.sections] == ["introduction"]
+    assert "[Section: Introduction]" in parser.build_llm_context(parsed)

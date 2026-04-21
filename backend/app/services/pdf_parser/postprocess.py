@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from dataclasses import dataclass
@@ -7,9 +8,12 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+from app.services.pdf_parser.sections import APPENDIX_HEADING_RE, classify_heading
+
 
 CAPTION_RE = re.compile(r"\b(Figure|Fig\.|Table)\s+([A-Za-z0-9_.-]+)", re.IGNORECASE)
 IMAGE_LINE_RE = re.compile(r"!\[[^\]]*]\(([^)]+)\)")
+NUMBERED_HEADING_RE = re.compile(r"^(?P<num>\d+(?:\.\d+)*)(?:[\.\)]|\s)+(?:\s*)(?P<title>.+)$")
 
 
 def load_pillow_image() -> Any:
@@ -105,8 +109,6 @@ def normalize_text(text: str) -> str:
 
 
 def parse_page_items(content_list_path: Path) -> list[list[PageItem]]:
-    import json
-
     raw_pages = json.loads(content_list_path.read_text(encoding="utf-8"))
     pages: list[list[PageItem]] = []
     for page_index, page_items in enumerate(raw_pages):
@@ -265,34 +267,30 @@ def render_image_montage(
     canvas.save(output_path)
 
 
-def normalize_heading(line: str) -> str:
+def normalize_heading(line: str, *, is_title: bool) -> str:
     heading_text = line.lstrip("#").strip()
+    if is_title:
+        return f"# {heading_text}"
+
+    match = NUMBERED_HEADING_RE.match(heading_text)
+    if match is not None:
+        numbered_depth = match.group("num").count(".") + 1
+        markdown_level = min(numbered_depth + 1, 6)
+        return f"{'#' * markdown_level} {heading_text}"
+
+    key = classify_heading(heading_text)
     lowered = heading_text.lower()
-    if lowered == "abstract":
+    if lowered == "abstract" or key == "abstract":
         return "## Abstract"
-    if lowered == "references":
+    if lowered == "references" or key == "references":
         return "## References"
-    if re.match(r"^\d+\.\d+\.", heading_text):
-        return f"### {heading_text}"
-    if re.match(r"^\d+\.", heading_text):
+    if key == "appendix" or APPENDIX_HEADING_RE.match(heading_text):
         return f"## {heading_text}"
     if lowered.startswith("algorithm "):
-        return f"### {heading_text}"
-    return f"## {heading_text}"
-
-
-def update_header(lines: list[str], metadata_lines: list[str]) -> list[str]:
-    updated: list[str] = []
-    inserted = False
-    for line in lines:
-        if line.startswith("- "):
-            continue
-        updated.append(line)
-        if line.startswith("# ") and not inserted:
-            updated.append("")
-            updated.extend(metadata_lines)
-            inserted = True
-    return updated
+        return "#### " + heading_text
+    if key is not None:
+        return "## " + heading_text
+    return heading_text
 
 
 def rewrite_markdown(
@@ -315,11 +313,8 @@ def rewrite_markdown(
 
     for line in raw_lines:
         if line.startswith("#"):
-            if not first_heading_seen:
-                rewritten.append(line)
-                first_heading_seen = True
-            else:
-                rewritten.append(normalize_heading(line))
+            rewritten.append(normalize_heading(line, is_title=not first_heading_seen))
+            first_heading_seen = True
             active_group = None
             continue
 
@@ -357,8 +352,18 @@ def rewrite_markdown(
         "- Organization: chapter-based Markdown, not page-based",
         f"- Embedded figure references: {grouped_image_ref_count}",
     ]
-    rewritten = update_header(rewritten, metadata_lines)
-    output_markdown_path.write_text("\n".join(rewritten).rstrip() + "\n", encoding="utf-8")
+    updated: list[str] = []
+    inserted = False
+    for line in rewritten:
+        if line.startswith("- "):
+            continue
+        updated.append(line)
+        if line.startswith("# ") and not inserted:
+            updated.append("")
+            updated.extend(metadata_lines)
+            inserted = True
+
+    output_markdown_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
     return raw_image_ref_count, grouped_image_ref_count, referenced_figure_names
 
 
@@ -380,9 +385,7 @@ def process_mineru_markdown_artifacts(
     padding: int = 12,
 ) -> ProcessedMarkdownArtifacts:
     output_figure_dir.mkdir(parents=True, exist_ok=True)
-    groups: list[FigureGroup] = []
-    if content_list_path is not None and content_list_path.exists():
-        groups = build_groups(parse_page_items(content_list_path))
+    groups = build_groups(parse_page_items(content_list_path)) if content_list_path and content_list_path.exists() else []
 
     keep_names: set[str] = set()
     for group in groups:
@@ -403,7 +406,6 @@ def process_mineru_markdown_artifacts(
         source_image_dir=source_image_dir,
         groups=groups,
     )
-
     keep_names.update(referenced_figure_names)
     cleanup_stale_figures(output_figure_dir, keep_names)
 
@@ -414,3 +416,6 @@ def process_mineru_markdown_artifacts(
         raw_image_ref_count=raw_image_ref_count,
         grouped_image_ref_count=grouped_image_ref_count,
     )
+
+
+__all__ = ["ProcessedMarkdownArtifacts", "process_mineru_markdown_artifacts"]

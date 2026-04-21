@@ -5,7 +5,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
-import re
 import shutil
 from urllib.parse import quote
 import zipfile
@@ -15,28 +14,15 @@ import httpx
 from app.core.config import Settings
 from app.core.mineru_config import MinerUConfig
 from app.services.pdf_parser.postprocess import ProcessedMarkdownArtifacts, process_mineru_markdown_artifacts
+from app.services.pdf_parser.sections import ParsedPaperSection, SectionArtifacts, split_key_sections
 
 
-SECTION_PATTERNS: list[tuple[str, str, tuple[str, ...]]] = [
-    ("abstract", "Abstract", ("abstract", "summary")),
-    ("introduction", "Introduction", ("introduction", "overview", "background")),
-    ("related_work", "Related Work", ("related work", "prior work", "literature review")),
-    ("methodology", "Method", ("method", "methods", "methodology", "approach", "model", "proposed method")),
-    ("experiments", "Experiments", ("experiment", "experiments", "evaluation", "results", "experimental setup")),
-    ("discussion", "Discussion", ("discussion", "analysis", "ablation study")),
-    ("conclusion", "Conclusion", ("conclusion", "conclusions", "future work")),
-    ("references", "References", ("references", "bibliography")),
-    ("appendix", "Appendix", ("appendix", "supplementary material")),
-]
-
-NON_CONTEXT_SECTION_KEYS = {"references", "appendix"}
-SECTION_CONTEXT_PRIORITY = ["abstract", "introduction", "methodology", "experiments", "discussion", "conclusion"]
-
+SECTION_CONTEXT_PRIORITY = ["introduction", "method", "experiment", "result", "conclusion"]
 ParserProgressCallback = Callable[[str, str], Awaitable[None] | None]
 
 
 class PDFParserError(RuntimeError):
-    """PDF 解析阶段的业务异常，保留状态码和错误码便于后续接 API。"""
+    """PDF parsing stage error with status code and structured error code."""
 
     def __init__(
         self,
@@ -54,14 +40,6 @@ class PDFParserError(RuntimeError):
 
 
 @dataclass(slots=True)
-class ParsedPaperSection:
-    key: str
-    title: str
-    text: str
-    char_count: int
-
-
-@dataclass(slots=True)
 class ParsedPaperContent:
     text: str
     page_count: int
@@ -70,6 +48,7 @@ class ParsedPaperContent:
     sections: list[ParsedPaperSection] = field(default_factory=list)
     artifact_markdown_path: Path | None = None
     artifact_image_dir: Path | None = None
+    artifact_section_dir: Path | None = None
 
     def section_outline(self) -> list[dict[str, object]]:
         return [
@@ -92,7 +71,7 @@ class MinerUExtractionResult:
 
 
 class PDFParserService:
-    """通过 MinerU 解析 PDF，并把 Markdown 结果整理成后续 LLM 可用的文本。"""
+    """Step 1 parse PDF, step 2 postprocess markdown, step 3 split key sections."""
 
     def __init__(self, settings: Settings | MinerUConfig) -> None:
         self.config = settings.mineru if isinstance(settings, Settings) else settings
@@ -109,25 +88,30 @@ class PDFParserService:
         if not self.config.api_token:
             raise PDFParserError("未配置 MinerU API Token，无法解析 PDF。", status_code=500, error_code="MINERU_TOKEN_MISSING")
 
-        # MinerU 会返回一个 ZIP 结果包；这里将结果固定落到 PDF 旁边的 mineru 目录，方便后续复用。
         artifact_dir = artifact_dir or (pdf_path.parent / "mineru")
         bundle = await self._extract_with_mineru(
             pdf_path=pdf_path,
             artifact_dir=artifact_dir,
             progress_callback=progress_callback,
         )
-        artifact_markdown_path = bundle.markdown_path
-        artifact_image_dir = bundle.image_dir
+
+        markdown_path = bundle.markdown_path
+        image_dir = bundle.image_dir
         processed_artifacts = await self._postprocess_mineru_artifacts(
             pdf_path=pdf_path,
             bundle=bundle,
             progress_callback=progress_callback,
         )
         if processed_artifacts is not None:
-            artifact_markdown_path = processed_artifacts.markdown_path
-            artifact_image_dir = processed_artifacts.figure_dir
-        await self._emit(progress_callback, "PDF_PARSING_NORMALIZE", "正在整理 MinerU 返回的 Markdown 结果。")
-        full_text, sections = self._parse_markdown(bundle.markdown_text)
+            markdown_path = processed_artifacts.markdown_path
+            image_dir = processed_artifacts.figure_dir
+
+        section_artifacts = await self._split_key_sections(
+            markdown_path=markdown_path,
+            output_dir=pdf_path.parent / "sections",
+            progress_callback=progress_callback,
+        )
+        full_text = section_artifacts.full_text
         if len(full_text) < self.config.pdf_parse_min_chars:
             raise PDFParserError("解析出的 PDF 正文过短，无法继续后续分析。", status_code=422, error_code="PDF_TEXT_TOO_SHORT")
 
@@ -136,9 +120,10 @@ class PDFParserService:
             page_count=max(1, bundle.page_count),
             char_count=len(full_text),
             excerpt=full_text[: self.config.pdf_parse_excerpt_chars],
-            sections=sections,
-            artifact_markdown_path=artifact_markdown_path,
-            artifact_image_dir=artifact_image_dir,
+            sections=section_artifacts.sections,
+            artifact_markdown_path=markdown_path,
+            artifact_image_dir=image_dir,
+            artifact_section_dir=section_artifacts.section_dir,
         )
 
     async def parse_existing_markdown(
@@ -149,18 +134,26 @@ class PDFParserService:
     ) -> ParsedPaperContent:
         if not markdown_path.exists():
             raise PDFParserError("本地 MinerU Markdown 不存在。", status_code=404, error_code="LOCAL_MARKDOWN_NOT_FOUND")
-        markdown_text = markdown_path.read_text(encoding="utf-8")
-        full_text, sections = self._parse_markdown(markdown_text)
+
+        section_artifacts = await self._split_key_sections(
+            markdown_path=markdown_path,
+            output_dir=markdown_path.parent / "sections",
+            progress_callback=None,
+        )
+        full_text = section_artifacts.full_text
         if len(full_text) < self.config.pdf_parse_min_chars:
             raise PDFParserError("本地 MinerU Markdown 正文过短。", status_code=422, error_code="LOCAL_MARKDOWN_TOO_SHORT")
+
+        markdown_text = markdown_path.read_text(encoding="utf-8")
         return ParsedPaperContent(
             text=full_text,
             page_count=max(1, markdown_text.count("[Page ")),
             char_count=len(full_text),
             excerpt=full_text[: self.config.pdf_parse_excerpt_chars],
-            sections=sections,
+            sections=section_artifacts.sections,
             artifact_markdown_path=markdown_path,
             artifact_image_dir=image_dir if image_dir and image_dir.exists() else None,
+            artifact_section_dir=section_artifacts.section_dir,
         )
 
     async def parse_existing_text(self, text_path: Path) -> ParsedPaperContent:
@@ -177,13 +170,12 @@ class PDFParserService:
             sections=[],
             artifact_markdown_path=text_path if text_path.suffix.lower() == ".md" else None,
             artifact_image_dir=None,
+            artifact_section_dir=None,
         )
 
     def build_llm_context(self, parsed_content: ParsedPaperContent) -> str:
         if parsed_content.sections:
-            section_context = self._build_section_context(parsed_content.sections)
-            if section_context:
-                return section_context
+            return self._build_section_context(parsed_content.sections)
         return self._build_fallback_context(parsed_content.text)
 
     async def _extract_with_mineru(
@@ -200,10 +192,13 @@ class PDFParserService:
         base_url = self.config.base_url.rstrip("/")
 
         async with httpx.AsyncClient(timeout=timeout) as client:
-            # 1. 创建批量文件解析任务，MinerU 返回 batch_id 和预签名上传地址。
             await self._emit(progress_callback, "PDF_PARSING_CREATE_JOB", "正在创建 MinerU 解析任务。")
             create_response = await self._create_mineru_job(client, base_url, headers, pdf_path)
-            create_payload = self._json_response(create_response, "MINERU_CREATE_RESPONSE_INVALID", "MinerU 创建任务接口返回的不是合法 JSON。")
+            create_payload = self._json_response(
+                create_response,
+                "MINERU_CREATE_RESPONSE_INVALID",
+                "MinerU 创建任务接口返回的不是合法 JSON。",
+            )
             if create_payload.get("code") != 0:
                 raise PDFParserError("MinerU 拒绝了本次解析任务。", status_code=502, error_code="MINERU_CREATE_REJECTED")
 
@@ -211,13 +206,15 @@ class PDFParserService:
             batch_id = data.get("batch_id")
             upload_url = (data.get("file_urls") or [None])[0]
             if not batch_id or not upload_url:
-                raise PDFParserError("MinerU 创建任务返回缺少 batch_id 或上传地址。", status_code=502, error_code="MINERU_CREATE_RESPONSE_INCOMPLETE")
+                raise PDFParserError(
+                    "MinerU 创建任务返回缺少 batch_id 或上传地址。",
+                    status_code=502,
+                    error_code="MINERU_CREATE_RESPONSE_INCOMPLETE",
+                )
 
-            # 2. 将本地 PDF 上传到预签名地址，上传地址通常不是 MinerU 主域名。
             await self._emit(progress_callback, "PDF_PARSING_UPLOAD", "正在上传 PDF 到 MinerU。")
             await self._upload_pdf(client, upload_url, pdf_path)
 
-            # 3. 轮询 batch_id，直到 MinerU 解析完成并返回结果包下载地址。
             await self._emit(progress_callback, "PDF_PARSING_WAITING", "正在等待 MinerU 返回解析结果。")
             result = await self._poll_mineru_result(
                 client=client,
@@ -231,7 +228,6 @@ class PDFParserService:
             if not zip_url:
                 raise PDFParserError("MinerU 没有返回结果包下载地址。", status_code=502, error_code="MINERU_ZIP_URL_MISSING")
 
-            # 4. 下载 ZIP 结果包，落地 full.md 和 images，后续重跑可直接读取本地文件。
             await self._emit(progress_callback, "PDF_PARSING_DOWNLOAD", "正在下载 MinerU 结果包。")
             zip_response = await self._download_bundle(client, str(zip_url))
 
@@ -248,6 +244,7 @@ class PDFParserService:
             raise PDFParserError("MinerU 返回的 Markdown 文件编码无法解析。", status_code=502, error_code="MINERU_MARKDOWN_DECODE_FAILED") from exc
         except OSError as exc:
             raise PDFParserError("读取 MinerU 返回的 Markdown 文件失败。", status_code=500, error_code="MINERU_MARKDOWN_READ_FAILED") from exc
+
         return MinerUExtractionResult(
             markdown_text=markdown_text,
             markdown_path=markdown_path,
@@ -340,7 +337,11 @@ class PDFParserService:
             except httpx.HTTPError as exc:
                 raise PDFParserError("查询 MinerU 解析状态失败。", status_code=502, error_code="MINERU_STATUS_REQUEST_FAILED") from exc
 
-            query_payload = self._json_response(query_response, "MINERU_STATUS_RESPONSE_INVALID", "MinerU 状态接口返回的不是合法 JSON。")
+            query_payload = self._json_response(
+                query_response,
+                "MINERU_STATUS_RESPONSE_INVALID",
+                "MinerU 状态接口返回的不是合法 JSON。",
+            )
             if query_payload.get("code") != 0:
                 raise PDFParserError("MinerU 状态轮询返回失败。", status_code=502, error_code="MINERU_STATUS_POLL_FAILED")
 
@@ -401,7 +402,7 @@ class PDFParserService:
     ) -> ProcessedMarkdownArtifacts | None:
         if bundle.content_list_path is None or not bundle.content_list_path.exists():
             return None
-        await self._emit(progress_callback, "PDF_PARSING_FIGURES", "正在合并 MinerU 提取图片并重写 Markdown 引用。")
+        await self._emit(progress_callback, "PDF_PARSING_POSTPROCESS", "正在做 Markdown 后处理与标题归一化。")
         try:
             return process_mineru_markdown_artifacts(
                 raw_markdown_path=bundle.markdown_path,
@@ -413,60 +414,28 @@ class PDFParserService:
         except Exception:
             return None
 
-    def _parse_markdown(self, markdown_text: str) -> tuple[str, list[ParsedPaperSection]]:
-        sections: list[ParsedPaperSection] = []
-        current_title = "Main Body"
-        current_key = "main_body"
-        current_lines: list[str] = []
-
-        for raw_line in markdown_text.splitlines():
-            stripped = raw_line.strip()
-            if not stripped:
-                if current_lines and current_lines[-1] != "":
-                    current_lines.append("")
-                continue
-
-            heading = self._match_markdown_heading(stripped)
-            if heading is not None:
-                section = self._flush_section(current_key, current_title, current_lines)
-                if section is not None:
-                    sections.append(section)
-                current_key, current_title = heading
-                current_lines = []
-                continue
-
-            normalized = self._normalize_markdown_line(stripped)
-            if normalized:
-                current_lines.append(normalized)
-
-        section = self._flush_section(current_key, current_title, current_lines)
-        if section is not None:
-            sections.append(section)
-
-        merged_sections = self._merge_small_sections(sections)
-        full_text = "\n\n".join(section.text for section in merged_sections).strip()
-        return full_text, merged_sections
+    async def _split_key_sections(
+        self,
+        *,
+        markdown_path: Path,
+        output_dir: Path,
+        progress_callback: ParserProgressCallback | None,
+    ) -> SectionArtifacts:
+        await self._emit(progress_callback, "PDF_PARSING_SPLIT", "正在拆分引言、方法、实验、结果、结论等关键章节。")
+        return split_key_sections(markdown_path, output_dir)
 
     def _build_section_context(self, sections: list[ParsedPaperSection]) -> str:
         available_chars = self.config.llm_pdf_context_chars
         blocks: list[str] = []
+        ordered_sections = [section for key in SECTION_CONTEXT_PRIORITY for section in sections if section.key == key]
 
-        prioritized_sections = [section for key in SECTION_CONTEXT_PRIORITY for section in sections if section.key == key]
-        fallback_sections = [
-            section
-            for section in sections
-            if section.key not in NON_CONTEXT_SECTION_KEYS and section.key not in SECTION_CONTEXT_PRIORITY
-        ]
-
-        for section in prioritized_sections + fallback_sections:
+        for section in ordered_sections:
             if available_chars <= 200:
                 break
-
             max_section_chars = min(self.config.llm_pdf_section_chars, available_chars)
             clipped_text = self._clip_text(section.text, max_section_chars)
             if not clipped_text:
                 continue
-
             block = f"[Section: {section.title}]\n{clipped_text}"
             blocks.append(block)
             available_chars -= len(block) + 2
@@ -477,73 +446,11 @@ class PDFParserService:
         text = text.strip()
         if len(text) <= self.config.llm_pdf_context_chars:
             return text
-
         head_chars = int(self.config.llm_pdf_context_chars * 0.7)
         tail_chars = self.config.llm_pdf_context_chars - head_chars
         head = text[:head_chars].rstrip()
         tail = text[-tail_chars:].lstrip()
         return f"{head}\n\n[... truncated ...]\n\n{tail}"
-
-    def _match_markdown_heading(self, line: str) -> tuple[str, str] | None:
-        if not line.startswith("#"):
-            return None
-
-        candidate = self._normalize_heading(line.lstrip("#").strip())
-        if not candidate:
-            return None
-        for key, title, aliases in SECTION_PATTERNS:
-            if candidate in aliases:
-                return key, title
-        return None
-
-    def _normalize_heading(self, line: str) -> str:
-        candidate = line.lower().strip()
-        candidate = re.sub(r"^(section\s+)?([ivxlcdm]+|\d+)(\.\d+)*[\)\.\-: ]+", "", candidate)
-        candidate = candidate.strip(" .:-#")
-        candidate = re.sub(r"\s+", " ", candidate)
-
-        if len(candidate) < 3 or len(candidate) > 60:
-            return ""
-        if len(candidate.split()) > 5:
-            return ""
-        if not re.fullmatch(r"[a-z][a-z0-9 /&-]*", candidate):
-            return ""
-        return candidate
-
-    def _flush_section(self, key: str, title: str, lines: list[str]) -> ParsedPaperSection | None:
-        text = "\n".join(lines).strip()
-        if not text:
-            return None
-        return ParsedPaperSection(key=key, title=title, text=text, char_count=len(text))
-
-    def _merge_small_sections(self, sections: list[ParsedPaperSection]) -> list[ParsedPaperSection]:
-        if not sections:
-            return []
-
-        merged: list[ParsedPaperSection] = []
-        for section in sections:
-            if (
-                merged
-                and section.char_count < 120
-                and section.key not in SECTION_CONTEXT_PRIORITY
-                and merged[-1].key == "main_body"
-            ):
-                merged[-1].text = f"{merged[-1].text}\n\n[{section.title}]\n{section.text}".strip()
-                merged[-1].char_count = len(merged[-1].text)
-                continue
-            merged.append(section)
-        return merged
-
-    def _normalize_markdown_line(self, line: str) -> str:
-        line = re.sub(r"!\[[^\]]*]\([^)]*\)", "", line)
-        line = re.sub(r"\[([^\]]+)]\([^)]*\)", r"\1", line)
-        line = re.sub(r"`{1,3}", "", line)
-        line = re.sub(r"^[-*+]\s+", "", line)
-        line = re.sub(r"^\d+\.\s+", "", line)
-        line = re.sub(r"<[^>]+>", " ", line)
-        line = line.replace("|", " ")
-        line = " ".join(line.split())
-        return line.strip()
 
     def _page_count_from_result(self, result: dict[str, object]) -> int:
         for key in ("page_count", "page_num", "pages"):
