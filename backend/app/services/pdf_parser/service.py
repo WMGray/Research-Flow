@@ -14,6 +14,7 @@ import httpx
 
 from app.core.config import Settings
 from app.core.mineru_config import MinerUConfig
+from app.services.pdf_parser.postprocess import ProcessedMarkdownArtifacts, process_mineru_markdown_artifacts
 
 
 SECTION_PATTERNS: list[tuple[str, str, tuple[str, ...]]] = [
@@ -87,6 +88,7 @@ class MinerUExtractionResult:
     markdown_path: Path
     image_dir: Path
     page_count: int
+    content_list_path: Path | None = None
 
 
 class PDFParserService:
@@ -114,6 +116,16 @@ class PDFParserService:
             artifact_dir=artifact_dir,
             progress_callback=progress_callback,
         )
+        artifact_markdown_path = bundle.markdown_path
+        artifact_image_dir = bundle.image_dir
+        processed_artifacts = await self._postprocess_mineru_artifacts(
+            pdf_path=pdf_path,
+            bundle=bundle,
+            progress_callback=progress_callback,
+        )
+        if processed_artifacts is not None:
+            artifact_markdown_path = processed_artifacts.markdown_path
+            artifact_image_dir = processed_artifacts.figure_dir
         await self._emit(progress_callback, "PDF_PARSING_NORMALIZE", "正在整理 MinerU 返回的 Markdown 结果。")
         full_text, sections = self._parse_markdown(bundle.markdown_text)
         if len(full_text) < self.config.pdf_parse_min_chars:
@@ -125,8 +137,8 @@ class PDFParserService:
             char_count=len(full_text),
             excerpt=full_text[: self.config.pdf_parse_excerpt_chars],
             sections=sections,
-            artifact_markdown_path=bundle.markdown_path,
-            artifact_image_dir=bundle.image_dir,
+            artifact_markdown_path=artifact_markdown_path,
+            artifact_image_dir=artifact_image_dir,
         )
 
     async def parse_existing_markdown(
@@ -224,7 +236,7 @@ class PDFParserService:
             zip_response = await self._download_bundle(client, str(zip_url))
 
         try:
-            markdown_path, image_dir = self._extract_zip_bundle(zip_response.content, artifact_dir)
+            markdown_path, image_dir, content_list_path = self._extract_zip_bundle(zip_response.content, artifact_dir)
         except zipfile.BadZipFile as exc:
             raise PDFParserError("MinerU 返回的结果包不是合法的 ZIP 文件。", status_code=502, error_code="MINERU_BUNDLE_INVALID") from exc
         except OSError as exc:
@@ -241,6 +253,7 @@ class PDFParserService:
             markdown_path=markdown_path,
             image_dir=image_dir,
             page_count=self._page_count_from_result(result),
+            content_list_path=content_list_path,
         )
 
     async def _create_mineru_job(
@@ -280,14 +293,26 @@ class PDFParserService:
             raise PDFParserError("上传 PDF 到 MinerU 失败。", status_code=502, error_code="MINERU_UPLOAD_FAILED") from exc
 
     async def _download_bundle(self, client: httpx.AsyncClient, zip_url: str) -> httpx.Response:
-        try:
-            response = await self._request_with_retries(client, "GET", zip_url)
-            response.raise_for_status()
-            return response
-        except httpx.RequestError as exc:
-            raise self._network_error("下载 MinerU 结果包时网络连接失败。", "MINERU_ZIP_DOWNLOAD_CONNECT_ERROR", exc) from exc
-        except httpx.HTTPError as exc:
-            raise PDFParserError("下载 MinerU 结果包失败。", status_code=502, error_code="MINERU_ZIP_DOWNLOAD_FAILED") from exc
+        candidate_urls = [zip_url]
+        cdn_prefix = "https://cdn-mineru.openxlab.org.cn"
+        oss_prefix = "https://mineru.oss-cn-shanghai.aliyuncs.com"
+        if zip_url.startswith(cdn_prefix):
+            candidate_urls.append(zip_url.replace(cdn_prefix, oss_prefix, 1))
+
+        last_error: Exception | None = None
+        for candidate_url in candidate_urls:
+            try:
+                response = await self._request_with_retries(client, "GET", candidate_url)
+                response.raise_for_status()
+                return response
+            except (httpx.RequestError, httpx.HTTPError) as exc:
+                last_error = exc
+
+        if isinstance(last_error, httpx.RequestError):
+            raise self._network_error("下载 MinerU 结果包时网络连接失败。", "MINERU_ZIP_DOWNLOAD_CONNECT_ERROR", last_error) from last_error
+        if isinstance(last_error, httpx.HTTPError):
+            raise PDFParserError("下载 MinerU 结果包失败。", status_code=502, error_code="MINERU_ZIP_DOWNLOAD_FAILED") from last_error
+        raise PDFParserError("下载 MinerU 结果包失败。", status_code=502, error_code="MINERU_ZIP_DOWNLOAD_FAILED")
 
     async def _poll_mineru_result(
         self,
@@ -333,10 +358,11 @@ class PDFParserService:
 
         raise PDFParserError("等待 MinerU 返回解析结果超时。", status_code=504, error_code="MINERU_TIMEOUT")
 
-    def _extract_zip_bundle(self, zip_bytes: bytes, output_dir: Path) -> tuple[Path, Path]:
+    def _extract_zip_bundle(self, zip_bytes: bytes, output_dir: Path) -> tuple[Path, Path, Path | None]:
         markdown_path = output_dir / "full.md"
         image_dir = output_dir / "images"
         image_dir.mkdir(parents=True, exist_ok=True)
+        content_list_path: Path | None = None
 
         with zipfile.ZipFile(BytesIO(zip_bytes), "r") as archive:
             for item in archive.infolist():
@@ -351,10 +377,41 @@ class PDFParserService:
                     target_path = image_dir / inner_path.name
                     with archive.open(item) as src, target_path.open("wb") as dst:
                         shutil.copyfileobj(src, dst)
+                    continue
+                if inner_path.name == "content_list_v2.json":
+                    content_list_path = output_dir / "content_list_v2.json"
+                    with archive.open(item) as src, content_list_path.open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    continue
+                if inner_path.name == "layout.json":
+                    target_path = output_dir / "layout.json"
+                    with archive.open(item) as src, target_path.open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
 
         if not markdown_path.exists():
             raise PDFParserError("MinerU 结果包中缺少 full.md。", status_code=502, error_code="MINERU_MARKDOWN_MISSING")
-        return markdown_path, image_dir
+        return markdown_path, image_dir, content_list_path
+
+    async def _postprocess_mineru_artifacts(
+        self,
+        *,
+        pdf_path: Path,
+        bundle: MinerUExtractionResult,
+        progress_callback: ParserProgressCallback | None,
+    ) -> ProcessedMarkdownArtifacts | None:
+        if bundle.content_list_path is None or not bundle.content_list_path.exists():
+            return None
+        await self._emit(progress_callback, "PDF_PARSING_FIGURES", "正在合并 MinerU 提取图片并重写 Markdown 引用。")
+        try:
+            return process_mineru_markdown_artifacts(
+                raw_markdown_path=bundle.markdown_path,
+                source_image_dir=bundle.image_dir,
+                content_list_path=bundle.content_list_path,
+                output_markdown_path=pdf_path.parent / "LLM.md",
+                output_figure_dir=pdf_path.parent / "figures",
+            )
+        except Exception:
+            return None
 
     def _parse_markdown(self, markdown_text: str) -> tuple[str, list[ParsedPaperSection]]:
         sections: list[ParsedPaperSection] = []

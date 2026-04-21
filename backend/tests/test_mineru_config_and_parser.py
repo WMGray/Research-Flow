@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.core.config import get_settings, reset_settings
 from app.core.mineru_config import MinerUConfig
-from app.services.pdf_parser_service import PDFParserService
+from app.services.pdf_parser import PDFParserService
 
 
 def test_mineru_settings_support_rflow_env_names(monkeypatch) -> None:
