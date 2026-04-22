@@ -66,12 +66,11 @@ max_tokens = 4096
 supports_vision = false
 supports_tools = false
 
-[llm.models.chat_glm]
+[llm.models.chat_kimi_26]
 platform = "siliconflow"
-model = "THUDM/GLM-Z1-9B-0414"
-purpose = "智谱 GLM 模型"
+model = "Pro/moonshotai/Kimi-K2.6"
+purpose = "Kimi K2.6"
 temperature = 0.3
-max_tokens = 4096
 
 [llm.models.chat_hunyuan]
 platform = "siliconflow"
@@ -90,5 +89,5 @@ max_tokens = 4096
 [llm.features.default_chat]
 model = "chat_fast"
 
-[llm.features.fast_chat]
-model = "chat_glm"
+[llm.features.paper_parser]
+model = "chat_kimi_26"

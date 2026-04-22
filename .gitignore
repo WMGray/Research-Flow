@@ -35,6 +35,9 @@ build/
 .dmypy.json
 .ruff_cache/
 .pytest_cache/
+backend/.pytest-basetemp/
+backend/.uv-cache/
+backend/acl_probe_pytest_mode/
 backend/tmp*/
 .coverage
 coverage.xml

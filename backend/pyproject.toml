@@ -10,6 +10,7 @@ dependencies = [
     "gpaper @ git+https://github.com/WMGray/getPaper.git",
     "httpx>=0.28,<1",
     "mcp>=1.27.0",
+    "mineru-open-sdk>=0.2.5,<1",
     "openai>=1.76,<2",
     "pillow>=11,<12",
     "pydantic>=2.13,<3",

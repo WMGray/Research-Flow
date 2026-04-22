@@ -418,8 +418,8 @@ wheels = [
 
 [[package]]
 name = "gpaper"
-version = "0.1.0"
-source = { git = "https://github.com/WMGray/getPaper.git#396f0b5abd5e46b9d0d31690bfba4b30bb3a2311" }
+version = "0.3.0"
+source = { git = "https://github.com/WMGray/getPaper.git#c435b13e1a609ce5ca9c98249800e3c98ca48e04" }
 dependencies = [
     { name = "lxml" },
     { name = "requests" },
@@ -732,6 +732,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "mineru-open-sdk"
+version = "0.2.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/5b/be9b0ae9f515132741f91b64f3de7dcb448d8701503b82e3fee72f0aa402/mineru_open_sdk-0.2.5.tar.gz", hash = "sha256:430baeacae3f18537edb62e69532620ce7fbead7d43f72b986d0cb1cc7932ee9", size = 32092, upload-time = "2026-04-10T13:51:49.642Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/dd/667e108350a0b4683e913d2b15b21da3b3117469f586bb0652c9cbc2754d/mineru_open_sdk-0.2.5-py3-none-any.whl", hash = "sha256:db22bb764318eb3167d4cfb28849df70159b76a0ad268648ad91e9f2d47c0c1c", size = 19553, upload-time = "2026-04-10T13:51:47.648Z" },
 ]
 
 [[package]]
@@ -1098,6 +1110,7 @@ dependencies = [
     { name = "gpaper" },
     { name = "httpx" },
     { name = "mcp" },
+    { name = "mineru-open-sdk" },
     { name = "openai" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -1119,6 +1132,7 @@ requires-dist = [
     { name = "gpaper", git = "https://github.com/WMGray/getPaper.git" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mcp", specifier = ">=1.27.0" },
+    { name = "mineru-open-sdk", specifier = ">=0.2.5,<1" },
     { name = "openai", specifier = ">=1.76,<2" },
     { name = "pillow", specifier = ">=11,<12" },
     { name = "pydantic", specifier = ">=2.13,<3" },

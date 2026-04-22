@@ -1,8 +1,17 @@
+from __future__ import annotations
+
+import asyncio
 import shutil
+import sys
 import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.core.config import get_settings, reset_settings
 from app.main import app
@@ -101,3 +110,21 @@ def test_mcp_service_status_endpoint_exposes_zotero_summary(monkeypatch) -> None
     assert payload["framework"] == "agno"
     assert payload["transport"] == "stdio"
     assert payload["args"] == ["serve"]
+
+
+async def run_zotero_connection_demo() -> None:
+    print("Connecting to Zotero MCP Server using settings from backend/.env ...")
+    tools = await zotero_client.list_tools()
+    print(f"Loaded {len(tools)} tools")
+    print(f"First 10 tools: {tools[:10]}")
+    print("\n--- Executing Tool: zotero_search_items ---")
+    response = await zotero_client.call_zotero_tool(
+        tool_name="zotero_search_items",
+        arguments={"query": "machine learning", "limit": 2},
+    )
+    print(f"\nResponse:\n{response}")
+    await zotero_client.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(run_zotero_connection_demo())
