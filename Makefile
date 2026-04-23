@@ -46,7 +46,7 @@ install: install-backend install-frontend
 # Install backend dependencies.
 install-backend:
 	@echo ">>> Installing backend dependencies..."
-	cd backend && pip install -r requirements.txt
+	cd backend && uv sync --all-packages
 
 # Install frontend dependencies.
 install-frontend:
@@ -55,19 +55,19 @@ install-frontend:
 
 # Manual gPaper / paper_download integration check.
 test-paper-download:
-	cd backend && python tests/run_paper_download_cases.py --case direct_pdf
+	cd backend && uv run python tests/run_paper_download_cases.py --case direct_pdf
 
 # Run code style checks.
 lint:
 	@echo ">>> Checking backend code..."
-	cd backend && ruff check .
+	cd backend && uv run ruff check .
 	@echo ">>> Checking frontend code..."
 	cd frontend && npm run lint
 
 # Format code.
 fmt:
 	@echo ">>> Formatting backend code..."
-	cd backend && ruff format .
+	cd backend && uv run ruff format .
 	@echo ">>> Formatting frontend code..."
 	cd frontend && npm run fmt
 

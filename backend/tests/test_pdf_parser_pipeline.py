@@ -13,9 +13,28 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.config import get_settings, reset_settings
 from app.core.mineru_config import MinerUConfig
+from app.core.pdf_parser_config import MarkdownRefineConfig, PDFParserConfig
 from app.services.pdf_parser import PDFParserService
 from app.services.pdf_parser.postprocess import normalize_heading, process_mineru_markdown_artifacts
 from app.services.pdf_parser.sections import split_key_sections
+from app.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
+
+
+class FakeMarkdownRefineLLM:
+    def __init__(self, response_content: str) -> None:
+        self.response_content = response_content
+        self.requests: list[LLMRequest] = []
+
+    async def generate(self, request: LLMRequest) -> LLMResponse:
+        self.requests.append(request)
+        return LLMResponse(
+            feature=request.feature or "",
+            model_key="fake_markdown_refiner",
+            platform="fake",
+            provider="fake",
+            model="fake-model",
+            message=LLMMessage(role="assistant", content=self.response_content),
+        )
 
 
 def test_mineru_settings_support_rflow_env_names(monkeypatch) -> None:
@@ -69,6 +88,54 @@ def test_pdf_parser_reads_existing_mineru_markdown(tmp_path: Path) -> None:
     assert parsed.char_count >= 20
     assert [section.key for section in parsed.sections] == ["introduction"]
     assert "[Section: Introduction]" in parser.build_llm_context(parsed)
+
+
+def test_pdf_parser_refines_markdown_before_section_split(tmp_path: Path) -> None:
+    markdown_path = tmp_path / "LLM.md"
+    markdown_path.write_text(
+        "\n".join(
+            [
+                "# Demo Paper",
+                "",
+                "## Raw Intro",
+                "Raw intro text from MinerU.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fake_llm = FakeMarkdownRefineLLM(
+        "\n".join(
+            [
+                "```markdown",
+                "# Demo Paper",
+                "",
+                "## 1. Introduction",
+                "Refined intro text from the LLM stage.",
+                "```",
+            ]
+        )
+    )
+    parser_config = PDFParserConfig(
+        markdown_refine=MarkdownRefineConfig(
+            enabled=True,
+            feature="pdf_markdown_refiner",
+            prompt="Clean the Markdown before section splitting:\n{{markdown}}",
+            output_filename="LLM.refined.md",
+        )
+    )
+
+    parser = PDFParserService(
+        MinerUConfig(pdf_parse_min_chars=20),
+        pdf_parser_config=parser_config,
+        llm_client=fake_llm,
+    )
+    parsed = asyncio.run(parser.parse_existing_markdown(markdown_path))
+
+    assert parsed.artifact_markdown_path == tmp_path / "LLM.refined.md"
+    assert parsed.sections[0].key == "introduction"
+    assert "Refined intro text" in parsed.sections[0].text
+    assert fake_llm.requests[0].feature == "pdf_markdown_refiner"
+    assert "Raw intro text from MinerU." in fake_llm.requests[0].messages[0].content
 
 
 def test_process_mineru_markdown_artifacts_merges_extracted_images(tmp_path: Path) -> None:

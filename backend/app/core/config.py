@@ -16,6 +16,7 @@ from app.core.llm_config import LLMConfig
 from app.core.mcp_config import ZoteroConfig
 from app.core.mineru_config import MinerUConfig
 from app.core.paper_download_config import PaperDownloadConfig
+from app.core.pdf_parser_config import PDFParserConfig
 
 
 def backend_root() -> Path:
@@ -100,6 +101,7 @@ class Settings(BaseSettings):
     llm: LLMConfig = LLMConfig()
     mineru: MinerUConfig = MinerUConfig()
     paper_download: PaperDownloadConfig = PaperDownloadConfig()
+    pdf_parser: PDFParserConfig = PDFParserConfig()
     zotero: ZoteroConfig = ZoteroConfig()
 
     @classmethod
@@ -244,5 +246,11 @@ def _apply_flat_env_overrides(settings: Settings) -> Settings:
         mineru = mineru.model_copy(update=mineru_update.model_dump(exclude_unset=True))
 
     return settings.model_copy(
-        update={"app": app, "zotero": zotero, "paper_download": paper_download, "mineru": mineru}
+        update={
+            "app": app,
+            "zotero": zotero,
+            "paper_download": paper_download,
+            "mineru": mineru,
+            "pdf_parser": settings.pdf_parser,
+        }
     )

@@ -40,6 +40,23 @@ pdf_parse_min_chars = 200
 llm_pdf_context_chars = 14000
 llm_pdf_section_chars = 2600
 
+[pdf_parser.markdown_refine]
+enabled = true
+feature = "pdf_markdown_refiner"
+output_filename = "LLM.refined.md"
+fail_open = true
+prompt = """
+Rewrite the following MinerU Markdown for downstream section splitting.
+
+Requirements:
+- Preserve all factual content, equations, citations, tables, and image links.
+- Normalize heading levels and remove obvious OCR or layout artifacts.
+- Do not summarize, translate, add new content, or remove technical details.
+- Return only Markdown, with no explanations outside the Markdown.
+
+{{markdown}}
+"""
+
 [llm]
 default_feature = "default_chat"
 
@@ -89,5 +106,7 @@ max_tokens = 4096
 [llm.features.default_chat]
 model = "chat_fast"
 
-[llm.features.paper_parser]
+[llm.features.pdf_markdown_refiner]
 model = "chat_kimi_26"
+system_prompt = "You are a careful academic Markdown editor. Return only cleaned Markdown."
+temperature = 0.1

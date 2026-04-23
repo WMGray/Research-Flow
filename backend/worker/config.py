@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+from worker.schedules import beat_schedule as configured_beat_schedule
+
 
 class CeleryConfig:
     # -----------------------------------------------------------------
@@ -39,4 +41,5 @@ class CeleryConfig:
     # -----------------------------------------------------------------
     # Beat 调度表（从 schedules 模块引入）
     # -----------------------------------------------------------------
+    beat_schedule = configured_beat_schedule
     beat_schedule_filename: str = "./logs/celerybeat-schedule"

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from collections.abc import Awaitable
 import json
 from pathlib import Path
 import shutil
@@ -12,68 +11,37 @@ import httpx
 
 from app.core.config import Settings
 from app.core.mineru_config import MinerUConfig
+from app.core.pdf_parser_config import PDFParserConfig
+from app.services.llm.registry import llm_registry
+from app.services.pdf_parser.context import build_parsed_content_llm_context
+from app.services.pdf_parser.markdown_refine import LLMGenerateClient, refine_markdown_with_llm
+from app.services.pdf_parser.models import (
+    MinerUExtractionResult,
+    ParsedPaperContent,
+    ParserProgressCallback,
+    PDFParserError,
+)
 from app.services.pdf_parser.postprocess import ProcessedMarkdownArtifacts, process_mineru_markdown_artifacts
-from app.services.pdf_parser.sections import ParsedPaperSection, SectionArtifacts, split_key_sections
-
-
-SECTION_CONTEXT_PRIORITY = ["introduction", "method", "experiment", "result", "conclusion"]
-ParserProgressCallback = Callable[[str, str], Awaitable[None] | None]
-
-
-class PDFParserError(RuntimeError):
-    """PDF parsing stage error with status code and structured error code."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int = 500,
-        error_code: str = "PDF_PARSE_ERROR",
-        raw_error_detail: str | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-        self.error_code = error_code
-        self.raw_error_detail = raw_error_detail
-
-
-@dataclass(slots=True)
-class ParsedPaperContent:
-    text: str
-    page_count: int
-    char_count: int
-    excerpt: str
-    sections: list[ParsedPaperSection] = field(default_factory=list)
-    artifact_markdown_path: Path | None = None
-    artifact_image_dir: Path | None = None
-    artifact_section_dir: Path | None = None
-
-    def section_outline(self) -> list[dict[str, object]]:
-        return [
-            {
-                "key": section.key,
-                "title": section.title,
-                "char_count": section.char_count,
-            }
-            for section in self.sections
-        ]
-
-
-@dataclass(slots=True)
-class MinerUExtractionResult:
-    markdown_text: str
-    markdown_path: Path
-    image_dir: Path
-    page_count: int
-    content_list_path: Path | None = None
+from app.services.pdf_parser.sections import SectionArtifacts, split_key_sections
 
 
 class PDFParserService:
-    """Step 1 parse PDF, step 2 postprocess markdown, step 3 split key sections."""
+    """Parse PDF, postprocess artifacts, refine Markdown, then split sections."""
 
-    def __init__(self, settings: Settings | MinerUConfig) -> None:
+    def __init__(
+        self,
+        settings: Settings | MinerUConfig,
+        *,
+        pdf_parser_config: PDFParserConfig | None = None,
+        llm_client: LLMGenerateClient | None = None,
+    ) -> None:
         self.config = settings.mineru if isinstance(settings, Settings) else settings
+        self.pdf_parser_config = (
+            pdf_parser_config
+            if pdf_parser_config is not None
+            else settings.pdf_parser if isinstance(settings, Settings) else PDFParserConfig()
+        )
+        self.llm_client = llm_client or llm_registry
 
     async def parse_pdf(
         self,
@@ -105,6 +73,12 @@ class PDFParserService:
             markdown_path = processed_artifacts.markdown_path
             image_dir = processed_artifacts.figure_dir
 
+        markdown_path = await self._refine_markdown_format(
+            markdown_path=markdown_path,
+            output_path=pdf_path.parent / self.pdf_parser_config.markdown_refine.output_filename,
+            progress_callback=progress_callback,
+        )
+
         section_artifacts = await self._split_key_sections(
             markdown_path=markdown_path,
             output_dir=pdf_path.parent / "sections",
@@ -133,6 +107,12 @@ class PDFParserService:
     ) -> ParsedPaperContent:
         if not markdown_path.exists():
             raise PDFParserError("本地 MinerU Markdown 不存在。", status_code=404, error_code="LOCAL_MARKDOWN_NOT_FOUND")
+
+        markdown_path = await self._refine_markdown_format(
+            markdown_path=markdown_path,
+            output_path=markdown_path.parent / self.pdf_parser_config.markdown_refine.output_filename,
+            progress_callback=None,
+        )
 
         section_artifacts = await self._split_key_sections(
             markdown_path=markdown_path,
@@ -173,9 +153,11 @@ class PDFParserService:
         )
 
     def build_llm_context(self, parsed_content: ParsedPaperContent) -> str:
-        if parsed_content.sections:
-            return self._build_section_context(parsed_content.sections)
-        return self._build_fallback_context(parsed_content.text)
+        return build_parsed_content_llm_context(
+            parsed_content,
+            context_chars=self.config.llm_pdf_context_chars,
+            section_chars=self.config.llm_pdf_section_chars,
+        )
 
     async def _extract_with_mineru(
         self,
@@ -275,6 +257,32 @@ class PDFParserService:
         except Exception:
             return None
 
+    async def _refine_markdown_format(
+        self,
+        *,
+        markdown_path: Path,
+        output_path: Path,
+        progress_callback: ParserProgressCallback | None,
+    ) -> Path:
+        refine_config = self.pdf_parser_config.markdown_refine
+        if not refine_config.enabled:
+            return markdown_path
+
+        await self._emit(progress_callback, "PDF_PARSING_LLM_REFINE", "正在通过 LLM 优化 Markdown 格式。")
+        result = await refine_markdown_with_llm(
+            markdown_path=markdown_path,
+            output_path=output_path,
+            config=refine_config,
+            llm_client=self.llm_client,
+        )
+        if result.error:
+            await self._emit(
+                progress_callback,
+                "PDF_PARSING_LLM_REFINE_SKIPPED",
+                f"LLM Markdown 调优未生效，继续使用原始 Markdown：{result.error}",
+            )
+        return result.markdown_path
+
     async def _split_key_sections(
         self,
         *,
@@ -284,34 +292,6 @@ class PDFParserService:
     ) -> SectionArtifacts:
         await self._emit(progress_callback, "PDF_PARSING_SPLIT", "正在拆分引言、方法、实验、结果、结论等关键章节。")
         return split_key_sections(markdown_path, output_dir)
-
-    def _build_section_context(self, sections: list[ParsedPaperSection]) -> str:
-        available_chars = self.config.llm_pdf_context_chars
-        blocks: list[str] = []
-        ordered_sections = [section for key in SECTION_CONTEXT_PRIORITY for section in sections if section.key == key]
-
-        for section in ordered_sections:
-            if available_chars <= 200:
-                break
-            max_section_chars = min(self.config.llm_pdf_section_chars, available_chars)
-            clipped_text = self._clip_text(section.text, max_section_chars)
-            if not clipped_text:
-                continue
-            block = f"[Section: {section.title}]\n{clipped_text}"
-            blocks.append(block)
-            available_chars -= len(block) + 2
-
-        return "\n\n".join(blocks).strip()
-
-    def _build_fallback_context(self, text: str) -> str:
-        text = text.strip()
-        if len(text) <= self.config.llm_pdf_context_chars:
-            return text
-        head_chars = int(self.config.llm_pdf_context_chars * 0.7)
-        tail_chars = self.config.llm_pdf_context_chars - head_chars
-        head = text[:head_chars].rstrip()
-        tail = text[-tail_chars:].lstrip()
-        return f"{head}\n\n[... truncated ...]\n\n{tail}"
 
     def _sdk_base_url(self) -> str:
         base_url = self.config.base_url.rstrip("/")
@@ -400,10 +380,3 @@ class PDFParserService:
         result = progress_callback(step, message)
         if isinstance(result, Awaitable):
             await result
-
-    @staticmethod
-    def _clip_text(text: str, max_chars: int) -> str:
-        if len(text) <= max_chars:
-            return text
-        clipped = text[: max_chars - 18].rstrip()
-        return f"{clipped}\n[... truncated ...]"

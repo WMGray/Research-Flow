@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pathlib import Path
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PaperResolveRequest(BaseModel):
@@ -25,6 +27,23 @@ class PaperDownloadRequest(PaperResolveRequest):
     # download 相比 resolve 只多两个运行时选项。
     output_dir: str | None = None
     overwrite: bool | None = None
+
+    @field_validator("output_dir")
+    @classmethod
+    def validate_output_dir(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            return None
+
+        path = Path(normalized)
+        if path.is_absolute() or path.drive or ".." in path.parts:
+            raise ValueError(
+                "output_dir must be a relative subdirectory without parent traversal."
+            )
+        return normalized
 
 
 class PaperResolveResponse(BaseModel):

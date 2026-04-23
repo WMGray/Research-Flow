@@ -13,15 +13,29 @@ STATUS_READY = "ready_download"
 
 class PaperDownloadService:
     @staticmethod
-    def _resolve_output_dir(output_dir: str | None) -> Path:
-        # 输出目录允许由 download 请求覆盖；相对路径统一解释为 backend 目录下的路径。
-        path = Path(output_dir or get_settings().paper_download.output_dir).expanduser()
+    def _configured_output_dir() -> Path:
+        path = Path(get_settings().paper_download.output_dir).expanduser()
         if not path.is_absolute():
             path = (backend_root() / path).resolve()
+        return path.resolve()
+
+    @staticmethod
+    def _resolve_output_dir(output_dir: str | None) -> Path:
+        base_dir = PaperDownloadService._configured_output_dir()
+        if not output_dir:
+            return base_dir
+
+        path = (base_dir / output_dir).resolve()
+        if not path.is_relative_to(base_dir):
+            raise ValueError(
+                "paper download output_dir must stay under configured output_dir."
+            )
         return path
 
     @staticmethod
-    def build_gpaper_args(request: PaperResolveRequest | PaperDownloadRequest) -> Namespace:
+    def build_gpaper_args(
+        request: PaperResolveRequest | PaperDownloadRequest,
+    ) -> Namespace:
         # gPaper 原生入口就是 url / doi / name 三选一；这里只补齐运行配置。
         settings = get_settings().paper_download
         request_output_dir = (
@@ -31,7 +45,8 @@ class PaperDownloadService:
         )
         request_overwrite = (
             request.overwrite
-            if isinstance(request, PaperDownloadRequest) and request.overwrite is not None
+            if isinstance(request, PaperDownloadRequest)
+            and request.overwrite is not None
             else settings.overwrite
         )
         return Namespace(
@@ -42,7 +57,9 @@ class PaperDownloadService:
             year=request.year or "",
             venue=request.venue or "",
             env_file="",
-            output_dir=str(PaperDownloadService._resolve_output_dir(request_output_dir)),
+            output_dir=str(
+                PaperDownloadService._resolve_output_dir(request_output_dir)
+            ),
             email=settings.email or "",
             s2_api_key=settings.s2_api_key or "",
             openalex_api_key=settings.openalex_api_key or "",
@@ -98,7 +115,9 @@ class PaperDownloadService:
             self.close_backend_session(downloader)
 
     def download(self, request: PaperDownloadRequest) -> tuple[Any, dict[str, Any]]:
-        record_type, resolution_type, downloader_type, resolver_type = self.load_getpaper_backend()
+        record_type, resolution_type, downloader_type, resolver_type = (
+            self.load_getpaper_backend()
+        )
         args = self.build_gpaper_args(request)
         record = self.build_gpaper_record(record_type, args)
         downloader = downloader_type(args)
@@ -110,7 +129,8 @@ class PaperDownloadService:
             if row.status != STATUS_READY:
                 return row, {
                     "status": "not_ready",
-                    "detail": row.detail or "paper could not be resolved to a downloadable PDF",
+                    "detail": row.detail
+                    or "paper could not be resolved to a downloadable PDF",
                     "error_code": row.error_code,
                     "file_path": "",
                 }
