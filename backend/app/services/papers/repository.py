@@ -340,7 +340,7 @@ class PaperRepository:
         now: str,
     ) -> None:
         defaults = {
-            "llm": ("LLM.md", f"# {title}\n\n> 自动分析文档待生成。\n"),
+            "llm": ("note.md", f"# {title}\n\n> 自动分析文档待生成。\n"),
             "human": ("HUMAN.md", f"# {title}\n\n## 人工笔记\n\n"),
         }
         for role, (file_name, content) in defaults.items():

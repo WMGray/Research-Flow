@@ -2,6 +2,12 @@
 
 本目录用于记录 Research-Flow 后端依赖的外部服务、MCP 连接器与云服务接入方式，重点说明服务定位、配置要求、能力边界与安全约束。
 
+## 当前优先级
+
+- `P0`：`LLM / Agent` 相关配置、模型接入与云服务基础能力
+- `P1`：与 `Project`、`Presentation`、`Knowledge` 生成相关的服务接入
+- `P2`：`Zotero`、每日推荐抓取等外围接入
+
 ## 当前条目
 
 - [zotero-mcp.md](/C:/Users/WMGray/Desktop/Research-Flow/docs/02_backend/services/zotero-mcp.md)

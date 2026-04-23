@@ -251,7 +251,7 @@ class PDFParserService:
                 raw_markdown_path=bundle.markdown_path,
                 source_image_dir=bundle.image_dir,
                 content_list_path=bundle.content_list_path,
-                output_markdown_path=pdf_path.parent / "LLM.md",
+                output_markdown_path=pdf_path.parent / "note.md",
                 output_figure_dir=pdf_path.parent / "figures",
             )
         except Exception:

@@ -91,7 +91,7 @@ def test_pdf_parser_reads_existing_mineru_markdown(tmp_path: Path) -> None:
 
 
 def test_pdf_parser_refines_markdown_before_section_split(tmp_path: Path) -> None:
-    markdown_path = tmp_path / "LLM.md"
+    markdown_path = tmp_path / "note.md"
     markdown_path.write_text(
         "\n".join(
             [
@@ -143,7 +143,7 @@ def test_process_mineru_markdown_artifacts_merges_extracted_images(tmp_path: Pat
     image_dir = tmp_path / "images"
     image_dir.mkdir()
     content_list_path = tmp_path / "content_list_v2.json"
-    output_markdown_path = tmp_path / "LLM.md"
+    output_markdown_path = tmp_path / "note.md"
     output_figure_dir = tmp_path / "figures"
 
     Image.new("RGB", (120, 100), (255, 0, 0)).save(image_dir / "left.jpg")
@@ -216,7 +216,7 @@ def test_postprocess_normalizes_heading_depth() -> None:
 
 
 def test_split_key_sections_excludes_references_and_preserves_boundaries(tmp_path: Path) -> None:
-    markdown_path = tmp_path / "LLM.md"
+    markdown_path = tmp_path / "note.md"
     section_dir = tmp_path / "sections"
     markdown_path.write_text(
         "\n".join(
@@ -260,7 +260,7 @@ def test_split_key_sections_excludes_references_and_preserves_boundaries(tmp_pat
 
 
 def test_split_key_sections_supports_implicit_method_section(tmp_path: Path) -> None:
-    markdown_path = tmp_path / "LLM.md"
+    markdown_path = tmp_path / "note.md"
     section_dir = tmp_path / "sections"
     markdown_path.write_text(
         "\n".join(
@@ -310,7 +310,7 @@ def test_split_key_sections_supports_implicit_method_section(tmp_path: Path) -> 
 
 
 def test_split_key_sections_prefers_top_level_method_chapter_over_deeper_model_subsection(tmp_path: Path) -> None:
-    markdown_path = tmp_path / "LLM.md"
+    markdown_path = tmp_path / "note.md"
     section_dir = tmp_path / "sections"
     markdown_path.write_text(
         "\n".join(
