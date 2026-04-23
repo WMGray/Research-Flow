@@ -58,6 +58,7 @@ frontend/.vite/
 # 缓存
 .eslintcache
 .stylelintcache
+*.tsbuildinfo
 
 # ------------------------------------------------------------
 # 数据库 / 本地数据文件
