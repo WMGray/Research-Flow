@@ -1,6 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from app.core.config import get_settings, reset_settings
+from core.config import get_settings, reset_settings
 
 
 def test_paper_download_settings_support_legacy_env_names(monkeypatch) -> None:

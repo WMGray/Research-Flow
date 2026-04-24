@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import shutil
@@ -13,9 +13,9 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core.config import get_settings, reset_settings
+from core.config import get_settings, reset_settings
 from app.main import app
-from app.services.mcp.zotero_client import zotero_client
+from core.services.mcp.zotero_client import zotero_client
 
 
 def test_zotero_client_reads_env_and_defaults_local_mode(monkeypatch) -> None:

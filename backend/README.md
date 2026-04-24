@@ -20,23 +20,31 @@
 
 ```
 backend/
-├── app/                    # FastAPI 主服务
-│   ├── api/                # 接口层：路由定义，只处理 HTTP 请求/响应
-│   ├── core/               # 基础层：配置加载、数据库连接、日志初始化
-│   ├── models/             # 数据层：SQLAlchemy ORM 表定义
-│   ├── schemas/            # 契约层：Pydantic 请求/响应 Schema
-│   ├── services/           # 业务层：核心业务逻辑，调用 LLM、处理数据
-│   ├── tasks/              # 投递层：向 Celery 队列投递异步任务的入口
-│   └── main.py             # FastAPI app 实例，挂载路由，注册生命周期
+├── app/                    # FastAPI 入口层
+│   ├── api/                # HTTP 路由，只处理请求/响应
+│   ├── schemas/            # API 专属 Pydantic 请求/响应 Schema
+│   ├── tasks/              # Celery 任务投递入口，只负责发布任务
+│   └── main.py             # FastAPI app 实例、路由挂载、生命周期
 │
-├── worker/                 # Celery 独立包（可单独部署）
-│   ├── tasks/              # 任务实现：异步任务与定时任务的具体逻辑
+├── worker/                 # Celery 入口层（可独立部署）
+│   ├── tasks/              # 任务注册与执行入口，调用 core 中的业务能力
 │   ├── app.py              # Celery 实例（celery -A worker.app）
 │   ├── config.py           # Celery 配置：Broker、序列化、任务行为等
 │   ├── schedules.py        # Beat 调度表：所有 Cron 定义集中管理
 │   └── pyproject.toml      # Worker 独立依赖声明
 │
+├── core/                   # app 与 worker 共享能力层
+│   ├── README.md           # 迁移边界与当前状态说明
+│   ├── assets.py           # 共享资产注册与文件指纹 helper
+│   ├── schema.py           # 共享 SQLite schema 片段
+│   ├── storage.py          # 共享存储路径解析
+│   ├── task_names.py       # Celery 任务名契约
+│   ├── services/           # 新增共享业务服务
+│   └── __init__.py
+│
 ├── tests/                  # 测试代码
+├── config/                 # 版本化默认配置，不保存密钥
+├── data/                   # 运行时数据，只提交目录占位
 ├── logs/                   # 运行日志（运行时生成，不提交 Git）
 ├── .env                    # 本地环境变量（不提交 Git）
 ├── .env.example            # 环境变量配置模板
@@ -44,44 +52,51 @@ backend/
 └── pyproject.toml          # 项目元数据 + uv workspace 配置
 ```
 
+### 当前兼容状态
+
+当前阶段已经完成核心服务迁移：配置加载、存储路径、资产 helper、schema 片段、Paper 主链路、Project P0、LLM、MCP、论文下载与 PDF 解析已进入 `core/`。FastAPI 路由只通过 `core/services` 调用这些共享能力，Worker 后续也应遵循同一边界。
+
+`app/` 当前只保留 HTTP API、请求/响应 schema、应用生命周期和任务投递入口；`core/services/papers/` 已完成 DTO 分离，不再依赖 `app.schemas`。后续目标位置：`core/models/` 承载 ORM，`core/database.py` 承载两边共享的数据库连接。
+
 ---
 
 ## 分层设计
 
 ```
-HTTP 请求
+HTTP 请求 / Celery 消费
     │
-    ▼
+    ├───────────────────────────────┐
+    ▼                               ▼
 ┌─────────────────────────────────────────────────┐
-│  app/api/          接口层                         │
-│  · 路由定义与参数解析                              │
-│  · 调用 Service，返回 Schema                      │
+│  app/             FastAPI 入口                    │
+│  · app/api 处理 HTTP                              │
+│  · app/tasks 发布 Celery 任务                      │
 └───────────────────────┬─────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────┐
-│  app/services/     业务层                         │
-│  · 核心业务逻辑                                   │
-│  · 调用 LLM、外部 API                             │
-│  · 通过 app/tasks/ 投递异步任务                   │
-└──────────┬────────────────────────┬─────────────┘
-           │                        │
-           ▼                        ▼
-┌──────────────────┐    ┌──────────────────────────┐
-│  app/models/     │    │  worker/tasks/            │
-│  数据层           │    │  任务执行层                │
-│  · ORM 表定义    │    │  · 异步任务实现             │
-│  · 数据库读写    │    │  · 定时任务实现             │
-└──────────────────┘    └──────────────────────────┘
+│  worker/          Celery 入口                     │
+│  · worker/tasks 注册任务                          │
+│  · worker/schedules 管理定时调度                   │
+└───────────────────────┬─────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────┐
+│  core/            共享能力层                       │
+│  · models / database / storage                     │
+│  · services / task_names                           │
+│  · 不依赖 app，供 app 与 worker 共同调用            │
+└─────────────────────────────────────────────────┘
 ```
 
 ### app/tasks/ 与 worker/tasks/ 的区别
 
 | | `app/tasks/` | `worker/tasks/` |
 |---|---|---|
-| **职责** | 投递入口，调用 `.delay()` | 任务的真正实现逻辑 |
+| **职责** | 投递入口，按 `core/task_names.py` 发布任务 | 任务注册与执行入口 |
 | **运行位置** | FastAPI 进程内 | Celery Worker 进程内 |
-| **示例** | `analyze_paper.delay(paper_id)` | `@celery.task def analyze_paper(...)` |
+| **业务逻辑位置** | 不写业务逻辑 | 不写复杂业务逻辑，调用 `core/services` |
+| **示例** | `send_task(PAPER_PARSE, kwargs=...)` | `@celery.task(name=PAPER_PARSE)` |
 
 ---
 
@@ -163,7 +178,7 @@ open http://localhost:8000/docs
 members = ["worker"]
 ```
 
-**独立部署 Worker 时**，只需将 `worker/` 目录打包，安装 `worker/pyproject.toml` 中声明的依赖，无需携带完整的主服务代码。
+**独立部署 Worker 时**，目标部署包应包含 `worker/` 与 `core/`，不携带 `app/`。Worker 任务实现只能调用 `core/services/` 中的共享业务能力，不能反向依赖 FastAPI schema 或路由。
 
 ---
 

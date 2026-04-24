@@ -17,10 +17,18 @@
 
 当前实现位置：
 
-- `app/core/config.py`
+- `core/config.py`
 - `config/settings.toml`
 
-Zotero 配置兼容两类环境变量：
+配置兼容两类环境变量：
 
-- 扁平命名，例如 `ZOTERO_MCP_TIMEOUT_SECONDS`
-- 嵌套命名，例如 `ZOTERO__TIMEOUT_SECONDS`
+- 扁平命名，例如 `ZOTERO_MCP_TIMEOUT_SECONDS`、`RFLOW_MINERU_API_TOKEN`、`PDF_PARSER_MARKDOWN_REFINE_ENABLED`
+- 嵌套命名，例如 `ZOTERO__TIMEOUT_SECONDS`、`MINERU__API_TOKEN`
+
+当前已显式兼容的历史扁平命名覆盖范围：
+
+- `APP_*`
+- `ZOTERO_*`
+- `PAPER_DOWNLOAD_*` / `EXTRACT_REFS_*`
+- `RFLOW_MINERU_*` / `RFLOW_PDF_*`
+- `PDF_PARSER_MARKDOWN_REFINE_*`

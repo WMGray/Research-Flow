@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -13,7 +13,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.schemas.paper_download import PaperDownloadRequest, PaperResolveRequest
-from app.services.paper_download.service import PaperDownloadService
+from core.services.paper_download.service import PaperDownloadService
 
 
 # 内置几个代表性案例，用来人工验证不同 gPaper 解析路径的返回情况。

@@ -36,6 +36,8 @@ build/
 .ruff_cache/
 .pytest_cache/
 backend/.pytest-basetemp/
+backend/.pytest-basetemp*/
+backend/.smoke-tmp/
 backend/.uv-cache/
 backend/acl_probe_pytest_mode/
 backend/tmp*/

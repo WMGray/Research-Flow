@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -13,10 +13,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core.config import get_settings
+from core.config import get_settings
 from app.schemas.paper_download import PaperDownloadRequest
-from app.services.paper_download.service import PaperDownloadService
-from app.services.pdf_parser import PDFParserService
+from core.services.paper_download.service import PaperDownloadService
+from core.services.pdf_parser import PDFParserService
 
 
 # Default: run full pipeline. Use --download-only to skip parsing.

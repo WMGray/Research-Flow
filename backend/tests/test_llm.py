@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import asyncio
@@ -16,11 +16,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core.config import get_settings, reset_settings
-from app.core.llm_config import LLMFeatureConfig, LLMModelConfig
-from app.services.llm.providers import BaseLLMProvider
-from app.services.llm.registry import LLMRegistry, llm_registry
-from app.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
+from core.config import get_settings, reset_settings
+from core.llm_config import LLMFeatureConfig, LLMModelConfig
+from core.services.llm.providers import BaseLLMProvider
+from core.services.llm.registry import LLMRegistry, llm_registry
+from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
 
 
 class DummyProvider(BaseLLMProvider):

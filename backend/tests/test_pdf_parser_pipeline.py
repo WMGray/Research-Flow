@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -11,13 +11,13 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core.config import get_settings, reset_settings
-from app.core.mineru_config import MinerUConfig
-from app.core.pdf_parser_config import MarkdownRefineConfig, PDFParserConfig
-from app.services.pdf_parser import PDFParserService
-from app.services.pdf_parser.postprocess import normalize_heading, process_mineru_markdown_artifacts
-from app.services.pdf_parser.sections import split_key_sections
-from app.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
+from core.config import get_settings, reset_settings
+from core.mineru_config import MinerUConfig
+from core.pdf_parser_config import MarkdownRefineConfig, PDFParserConfig
+from core.services.pdf_parser import PDFParserService
+from core.services.pdf_parser.postprocess import normalize_heading, process_mineru_markdown_artifacts
+from core.services.pdf_parser.sections import split_key_sections
+from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
 
 
 class FakeMarkdownRefineLLM:
@@ -57,6 +57,26 @@ def test_mineru_settings_support_rflow_env_names(monkeypatch) -> None:
         assert settings.mineru.poll_interval_seconds == 2
         assert settings.mineru.poll_timeout_seconds == 60
         assert settings.mineru.pdf_parse_min_chars == 20
+    finally:
+        reset_settings()
+
+
+def test_pdf_parser_markdown_refine_supports_flat_env_names(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_FLOW_ENV_FILE", "none")
+    monkeypatch.setenv("PDF_PARSER_MARKDOWN_REFINE_ENABLED", "false")
+    monkeypatch.setenv("PDF_PARSER_MARKDOWN_REFINE_FEATURE", "custom_refiner")
+    monkeypatch.setenv("PDF_PARSER_MARKDOWN_REFINE_OUTPUT_FILENAME", "custom.md")
+    monkeypatch.setenv("PDF_PARSER_MARKDOWN_REFINE_MAX_INPUT_CHARS", "1234")
+    monkeypatch.setenv("PDF_PARSER_MARKDOWN_REFINE_FAIL_OPEN", "false")
+
+    reset_settings()
+    try:
+        config = get_settings().pdf_parser.markdown_refine
+        assert config.enabled is False
+        assert config.feature == "custom_refiner"
+        assert config.output_filename == "custom.md"
+        assert config.max_input_chars == 1234
+        assert config.fail_open is False
     finally:
         reset_settings()
 

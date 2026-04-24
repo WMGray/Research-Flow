@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,10 +6,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.api.paper_download import get_paper_download_service
-from app.core.config import reset_settings
+from core.config import reset_settings
 from app.main import app
 from app.schemas.paper_download import PaperDownloadRequest
-from app.services.paper_download.service import PaperDownloadService
+from core.services.paper_download.service import PaperDownloadService
 
 
 @dataclass(frozen=True)
