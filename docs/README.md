@@ -2,18 +2,22 @@
 
 ## 目录结构
 
+> ✓ = 已完成　○ = 待补充
+
 ````
 docs/
-├── README.md                    ← 本文件
-├── 需求.md                      ← 原始需求草稿（存档只读）
+├── README.md                    ✓ 本文件
 ├── 00_overview/                 ← 项目总览（全员必读）
-│   ├── 用户需求文档.md
-│   ├── 产品需求文档.md
-│   └── 路线图.md
+│   ├── 用户需求文档.md           ✓
+│   ├── 产品需求文档.md           ✓
+│   └── 路线图.md                ✓
 ├── 01_frontend/                 ← 前端需求
-│   ├── 页面清单.md
-│   ├── 交互设计.md
-│   └── pages/
+│   ├── 页面清单.md               ○
+│   ├── 交互设计.md               ○
+│   ├── DashBoard.png            ✓
+│   ├── Daily.png                ✓
+│   ├── Library.png              ✓
+│   └── pages/                   ○ 全部待补充
 │       ├── Dashboard.md
 │       ├── Daily.md
 │       ├── Datasets.md
@@ -21,31 +25,31 @@ docs/
 │       ├── Projects.md
 │       └── Views.md
 ├── 02_backend/                  ← 后端需求
-│   ├── 架构概览.md
-│   ├── 数据模型.md
-│   ├── 表设计.md
+│   ├── 架构概览.md               ✓
+│   ├── 数据模型.md               ✓
+│   ├── 表设计.md                ✓
 │   ├── modules/
-│   │   ├── 文献管理.md
-│   │   ├── Zotero集成.md
-│   │   ├── 每日推送.md
-│   │   ├── 数据集管理.md
-│   │   ├── 观点提炼.md
-│   │   ├── 实验规划.md
-│   │   ├── 课题管理.md
-│   │   ├── 论文写作.md
-│   │   ├── 知识图谱.md
-│   │   ├── 会议追踪.md
-│   │   └── 定时任务.md
+│   │   ├── 文献管理.md           ✓
+│   │   ├── 课题管理.md           ✓
+│   │   ├── Zotero集成.md         ○
+│   │   ├── 每日推送.md           ○
+│   │   ├── 数据集管理.md         ○
+│   │   ├── 观点提炼.md           ○
+│   │   ├── 实验规划.md           ○
+│   │   ├── 论文写作.md           ○
+│   │   ├── 知识图谱.md           ○
+│   │   ├── 会议追踪.md           ○
+│   │   └── 定时任务.md           ○
 │   └── services/                ← 第三方服务接入文档
-│       ├── README.md
-│       ├── zotero-mcp.md
+│       ├── README.md            ✓
+│       ├── zotero-mcp.md        ✓
 │       ├── llm/
-│       │   └── minimax.md
+│       │   └── minimax.md       ✓
 │       └── cloud/
-│           └── aliyun.md
+│           └── aliyun.md        ✓
 ├── 03_api/                      ← 前后端接口文档
-│   ├── 接口规范.md
-│   └── endpoints/
+│   ├── 接口规范.md               ✓
+│   └── endpoints/               ○ 全部待补充
 │       ├── 文献管理.md
 │       ├── 每日推送.md
 │       ├── 数据集管理.md
@@ -53,9 +57,9 @@ docs/
 │       ├── 知识图谱.md
 │       └── 会议追踪.md
 └── 04_reference/                ← 外部参考资料
-    ├── README.md
-    ├── claude-scholar分析.md
-    └── 竞品分析.md
+    ├── README.md                ○
+    ├── claude-scholar分析.md     ○
+    └── 竞品分析.md               ○
 ````
 
 ## 各目录职责

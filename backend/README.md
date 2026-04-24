@@ -9,6 +9,7 @@
 | Web 框架 | FastAPI |
 | 包管理 | uv |
 | 任务队列 | Celery + Redis |
+| LLM / Agent 编排 | Agno |
 | 数据库 | SQLite（SQLAlchemy ORM） |
 | 数据校验 | Pydantic v2 |
 | Python 版本 | 3.13+ |
