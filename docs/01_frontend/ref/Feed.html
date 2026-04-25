@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>R-Flow | Daily Express</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "secondary": "#5f5f5f",
+                    "primary-fixed-dim": "#bcd6ff",
+                    "on-tertiary-fixed": "#393c55",
+                    "primary-container": "#d3e3ff",
+                    "on-surface": "#2d3435",
+                    "surface-dim": "#d4dbdd",
+                    "on-tertiary": "#fbf8ff",
+                    "on-primary-fixed": "#004076",
+                    "secondary-dim": "#535353",
+                    "error-dim": "#4e0309",
+                    "tertiary-fixed": "#dcddfe",
+                    "inverse-primary": "#63a8fe",
+                    "error": "#9f403d",
+                    "tertiary-dim": "#4f516c",
+                    "background": "#f9f9f9",
+                    "on-primary": "#f6f7ff",
+                    "error-container": "#fe8983",
+                    "on-secondary": "#fbf8f8",
+                    "on-secondary-fixed": "#3f3f3f",
+                    "primary-fixed": "#d3e3ff",
+                    "surface-container": "#ebeeef",
+                    "on-secondary-container": "#525252",
+                    "tertiary-fixed-dim": "#cecfef",
+                    "on-primary-container": "#005396",
+                    "tertiary": "#5b5d78",
+                    "outline-variant": "#adb3b4",
+                    "secondary-container": "#e4e2e2",
+                    "tertiary-container": "#dcddfe",
+                    "inverse-surface": "#0c0f0f",
+                    "surface-container-low": "#f2f4f4",
+                    "on-tertiary-container": "#4c4e69",
+                    "primary": "#0060ab",
+                    "surface-container-high": "#e4e9ea",
+                    "surface-variant": "#dde4e5",
+                    "outline": "#757c7d",
+                    "on-surface-variant": "#5a6061",
+                    "inverse-on-surface": "#9c9d9d",
+                    "primary-dim": "#005497",
+                    "surface-container-highest": "#dde4e5",
+                    "surface": "#f9f9f9",
+                    "secondary-fixed-dim": "#d6d4d4",
+                    "on-error": "#fff7f6",
+                    "on-background": "#2d3435",
+                    "on-tertiary-fixed-variant": "#565873",
+                    "surface-bright": "#f9f9f9",
+                    "secondary-fixed": "#e4e2e2",
+                    "on-primary-fixed-variant": "#005da7",
+                    "surface-tint": "#0060ab",
+                    "surface-container-lowest": "#ffffff",
+                    "on-secondary-fixed-variant": "#5b5b5b",
+                    "on-error-container": "#752121"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;  
+            overflow: hidden;
+        }
+        .academic-glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar Integration -->
+<aside class="fixed left-0 top-0 h-full flex flex-col py-6 bg-slate-50 dark:bg-slate-900 h-screen w-64 border-r-0 font-sans Inter tracking-tight z-50">
+<div class="px-6 mb-10">
+<h1 class="text-lg font-bold text-slate-900 dark:text-white">R-Flow</h1>
+<p class="text-xs text-on-surface-variant font-medium">Academic Research</p>
+</div>
+<nav class="flex-1 px-0">
+<!-- Dashboard -->
+<a class="flex items-center px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors duration-200 ease-in-out scale-98 active:opacity-80" href="#">
+<span class="material-symbols-outlined mr-3">dashboard</span>
+<span class="text-sm font-medium">Dashboard</span>
+</a>
+<!-- Daily (ACTIVE) -->
+<a class="flex items-center px-6 py-3 border-l-4 border-blue-600 bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-semibold transition-colors duration-200 ease-in-out scale-98 active:opacity-80" href="#">
+<span class="material-symbols-outlined mr-3">calendar_today</span>
+<span class="text-sm">Daily</span>
+</a>
+<!-- Datasets -->
+<a class="flex items-center px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors duration-200 ease-in-out scale-98 active:opacity-80" href="#">
+<span class="material-symbols-outlined mr-3">database</span>
+<span class="text-sm font-medium">Datasets</span>
+</a>
+<!-- Library -->
+<a class="flex items-center px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors duration-200 ease-in-out scale-98 active:opacity-80" href="#">
+<span class="material-symbols-outlined mr-3">library_books</span>
+<span class="text-sm font-medium">Library</span>
+</a>
+<!-- Projects -->
+<a class="flex items-center px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors duration-200 ease-in-out scale-98 active:opacity-80" href="#">
+<span class="material-symbols-outlined mr-3">folder_open</span>
+<span class="text-sm font-medium">Projects</span>
+</a>
+<!-- Views -->
+<a class="flex items-center px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors duration-200 ease-in-out scale-98 active:opacity-80" href="#">
+<span class="material-symbols-outlined mr-3">grid_view</span>
+<span class="text-sm font-medium">Views</span>
+</a>
+<!-- Settings -->
+<a class="flex items-center px-6 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors duration-200 ease-in-out scale-98 active:opacity-80 mt-auto" href="#">
+<span class="material-symbols-outlined mr-3">settings</span>
+<span class="text-sm font-medium">Settings</span>
+</a>
+</nav>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- TopNavBar Integration -->
+<header class="flex items-center justify-between px-8 ml-0 w-full h-16 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl shadow-sm dark:shadow-none sticky top-0 z-40">
+<div class="flex items-center gap-8 flex-1">
+<div class="flex flex-col">
+<h2 class="text-xl font-extrabold text-on-surface tracking-tight leading-none">Daily</h2>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mt-0.5">Oct 24, 2023</span>
+</div>
+<!-- Central Wide Search Bar -->
+<div class="flex-1 max-w-2xl px-4">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+<input class="w-full h-10 pl-10 pr-4 bg-surface-container-high border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all duration-300 outline-none" placeholder="Search academic papers, datasets or topics..." type="text"/>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-surface-container transition-all duration-300 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="h-10 px-4 bg-primary text-on-primary rounded-lg flex items-center gap-2 text-sm font-semibold shadow-sm hover:opacity-90 transition-all duration-300">
+<span class="material-symbols-outlined text-base" data-icon="add">add</span>
+<span>Submit</span>
+</button>
+</div>
+</header>
+<!-- Content Area -->
+<div class="p-8 max-w-7xl mx-auto">
+<!-- Filter Tabs -->
+<nav class="flex items-center gap-2 mb-8">
+<button class="px-5 py-2 bg-primary text-on-primary rounded-full text-xs font-bold transition-all duration-300">All</button>
+<button class="px-5 py-2 bg-surface-container text-on-surface-variant hover:bg-surface-container-highest rounded-full text-xs font-semibold transition-all duration-300">cs.CV</button>
+<button class="px-5 py-2 bg-surface-container text-on-surface-variant hover:bg-surface-container-highest rounded-full text-xs font-semibold transition-all duration-300">cs.CL</button>
+<button class="px-5 py-2 bg-surface-container text-on-surface-variant hover:bg-surface-container-highest rounded-full text-xs font-semibold transition-all duration-300">cs.AI</button>
+<button class="px-5 py-2 bg-surface-container text-on-surface-variant hover:bg-surface-container-highest rounded-full text-xs font-semibold transition-all duration-300">Recommend</button>
+</nav>
+<!-- 4x2 Card Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<!-- Card 1 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">Scalable Diffusion Models with Transformers</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 98</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        本文介绍了一种基于Transformer结构的扩散模型DiT，通过替换传统的U-Net架构，实现了在大规模图像生成任务上的更高效率和性能。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">Language Models are Few-Shot Learners</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 95</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        GPT-3展示了大型语言模型在不经过微调的情况下，仅通过少量示例即可完成多种自然语言处理任务的强大能力。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">SAM: Segment Anything Model</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 92</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        Meta提出的通用分割模型SAM，能够在提示下对任何图像中的任何物体进行精确分割，极大地推进了零样本分割技术。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">An Image is Worth 16x16 Words</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 91</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        ViT模型证明了纯Transformer结构可以直接应用于图像序列，在大型数据集预处理后可以达到SOTA级别的分类效果。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 5 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">LoRA: Low-Rank Adaptation of LLMs</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 89</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        LoRA通过在预训练权重中注入可训练的低秩矩阵，极大减少了下游任务微调所需的参数量，同时保持了模型性能。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 6 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">FlashAttention: Fast and Memory-Efficient</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 87</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        通过对IO感知的注意力机制重构，FlashAttention显著提升了长文本训练的效率并降低了显存消耗。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 7 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">DINOv2: Learning Robust Visual Features</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 85</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        自监督学习在大规模无标注数据上的应用，DINOv2产出了在各种视觉任务中都极具竞争力的基础视觉特征。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 8 -->
+<div class="bg-surface-container-lowest rounded-xl p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-300 group">
+<div class="flex justify-between items-start mb-3">
+<h3 class="text-sm font-bold text-on-surface leading-tight line-clamp-2 pr-2">ControlNet: Adding Conditional Control</h3>
+<span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[10px] font-extrabold rounded-md whitespace-nowrap">AI Score: 82</span>
+</div>
+<p class="text-[13px] text-on-surface-variant leading-relaxed mb-6 flex-1 italic">
+                        ControlNet为扩散模型增加了精细的空间控制能力，使得通过Canny边缘、深度图等条件生成特定图像成为可能。
+                    </p>
+<div class="flex items-center justify-between pt-4 border-t border-surface-container/50">
+<a class="text-xs font-bold text-primary hover:underline transition-all" href="#">Details</a>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="library_add">library_add</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Pagination -->
+<div class="mt-16 flex justify-center items-center gap-1">
+<button class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg bg-primary text-on-primary text-sm font-bold">1</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container text-sm font-semibold transition-all">2</button>
+<span class="w-10 h-10 flex items-center justify-center text-on-surface-variant">...</span>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container text-sm font-semibold transition-all">5</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container text-sm font-semibold transition-all">6</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</main>
+</body></html>

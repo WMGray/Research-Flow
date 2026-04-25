@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-container": "#dcddfe",
+                    "secondary-fixed-dim": "#d6d4d4",
+                    "outline-variant": "#adb3b4",
+                    "on-secondary-fixed": "#3f3f3f",
+                    "on-primary-container": "#005396",
+                    "inverse-on-surface": "#9c9d9d",
+                    "tertiary-fixed": "#dcddfe",
+                    "inverse-primary": "#63a8fe",
+                    "on-error": "#fff7f6",
+                    "surface-variant": "#dde4e5",
+                    "on-background": "#2d3435",
+                    "surface-container-low": "#f2f4f4",
+                    "on-tertiary-container": "#4c4e69",
+                    "surface": "#f9f9f9",
+                    "surface-container-highest": "#dde4e5",
+                    "surface-bright": "#f9f9f9",
+                    "secondary-container": "#e4e2e2",
+                    "on-primary-fixed": "#004076",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary": "#5f5f5f",
+                    "on-error-container": "#752121",
+                    "error-dim": "#4e0309",
+                    "on-surface": "#2d3435",
+                    "on-secondary-fixed-variant": "#5b5b5b",
+                    "surface-tint": "#0060ab",
+                    "primary": "#0060ab",
+                    "on-secondary-container": "#525252",
+                    "inverse-surface": "#0c0f0f",
+                    "on-surface-variant": "#5a6061",
+                    "surface-container-high": "#e4e9ea",
+                    "primary-fixed-dim": "#bcd6ff",
+                    "surface-dim": "#d4dbdd",
+                    "primary-dim": "#005497",
+                    "on-tertiary-fixed-variant": "#565873",
+                    "on-tertiary-fixed": "#393c55",
+                    "primary-fixed": "#d3e3ff",
+                    "secondary-fixed": "#e4e2e2",
+                    "tertiary-dim": "#4f516c",
+                    "surface-container": "#ebeeef",
+                    "outline": "#757c7d",
+                    "background": "#f9f9f9",
+                    "on-primary": "#f6f7ff",
+                    "primary-container": "#d3e3ff",
+                    "tertiary-fixed-dim": "#cecfef",
+                    "on-secondary": "#fbf8f8",
+                    "error": "#9f403d",
+                    "tertiary": "#5b5d78",
+                    "on-primary-fixed-variant": "#005da7",
+                    "secondary-dim": "#535353",
+                    "on-tertiary": "#fbf8ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .acrylic-surface {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+        }
+        .tonal-card {
+            background-color: #ffffff;
+            transition: all 0.2s ease;
+        }
+        .tonal-card:hover {
+            background-color: #f2f4f4;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar Shell -->
+<nav class="flex flex-col h-screen fixed left-0 top-0 h-full w-64 border-r-0 bg-[#f2f4f4] dark:bg-slate-900 contrast-75 z-50">
+<div class="p-6">
+<span class="text-xl font-bold tracking-tighter text-[#0060ab] dark:text-blue-400">R-Flow</span>
+</div>
+<div class="flex-1 px-3 space-y-1">
+<a class="flex items-center px-4 py-3 border-l-4 border-[#0060ab] bg-blue-500/10 text-[#0060ab] dark:text-blue-300 font-semibold transition-transform scale-[0.98]" href="#">
+<span class="material-symbols-outlined mr-3">dashboard</span>
+<span class="font-['Inter'] font-medium tracking-tight">Dashboard</span>
+</a>
+<a class="flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">calendar_today</span>
+<span class="font-['Inter'] font-medium tracking-tight">Daily</span>
+</a>
+<a class="flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">database</span>
+<span class="font-['Inter'] font-medium tracking-tight">Datasets</span>
+</a>
+<a class="flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">library_books</span>
+<span class="font-['Inter'] font-medium tracking-tight">Library</span>
+</a>
+<a class="flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">folder_open</span>
+<span class="font-['Inter'] font-medium tracking-tight">Projects</span>
+</a>
+<a class="flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">visibility</span>
+<span class="font-['Inter'] font-medium tracking-tight">Views</span>
+</a>
+</div>
+<div class="p-4 mb-4">
+<a class="flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">settings</span>
+<span class="font-['Inter'] font-medium tracking-tight">Settings</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar Shell -->
+<header class="flex items-center justify-between px-8 ml-64 w-[calc(100%-16rem)] h-16 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl fixed top-0 z-40 shadow-sm dark:shadow-none">
+<div class="flex items-center gap-4 flex-1">
+<div class="relative w-96">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="w-full bg-surface-container-high border-none rounded-md py-2 pl-10 text-sm focus:ring-1 focus:ring-primary/20 transition-all outline-none" placeholder="Search research materials..." type="text"/>
+</div>
+</div>
+<div class="flex items-center space-x-6">
+<div class="flex items-center space-x-4">
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer transition-colors">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer transition-colors">note_add</span>
+</div>
+<div class="h-8 w-[1px] bg-outline-variant/30"></div>
+<div class="flex items-center">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs">RF</div>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 pt-24 px-8 pb-12 min-h-screen space-y-8 max-w-[1600px]">
+<!-- Top Section: Metric Cards Grid -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Library Card -->
+<div class="surface-container-lowest p-6 rounded-xl shadow-[0_8px_32px_rgba(45,52,53,0.04)] border border-outline-variant/10">
+<div class="flex justify-between items-start mb-6">
+<div>
+<p class="text-on-surface-variant text-sm font-medium label-md mb-1">Total papers</p>
+<h2 class="text-3xl font-extrabold tracking-tighter text-on-background">1,402</h2>
+</div>
+<div class="bg-primary/5 p-2 rounded-lg">
+<span class="material-symbols-outlined text-primary">library_books</span>
+</div>
+</div>
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<span class="text-xs text-on-surface-variant">Favorited</span>
+<div class="flex items-center gap-2 flex-1 mx-4">
+<div class="h-1 bg-surface-container-high flex-1 rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[17%]" style="width: 17.1%"></div>
+</div>
+</div>
+<span class="text-xs font-semibold">240</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs text-on-surface-variant">LLM Analyzed</span>
+<div class="flex items-center gap-2 flex-1 mx-4">
+<div class="h-1 bg-surface-container-high flex-1 rounded-full overflow-hidden">
+<div class="h-full bg-primary-dim w-[60%]" style="width: 60.6%"></div>
+</div>
+</div>
+<span class="text-xs font-semibold">850</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs text-on-surface-variant">Manual Summarized</span>
+<div class="flex items-center gap-2 flex-1 mx-4">
+<div class="h-1 bg-surface-container-high flex-1 rounded-full overflow-hidden">
+<div class="h-full bg-outline-variant w-[8%]" style="width: 8.5%"></div>
+</div>
+</div>
+<span class="text-xs font-semibold">120</span>
+</div>
+</div>
+</div>
+<!-- Dataset Card -->
+<div class="surface-container-lowest p-6 rounded-xl shadow-[0_8px_32px_rgba(45,52,53,0.04)] border border-outline-variant/10 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity">
+<span class="material-symbols-outlined text-[120px]" style="font-variation-settings: 'FILL' 1;">database</span>
+</div>
+<p class="text-on-surface-variant text-sm font-medium mb-1">Total Datasets Collected</p>
+<div class="flex items-baseline gap-2 mt-2">
+<h2 class="text-6xl font-black tracking-tighter text-primary">48</h2>
+<span class="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded uppercase tracking-widest">Active nodes</span>
+</div>
+<div class="mt-8 flex gap-4">
+<button class="bg-primary text-on-primary px-4 py-2 rounded-md text-xs font-bold hover:bg-primary-dim transition-all shadow-sm">Manage Assets</button>
+<button class="bg-secondary-container text-on-secondary-container px-4 py-2 rounded-md text-xs font-bold hover:bg-surface-container-highest transition-all">Ingest New</button>
+</div>
+</div>
+<!-- Views Card -->
+<div class="surface-container-lowest p-6 rounded-xl shadow-[0_8px_32px_rgba(45,52,53,0.04)] border border-outline-variant/10 flex">
+<div class="flex-1">
+<p class="text-on-surface-variant text-sm font-medium mb-1">Total Views</p>
+<h2 class="text-3xl font-extrabold tracking-tighter text-on-background mb-6">3,205</h2>
+<ul class="space-y-2">
+<li class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="text-[11px] font-medium text-on-surface-variant uppercase tracking-wider">Background</span>
+</li>
+<li class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary-fixed-dim"></span>
+<span class="text-[11px] font-medium text-on-surface-variant uppercase tracking-wider">Method</span>
+</li>
+<li class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary-container"></span>
+<span class="text-[11px] font-medium text-on-surface-variant uppercase tracking-wider">Limitation</span>
+</li>
+</ul>
+</div>
+<div class="flex-shrink-0 flex items-center justify-center p-4">
+<div class="relative w-28 h-28">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-secondary-container" cx="56" cy="56" fill="transparent" r="48" stroke="currentColor" stroke-width="12"></circle>
+<circle class="text-primary" cx="56" cy="56" fill="transparent" r="48" stroke="currentColor" stroke-dasharray="301" stroke-dashoffset="120" stroke-width="12"></circle>
+<circle class="text-primary-fixed-dim" cx="56" cy="56" fill="transparent" r="48" stroke="currentColor" stroke-dasharray="301" stroke-dashoffset="240" stroke-width="12"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant/30">analytics</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Section: Split 70/30 -->
+<section class="grid grid-cols-10 gap-6">
+<!-- Left Panel (70%): Submission Timeline -->
+<div class="col-span-10 lg:col-span-7 surface-container-lowest p-8 rounded-xl shadow-[0_8px_32px_rgba(45,52,53,0.04)] border border-outline-variant/10">
+<div class="flex justify-between items-end mb-8">
+<div>
+<h3 class="text-2xl font-bold tracking-tight text-on-background">Submission Timeline</h3>
+<p class="text-on-surface-variant text-sm">Upcoming major venue deadlines and status monitoring.</p>
+</div>
+<button class="text-primary text-sm font-bold flex items-center hover:underline">
+                        View Full Calendar <span class="material-symbols-outlined text-sm ml-1">arrow_forward</span>
+</button>
+</div>
+<div class="space-y-4">
+<!-- Conference Item 1 -->
+<div class="flex items-center p-5 rounded-lg hover:bg-surface-container-low transition-colors border-l-4 border-primary">
+<div class="flex-1">
+<div class="flex items-center gap-3">
+<span class="font-black text-xl text-on-background tracking-tighter">CVPR 2026</span>
+<span class="text-[10px] bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded font-bold uppercase tracking-widest border border-outline-variant/20">CCF-A</span>
+</div>
+<div class="flex gap-8 mt-2 text-xs text-on-surface-variant font-medium">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">event</span> Abstract: Nov 15, 2025</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">history_edu</span> Full: Nov 22, 2025</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-primary text-lg font-extrabold tracking-tight">45 Days Left</span>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase">Critical Window</span>
+</div>
+</div>
+<!-- Conference Item 2 -->
+<div class="flex items-center p-5 rounded-lg hover:bg-surface-container-low transition-colors border-l-4 border-outline-variant">
+<div class="flex-1">
+<div class="flex items-center gap-3">
+<span class="font-black text-xl text-on-background tracking-tighter">ICML 2026</span>
+<span class="text-[10px] bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded font-bold uppercase tracking-widest border border-outline-variant/20">CCF-A</span>
+</div>
+<div class="flex gap-8 mt-2 text-xs text-on-surface-variant font-medium">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">event</span> Abstract: Jan 10, 2026</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">history_edu</span> Full: Jan 17, 2026</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-on-background text-lg font-bold tracking-tight">102 Days Left</span>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase">Planning Stage</span>
+</div>
+</div>
+<!-- Conference Item 3 -->
+<div class="flex items-center p-5 rounded-lg hover:bg-surface-container-low transition-colors border-l-4 border-primary-fixed-dim bg-surface-container-low/30 opacity-75">
+<div class="flex-1">
+<div class="flex items-center gap-3">
+<span class="font-black text-xl text-on-background tracking-tighter">AAAI 2026</span>
+<span class="text-[10px] bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded font-bold uppercase tracking-widest border border-outline-variant/20">CCF-A</span>
+</div>
+<div class="flex gap-8 mt-2 text-xs text-on-surface-variant font-medium">
+<span class="flex items-center gap-1 line-through opacity-50">Abstract: Aug 15, 2025</span>
+<span class="flex items-center gap-1 line-through opacity-50">Full: Aug 22, 2025</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-primary-dim text-xs font-black uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full">Submitted</span>
+<span class="text-[10px] font-bold text-on-surface-variant uppercase mt-1">Ref ID: 4122</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Panel (30%): Status & Monitor -->
+<div class="col-span-10 lg:col-span-3 space-y-6">
+<!-- Recent Activity -->
+<div class="surface-container-lowest p-6 rounded-xl shadow-[0_8px_32px_rgba(45,52,53,0.04)] border border-outline-variant/10 h-[380px] flex flex-col">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-primary text-lg">history</span>
+<h4 class="text-sm font-bold uppercase tracking-widest text-on-surface-variant">Recent Activity</h4>
+</div>
+<div class="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+<div class="flex gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0"></div>
+<div>
+<p class="text-xs font-semibold text-on-background">Added paper: <span class="text-primary italic">"Video Mamba: State Space Model for Video..."</span></p>
+<span class="text-[10px] text-on-surface-variant">2 mins ago • Library</span>
+</div>
+</div>
+<div class="flex gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0"></div>
+<div>
+<p class="text-xs font-semibold text-on-background">Extracted views from <span class="text-primary">[Ref 42]</span></p>
+<span class="text-[10px] text-on-surface-variant">14 mins ago • Analyzer</span>
+</div>
+</div>
+<div class="flex gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0"></div>
+<div>
+<p class="text-xs font-semibold text-on-background">Dataset 'ImageNet-V2' updated</p>
+<span class="text-[10px] text-on-surface-variant">1 hour ago • Datasets</span>
+</div>
+</div>
+<div class="flex gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-outline-variant mt-1.5 shrink-0"></div>
+<div>
+<p class="text-xs font-semibold text-on-background">Manual summary exported: "LLM Efficiency"</p>
+<span class="text-[10px] text-on-surface-variant">3 hours ago • Views</span>
+</div>
+</div>
+<div class="flex gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-outline-variant mt-1.5 shrink-0"></div>
+<div>
+<p class="text-xs font-semibold text-on-background">Indexing project "Sparse Attention"</p>
+<span class="text-[10px] text-on-surface-variant">Yesterday • System</span>
+</div>
+</div>
+</div>
+</div>
+<!-- LLM Connectivity -->
+<div class="surface-container-lowest p-6 rounded-xl shadow-[0_8px_32px_rgba(45,52,53,0.04)] border border-outline-variant/10">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-primary text-lg">router</span>
+<h4 class="text-sm font-bold uppercase tracking-widest text-on-surface-variant">LLM Connectivity</h4>
+</div>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface">OpenAI GPT-4o</span>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold text-on-surface-variant">42ms</span>
+<div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface">Claude 3.5 Sonnet</span>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold text-on-surface-variant">58ms</span>
+<div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface">Local-Llama3</span>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold text-on-surface-variant">12ms</span>
+<div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface">Gemini 1.5 Pro</span>
+<div class="flex items-center gap-2"><span class="text-[10px] font-bold text-primary animate-pulse italic">Connecting...</span>
+<div class="w-2 h-2 rounded-full bg-amber-400"></div></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Contextual FAB - Restricted to Dashboard main action -->
+</body></html>

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Research-Flow - Projects Overview</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#cecfef",
+                        "tertiary": "#5b5d78",
+                        "secondary-fixed-dim": "#d6d4d4",
+                        "on-background": "#2d3435",
+                        "surface-container": "#ebeeef",
+                        "background": "#f9f9f9",
+                        "surface-bright": "#f9f9f9",
+                        "surface-variant": "#dde4e5",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary": "#fbf8ff",
+                        "surface": "#f9f9f9",
+                        "primary-container": "#d3e3ff",
+                        "surface-container-low": "#f2f4f4",
+                        "primary-fixed": "#d3e3ff",
+                        "on-error-container": "#752121",
+                        "on-primary-fixed": "#004076",
+                        "on-surface-variant": "#5a6061",
+                        "surface-container-highest": "#dde4e5",
+                        "secondary-container": "#e4e2e2",
+                        "on-tertiary-fixed": "#393c55",
+                        "tertiary-fixed": "#dcddfe",
+                        "surface-dim": "#d4dbdd",
+                        "primary": "#0060ab",
+                        "outline-variant": "#adb3b4",
+                        "inverse-surface": "#0c0f0f",
+                        "on-error": "#fff7f6",
+                        "on-secondary-fixed-variant": "#5b5b5b",
+                        "error-dim": "#4e0309",
+                        "secondary-fixed": "#e4e2e2",
+                        "on-tertiary-container": "#4c4e69",
+                        "on-secondary-container": "#525252",
+                        "outline": "#757c7d",
+                        "inverse-on-surface": "#9c9d9d",
+                        "on-secondary": "#fbf8f8",
+                        "on-secondary-fixed": "#3f3f3f",
+                        "on-surface": "#2d3435",
+                        "error-container": "#fe8983",
+                        "on-primary-fixed-variant": "#005da7",
+                        "on-primary": "#f6f7ff",
+                        "primary-dim": "#005497",
+                        "error": "#9f403d",
+                        "secondary": "#5f5f5f",
+                        "on-tertiary-fixed-variant": "#565873",
+                        "secondary-dim": "#535353",
+                        "primary-fixed-dim": "#bcd6ff",
+                        "surface-container-high": "#e4e9ea",
+                        "tertiary-container": "#dcddfe",
+                        "surface-tint": "#0060ab",
+                        "tertiary-dim": "#4f516c",
+                        "inverse-primary": "#63a8fe",
+                        "on-primary-container": "#005396"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .ambient-shadow { box-shadow: 0 8px 32px rgba(45, 52, 53, 0.06); }
+        .circular-progress {
+            background: radial-gradient(closest-side, white 79%, transparent 80% 100%),
+                        conic-gradient(#0060ab 65%, #ebeeef 0);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background selection:bg-primary-container">
+<div class="flex h-screen overflow-hidden">
+<!-- SideNavBar -->
+<aside class="flex flex-col h-full py-6 bg-[#f2f4f4] dark:bg-slate-900 h-screen w-64 border-r-0 font-['Inter'] antialiased tracking-tight text-sm font-medium">
+<div class="px-6 mb-10">
+<h1 class="text-lg font-bold tracking-tighter text-[#2d3435] dark:text-slate-100">Research-Flow</h1>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1 opacity-60">Academic Research OS</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-6 py-3 text-[#5a6061] dark:text-slate-400 hover:bg-[#ebeeef] transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">dashboard</span> Dashboard
+                </a>
+<a class="flex items-center px-6 py-3 text-[#5a6061] dark:text-slate-400 hover:bg-[#ebeeef] transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">calendar_today</span> Daily
+                </a>
+<a class="flex items-center px-6 py-3 text-[#5a6061] dark:text-slate-400 hover:bg-[#ebeeef] transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">database</span> Datasets
+                </a>
+<a class="flex items-center px-6 py-3 text-[#5a6061] dark:text-slate-400 hover:bg-[#ebeeef] transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">library_books</span> Library
+                </a>
+<!-- Active: Projects -->
+<a class="flex items-center px-6 py-3 border-l-4 border-[#0060ab] bg-blue-500/10 text-[#0060ab] dark:text-blue-300 font-semibold transition-all" href="#">
+<span class="material-symbols-outlined mr-3" style="font-variation-settings: 'FILL' 1;">folder_open</span> Projects
+                </a>
+<a class="flex items-center px-6 py-3 text-[#5a6061] dark:text-slate-400 hover:bg-[#ebeeef] transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">visibility</span> Views
+                </a>
+<a class="flex items-center px-6 py-3 text-[#5a6061] dark:text-slate-400 hover:bg-[#ebeeef] transition-colors duration-150" href="#">
+<span class="material-symbols-outlined mr-3">settings</span> Settings
+                </a>
+</nav>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- TopNavBar -->
+<header class="flex items-center justify-between px-6 w-full border-b border-slate-100 dark:border-slate-800 h-14 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(45,52,53,0.06)]">
+<div class="flex items-center space-x-4">
+<div class="bg-surface-container-high rounded-md flex items-center px-3 py-1.5 focus-within:ring-1 focus-within:ring-[#0060ab]/20">
+<span class="material-symbols-outlined text-on-surface-variant text-sm mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-64 placeholder:text-outline p-0" placeholder="Search project files..." type="text"/>
+</div>
+</div>
+<h2 class="text-base font-bold text-[#2d3435] dark:text-slate-100">Action Prediction (AAAI '26)</h2>
+<div class="flex items-center space-x-2">
+<button class="p-2 text-on-surface-variant hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md">
+<span class="material-symbols-outlined">add_circle</span>
+</button>
+</div>
+</header>
+<!-- Workspace Layout -->
+<main class="flex-1 flex overflow-hidden">
+<!-- Secondary Sidebar: Project Structure -->
+<aside class="w-48 bg-surface-container-low border-r-0 flex flex-col py-6">
+<div class="px-6 mb-4">
+<p class="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">Project Map</p>
+</div>
+<nav class="space-y-0.5">
+<a class="flex items-center px-6 py-2 text-primary font-semibold bg-white/50 text-sm" href="#">Overview</a>
+<a class="flex items-center px-6 py-2 text-on-surface-variant hover:text-on-surface text-sm" href="#">Related work</a>
+<a class="flex items-center px-6 py-2 text-on-surface-variant hover:text-on-surface text-sm" href="#">Method</a>
+<a class="flex items-center px-6 py-2 text-on-surface-variant hover:text-on-surface text-sm" href="#">Experiment</a>
+<a class="flex items-center px-6 py-2 text-on-surface-variant hover:text-on-surface text-sm" href="#">Conclusion</a>
+<a class="flex items-center px-6 py-2 text-on-surface-variant hover:text-on-surface text-sm" href="#">Manuscript</a>
+</nav>
+</aside>
+<!-- Dashboard Content Area -->
+<div class="flex-1 overflow-y-auto bg-surface p-8 space-y-8">
+<!-- Top Row: Metrics Cards -->
+<div class="grid grid-cols-4 gap-6">
+<div class="bg-surface-container-lowest p-6 rounded-xl ambient-shadow">
+<p class="text-[12px] font-semibold text-on-surface-variant">Submission Window</p>
+<div class="mt-2 flex items-baseline space-x-1">
+<span class="text-5xl font-normal text-on-surface">45</span>
+<span class="text-sm text-on-surface-variant font-medium">Days Left</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl ambient-shadow">
+<p class="text-[12px] font-semibold text-on-surface-variant">Papers Linked</p>
+<div class="mt-2 flex items-baseline space-x-1">
+<span class="text-5xl font-normal text-on-surface">42</span>
+<span class="text-sm text-on-surface-variant font-medium">Sources</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl ambient-shadow">
+<p class="text-[12px] font-semibold text-on-surface-variant">Views Extracted</p>
+<div class="mt-2 flex items-baseline space-x-1">
+<span class="text-5xl font-normal text-on-surface">18</span>
+<span class="text-sm text-on-surface-variant font-medium">Data Views</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl ambient-shadow flex items-center justify-between">
+<div>
+<p class="text-[12px] font-semibold text-on-surface-variant">Progress</p>
+<span class="text-2xl font-semibold text-on-surface">65%</span>
+</div>
+<div class="h-16 w-16 circular-progress rounded-full relative">
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="text-[10px] font-bold text-primary">DONE</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Middle Row: Timeline -->
+<div class="bg-surface-container rounded-2xl p-8 relative overflow-hidden">
+<h3 class="text-sm font-semibold text-on-surface-variant mb-12">Activity Timeline</h3>
+<div class="relative h-24">
+<!-- Horizontal Axis -->
+<div class="absolute top-1/2 left-0 right-0 h-[2px] bg-outline-variant/30 -translate-y-1/2"></div>
+<!-- Node 1: Above -->
+<div class="absolute left-[15%] top-0 -translate-y-1/2 flex flex-col items-center">
+<div class="mb-2 bg-surface-container-lowest p-3 rounded-lg ambient-shadow border border-outline-variant/10">
+<p class="text-[11px] text-on-surface font-medium whitespace-nowrap">Added 5 papers to Related Work</p>
+</div>
+<div class="w-3 h-3 rounded-full bg-primary ring-4 ring-background"></div>
+<p class="mt-2 text-[10px] text-on-surface-variant font-medium">Yesterday</p>
+</div>
+<!-- Node 2: Below -->
+<div class="absolute left-[50%] bottom-0 translate-y-1/2 flex flex-col items-center">
+<p class="mb-2 text-[10px] text-on-surface-variant font-medium">Today 10:30 AM</p>
+<div class="w-3 h-3 rounded-full bg-primary ring-4 ring-background"></div>
+<div class="mt-2 bg-surface-container-lowest p-3 rounded-lg ambient-shadow border border-outline-variant/10">
+<p class="text-[11px] text-on-surface font-medium whitespace-nowrap">Completed YOLO-World test</p>
+</div>
+</div>
+<!-- Node 3: Above (Upcoming) -->
+<div class="absolute left-[85%] top-0 -translate-y-1/2 flex flex-col items-center opacity-40">
+<div class="mb-2 bg-surface-container-lowest p-3 rounded-lg ambient-shadow border border-outline-variant/10">
+<p class="text-[11px] text-on-surface font-medium whitespace-nowrap">Manuscript draft v1</p>
+</div>
+<div class="w-3 h-3 rounded-full bg-outline-variant ring-4 ring-background"></div>
+<p class="mt-2 text-[10px] text-on-surface-variant font-medium">Next Week</p>
+</div>
+</div>
+</div>
+<!-- Bottom Row: Kanban -->
+<div class="grid grid-cols-3 gap-6">
+<!-- Panel: Completed -->
+<div class="bg-surface-container-low rounded-2xl p-5 flex flex-col">
+<h4 class="text-sm font-semibold text-on-surface-variant mb-4">Completed</h4>
+<div class="space-y-3">
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-3 opacity-60">
+<div class="w-5 h-5 rounded-[6px] bg-surface-container border border-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] font-bold text-on-surface-variant">check</span>
+</div>
+<p class="text-[13px] line-through text-on-surface-variant">Identify AAAI 2026 track requirements</p>
+</div>
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-3 opacity-60">
+<div class="w-5 h-5 rounded-[6px] bg-surface-container border border-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] font-bold text-on-surface-variant">check</span>
+</div>
+<p class="text-[13px] line-through text-on-surface-variant">Export baseline datasets from R-Flow Library</p>
+</div>
+</div>
+</div>
+<!-- Panel: In progress -->
+<div class="bg-surface-container-low rounded-2xl p-5 flex flex-col">
+<h4 class="text-sm font-semibold text-on-surface-variant mb-4">In progress</h4>
+<div class="space-y-3">
+<div class="bg-surface-container-lowest p-4 rounded-xl flex flex-col space-y-2 ambient-shadow">
+<div class="flex items-start justify-between">
+<p class="text-[13px] font-medium text-on-surface">Annotate related work gaps</p>
+<span class="text-[10px] bg-primary-container text-on-primary-container px-2 py-0.5 rounded-full">Method</span>
+</div>
+<div class="w-full bg-surface-container h-1 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[40%]"></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-4 rounded-xl flex flex-col space-y-2 ambient-shadow">
+<div class="flex items-start justify-between">
+<p class="text-[13px] font-medium text-on-surface">Experiment calibration logs</p>
+<span class="text-[10px] bg-tertiary-container text-on-tertiary-container px-2 py-0.5 rounded-full">Results</span>
+</div>
+<div class="w-full bg-surface-container h-1 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[75%]"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Panel: Todo list -->
+<div class="bg-surface-container-low rounded-2xl p-5 flex flex-col">
+<h4 class="text-sm font-semibold text-on-surface-variant mb-4">Todo list</h4>
+<div class="space-y-3">
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-3 ambient-shadow">
+<div class="w-5 h-5 rounded-[6px] border-2 border-outline-variant mt-0.5 hover:border-primary cursor-pointer transition-colors"></div>
+<p class="text-[13px] text-on-surface">Prepare ablation study visuals</p>
+</div>
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-3 ambient-shadow">
+<div class="w-5 h-5 rounded-[6px] border-2 border-outline-variant mt-0.5 hover:border-primary cursor-pointer transition-colors"></div>
+<p class="text-[13px] text-on-surface">Draft conclusion summary</p>
+</div>
+<button class="mt-2 flex items-center justify-center w-full py-2 border-2 border-dashed border-outline-variant/30 rounded-xl text-on-surface-variant text-xs hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-sm mr-1">add</span> Add Task
+                                </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</div>
+</body></html>
