@@ -27,6 +27,14 @@ class DocumentVersionConflictError(PaperRepositoryError):
     code = "DOCUMENT_VERSION_CONFLICT"
 
 
+class JobNotFoundError(PaperRepositoryError):
+    code = "JOB_NOT_FOUND"
+
+
+class JobCancelNotAllowedError(PaperRepositoryError):
+    code = "JOB_CANCEL_NOT_ALLOWED"
+
+
 @dataclass(frozen=True, slots=True)
 class PaperRecord:
     paper_id: int
@@ -37,14 +45,20 @@ class PaperRecord:
     venue: str
     venue_short: str
     doi: str
-    url: str
+    source_url: str
     pdf_url: str
     category_id: int | None
     tags: list[str]
-    status: str
+    paper_stage: str
+    download_status: str
+    parse_status: str
+    refine_status: str
+    review_status: str
+    note_status: str
     assets: dict[str, int]
     created_at: str
     updated_at: str
+    download_job_id: str | None = None
     parse_job_id: str | None = None
 
 
@@ -75,6 +89,47 @@ class JobRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class JobListInput:
+    page: int = 1
+    page_size: int = 20
+    resource_type: str | None = None
+    resource_id: int | None = None
+    status: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PaperArtifactRecord:
+    artifact_id: int
+    paper_id: int
+    asset_id: int
+    artifact_key: str
+    artifact_type: str
+    stage: str
+    storage_path: str
+    content_hash: str
+    file_size: int
+    version: int
+    metadata: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperPipelineRunRecord:
+    run_id: str
+    paper_id: int
+    job_id: str | None
+    stage: str
+    status: str
+    input_artifacts: list[str]
+    output_artifacts: list[str]
+    metrics: dict[str, Any]
+    error: dict[str, Any] | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class PaperCreateInput:
     title: str
     authors: list[str] = field(default_factory=list)
@@ -82,12 +137,35 @@ class PaperCreateInput:
     venue: str = ""
     venue_short: str = ""
     doi: str = ""
-    url: str = ""
+    source_url: str = ""
     pdf_url: str = ""
     category_id: int | None = None
     tags: list[str] = field(default_factory=list)
     download_pdf: bool = False
     parse_after_import: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PaperPipelineInput:
+    download_pdf: bool = True
+    parse: bool = True
+    refine_parse: bool = True
+    split_sections: bool = True
+    generate_note: bool = True
+    parser: str = "mineru"
+    force_parse: bool = False
+    refine_instruction: str = ""
+    require_review_confirmation: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PaperPipelineRecord:
+    paper_id: int
+    status: str
+    message: str
+    stopped_at: str | None
+    jobs: list[JobRecord]
+    paper: PaperRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +177,7 @@ class PaperUpdateInput:
 class PaperListInput:
     q: str = ""
     category_id: int | None = None
-    status: str | None = None
+    paper_stage: str | None = None
     year_from: int | None = None
     year_to: int | None = None
     page: int = 1
@@ -118,8 +196,12 @@ class DocumentUpdateInput:
 class ParsePaperInput:
     parser: str = "mineru"
     force: bool = False
-    llm_refine: bool = True
-    split_sections: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class RefineParseInput:
+    skill_key: str = "paper_refine_parse"
+    instruction: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,11 +229,16 @@ def paper_record_from_row(row: Any, assets: dict[str, int]) -> PaperRecord:
         venue=str(row["venue"]),
         venue_short=str(row["venue_short"]),
         doi=str(row["doi"]),
-        url=str(row["url"]),
+        source_url=str(row["source_url"]),
         pdf_url=str(row["pdf_url"]),
         category_id=row["category_id"],
         tags=json.loads(row["tags"] or "[]"),
-        status=str(row["status"]),
+        paper_stage=str(row["paper_stage"]),
+        download_status=str(row["download_status"]),
+        parse_status=str(row["parse_status"]),
+        refine_status=str(row["refine_status"]),
+        review_status=str(row["review_status"]),
+        note_status=str(row["note_status"]),
         assets=assets,
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
@@ -174,7 +261,7 @@ def paper_sort_column(sort: str) -> str:
         "paper_id": "bp.asset_id",
         "title": "bp.title",
         "year": "bp.pub_year",
-        "status": "bp.status",
+        "paper_stage": "bp.paper_stage",
         "created_at": "ar.created_at",
         "updated_at": "ar.updated_at",
     }.get(sort, "ar.updated_at")

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.api.paper_download import get_paper_download_service
-from core.config import reset_settings
 from app.main import app
 from app.schemas.paper_download import PaperDownloadRequest
+from core.config import reset_settings
 from core.services.paper_download.service import PaperDownloadService
 
 
@@ -81,7 +81,7 @@ def test_paper_download_resolve_endpoint() -> None:
     try:
         with TestClient(app) as client:
             response = client.post(
-                "/paper-download/resolve", json={"name": "Test Paper"}
+                "/paper-download/resolve", json={"title": "Test Paper"}
             )
         assert response.status_code == 200
         payload = response.json()
@@ -99,7 +99,7 @@ def test_paper_download_download_endpoint() -> None:
     try:
         with TestClient(app) as client:
             response = client.post(
-                "/paper-download/download", json={"name": "Test Paper"}
+                "/paper-download/download", json={"title": "Test Paper"}
             )
         assert response.status_code == 200
         payload = response.json()
@@ -109,19 +109,26 @@ def test_paper_download_download_endpoint() -> None:
         app.dependency_overrides.clear()
 
 
+def test_paper_download_rejects_legacy_name_input() -> None:
+    with TestClient(app) as client:
+        response = client.post("/paper-download/resolve", json={"name": "Test Paper"})
+
+    assert response.status_code == 422
+
+
 def test_paper_download_rejects_unsafe_output_dir() -> None:
     with TestClient(app) as client:
         absolute_response = client.post(
             "/paper-download/download",
-            json={"name": "Test Paper", "output_dir": "C:/tmp/papers"},
+            json={"title": "Test Paper", "output_dir": "C:/tmp/papers"},
         )
         traversal_response = client.post(
             "/paper-download/download",
-            json={"name": "Test Paper", "output_dir": "../outside"},
+            json={"title": "Test Paper", "output_dir": "../outside"},
         )
         drive_relative_response = client.post(
             "/paper-download/download",
-            json={"name": "Test Paper", "output_dir": "C:tmp"},
+            json={"title": "Test Paper", "output_dir": "C:tmp"},
         )
 
     assert absolute_response.status_code == 422
@@ -136,7 +143,7 @@ def test_paper_download_scopes_runtime_output_dir(monkeypatch, tmp_path: Path) -
     reset_settings()
 
     try:
-        request = PaperDownloadRequest(name="Test Paper", output_dir="daily")
+        request = PaperDownloadRequest(title="Test Paper", output_dir="daily")
         args = PaperDownloadService.build_gpaper_args(request)
 
         assert Path(args.output_dir) == base_output_dir / "daily"

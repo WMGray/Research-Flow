@@ -1,13 +1,13 @@
-"""共享 SQLite schema 片段。
+"""Shared SQLite schema fragments for backend services.
 
-当前仍是轻量 sqlite3 落地，先把 Paper 与 Project 共同使用的表结构集中到
-core，后续可平滑替换为 ORM/Alembic。
+Paper and Project share the same asset, document, and job tables so both
+modules can evolve against one local schema.
 """
 
 from __future__ import annotations
 
 
-# 资产层、文档映射和 Job 表是多个业务模块共同依赖的基础表。
+# Shared asset, document, and job tables reused by multiple services.
 BASE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS physical_item (
     item_id TEXT PRIMARY KEY,
@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_biz_doc_layout_parent ON biz_doc_layout(parent_id
 """
 
 
-# Paper 现有主链路继续复用这份 schema，保持历史 API 行为不变。
+# Paper tables extend the shared base schema with the new P0 contract.
 PAPER_SCHEMA_SQL = (
     BASE_SCHEMA_SQL
     + """
@@ -89,22 +89,66 @@ CREATE TABLE IF NOT EXISTS biz_paper (
     venue_short TEXT NOT NULL DEFAULT '',
     doi TEXT NOT NULL DEFAULT '',
     zotero_id TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'imported',
+    paper_stage TEXT NOT NULL DEFAULT 'metadata_ready',
+    download_status TEXT NOT NULL DEFAULT 'pending',
+    parse_status TEXT NOT NULL DEFAULT 'pending',
+    refine_status TEXT NOT NULL DEFAULT 'pending',
+    review_status TEXT NOT NULL DEFAULT 'pending',
+    note_status TEXT NOT NULL DEFAULT 'empty',
     category_id INTEGER,
-    url TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL DEFAULT '',
     pdf_url TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '[]',
     FOREIGN KEY (asset_id) REFERENCES asset_registry(asset_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_biz_paper_status ON biz_paper(status);
+CREATE TABLE IF NOT EXISTS biz_paper_artifact (
+    artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id INTEGER NOT NULL,
+    asset_id INTEGER NOT NULL,
+    artifact_key TEXT NOT NULL,
+    artifact_type TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL DEFAULT '',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 1,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (paper_id, artifact_key),
+    FOREIGN KEY (paper_id) REFERENCES biz_paper(asset_id),
+    FOREIGN KEY (asset_id) REFERENCES asset_registry(asset_id)
+);
+
+CREATE TABLE IF NOT EXISTS biz_paper_pipeline_run (
+    run_id TEXT PRIMARY KEY,
+    paper_id INTEGER NOT NULL,
+    job_id TEXT,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    input_artifacts TEXT NOT NULL DEFAULT '[]',
+    output_artifacts TEXT NOT NULL DEFAULT '[]',
+    metrics TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (paper_id) REFERENCES biz_paper(asset_id),
+    FOREIGN KEY (job_id) REFERENCES jobs(job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biz_paper_stage ON biz_paper(paper_stage);
 CREATE INDEX IF NOT EXISTS idx_biz_paper_category ON biz_paper(category_id);
 CREATE INDEX IF NOT EXISTS idx_biz_paper_doi ON biz_paper(doi);
+CREATE INDEX IF NOT EXISTS idx_biz_paper_artifact_paper ON biz_paper_artifact(paper_id);
+CREATE INDEX IF NOT EXISTS idx_biz_paper_artifact_key ON biz_paper_artifact(artifact_key);
+CREATE INDEX IF NOT EXISTS idx_biz_paper_pipeline_paper ON biz_paper_pipeline_run(paper_id);
+CREATE INDEX IF NOT EXISTS idx_biz_paper_pipeline_stage ON biz_paper_pipeline_run(stage);
 """
 )
 
 
-# Project P0 当前需要同时查询 Paper 表，因此基于 PAPER_SCHEMA_SQL 扩展。
+# Project tables build on the paper schema because project APIs query linked papers.
 PROJECT_SCHEMA_SQL = (
     PAPER_SCHEMA_SQL
     + """
@@ -112,7 +156,7 @@ CREATE TABLE IF NOT EXISTS biz_project (
     asset_id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     project_slug TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL DEFAULT 'active',
+    status TEXT NOT NULL DEFAULT 'planning',
     summary TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,

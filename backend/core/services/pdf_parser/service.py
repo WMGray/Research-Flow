@@ -108,6 +108,35 @@ class PDFParserService:
             artifact_section_dir=section_artifacts.section_dir,
         )
 
+    async def extract_raw_markdown(
+        self,
+        pdf_path: Path,
+        *,
+        artifact_dir: Path | None = None,
+        progress_callback: ParserProgressCallback | None = None,
+    ) -> MinerUExtractionResult:
+        """Extract MinerU raw Markdown without LLM refine or section splitting."""
+
+        if not pdf_path.exists():
+            raise PDFParserError(
+                "PDF file does not exist.",
+                status_code=404,
+                error_code="PDF_NOT_FOUND",
+            )
+        if not self.config.api_token:
+            raise PDFParserError(
+                "MinerU API token is not configured.",
+                status_code=500,
+                error_code="MINERU_TOKEN_MISSING",
+            )
+
+        artifact_dir = artifact_dir or (pdf_path.parent / "mineru")
+        return await self._extract_with_mineru(
+            pdf_path=pdf_path,
+            artifact_dir=artifact_dir,
+            progress_callback=progress_callback,
+        )
+
     async def parse_existing_markdown(
         self,
         markdown_path: Path,

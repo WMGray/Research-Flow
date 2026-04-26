@@ -10,6 +10,8 @@
 
 ## 当前条目
 
+- [pdf-parser.md](./pdf-parser.md)
+  - `MinerU full.md` 到 `parsed/refined.md` 的 LLM 优化解析设计，覆盖诊断、patch、验证、人工审查与 Agno 接入方式。
 - [zotero-mcp.md](/C:/Users/WMGray/Desktop/Research-Flow/docs/02_backend/services/zotero-mcp.md)
   - `Zotero MCP` 的功能全景与使用说明，覆盖能力介绍、Research-Flow 场景与配置方式。
 - [minimax.md](/C:/Users/WMGray/Desktop/Research-Flow/docs/02_backend/services/llm/minimax.md)

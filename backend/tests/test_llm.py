@@ -18,7 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from core.config import get_settings, reset_settings
 from core.llm_config import LLMFeatureConfig, LLMModelConfig
-from core.services.llm.providers import BaseLLMProvider
+from core.services.llm.providers import BaseLLMProvider, OpenAICompatibleProvider
 from core.services.llm.registry import LLMRegistry, llm_registry
 from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
 
@@ -88,6 +88,62 @@ def test_llm_registry_dispatches_default_feature(monkeypatch: pytest.MonkeyPatch
     assert response.provider == "openai_compatible"
     assert response.model == "deepseek-chat"
     assert response.message.content == "HELLO"
+
+
+def test_openai_compatible_provider_uses_full_system_role_map() -> None:
+    provider = OpenAICompatibleProvider(
+        "compatible",
+        platform=get_settings().llm.platforms["deepseek"],
+    )
+    feature = LLMFeatureConfig(model="chat_fast")
+    model_entry = LLMModelConfig(platform="deepseek", model="deepseek-chat")
+    request = LLMRequest(messages=[LLMMessage(role="user", content="hello")])
+
+    model = provider.build_model(feature, model_entry, request)
+
+    assert model.role_map == {
+        "system": "system",
+        "user": "user",
+        "assistant": "assistant",
+        "tool": "tool",
+        "model": "assistant",
+    }
+    assert model._format_message(  # noqa: SLF001 - compatibility guard for Agno internals
+        provider.to_agno_message(LLMMessage(role="system", content="rules"))
+    )["role"] == "system"
+    assert model._format_message(  # noqa: SLF001 - compatibility guard for Agno internals
+        provider.to_agno_message(LLMMessage(role="user", content="hello"))
+    )["role"] == "user"
+
+
+def test_openai_compatible_provider_routes_response_format_to_model_call() -> None:
+    provider = OpenAICompatibleProvider(
+        "compatible",
+        platform=get_settings().llm.platforms["deepseek"],
+    )
+    feature = LLMFeatureConfig(
+        model="chat_fast",
+        extra={"response_format": {"type": "json_object"}, "extra_body": {"feature": True}},
+    )
+    model_entry = LLMModelConfig(
+        platform="deepseek",
+        model="deepseek-chat",
+        extra={"response_format": {"type": "json_schema"}, "seed": 42},
+    )
+    request = LLMRequest(
+        messages=[LLMMessage(role="user", content="hello")],
+        extra={"response_format": {"type": "json_object"}, "metadata": {"run": "test"}},
+    )
+
+    model = provider.build_model(feature, model_entry, request)
+    kwargs = provider.merged_model_kwargs(feature, model_entry, request)
+
+    assert "response_format" not in kwargs
+    assert provider.response_format(feature, model_entry, request) == {"type": "json_object"}
+    assert kwargs["extra_body"] == {"feature": True}
+    assert kwargs["seed"] == 42
+    assert kwargs["metadata"] == {"run": "test"}
+    assert model.id == "deepseek-chat"
 
 
 def test_llm_registry_auto_registers_platforms_from_toml(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -294,7 +350,7 @@ def test_llm_registry_lists_enabled_models(monkeypatch: pytest.MonkeyPatch) -> N
     assert set(registry.list_models(enabled_only=False).keys()) == {"primary", "shadow"}
 
 
-STATUS_ICON = {"success": "🟢", "failure": "🔴", "warning": "🟡"}
+STATUS_ICON = {"success": "OK", "failure": "FAIL", "warning": "WARN"}
 RESULT_TEXT = {"success": "成功", "failure": "失败", "warning": "异常"}
 
 

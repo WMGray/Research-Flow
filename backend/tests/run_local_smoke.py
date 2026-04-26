@@ -1,7 +1,7 @@
 """本地最小闭环 smoke 脚本。
 
 该脚本不访问网络、不需要 API key，只通过 FastAPI TestClient 验证
-health、Paper CRUD、Paper 文档、parse job、Project 创建和 Paper 关联。
+health、Paper 文档、parse/note 动作、Project 创建和 Paper 关联。
 """
 
 from __future__ import annotations
@@ -22,6 +22,39 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.main import app  # noqa: E402
+from core.config import reset_settings  # noqa: E402
+from core.services.llm import llm_registry  # noqa: E402
+from core.services.llm.schemas import LLMMessage, LLMResponse  # noqa: E402
+
+
+async def fake_generate(request: Any) -> LLMResponse:
+    return LLMResponse(
+        feature=request.feature or "",
+        model_key="fake_markdown_refiner",
+        platform="fake",
+        provider="fake",
+        model="fake-model",
+        message=LLMMessage(
+            role="assistant",
+            content="\n".join(
+                [
+                    "# Local Smoke Paper",
+                    "",
+                    "## Related Work",
+                    "Related work section.",
+                    "",
+                    "## Method",
+                    "Method section.",
+                    "",
+                    "## Experiment",
+                    "Experiment section.",
+                    "",
+                    "## Conclusion",
+                    "Conclusion section.",
+                ]
+            ),
+        ),
+    )
 
 
 def require_ok(response: Any, expected_status: int = 200) -> dict[str, Any]:
@@ -55,16 +88,38 @@ def run_smoke(client: TestClient) -> dict[str, Any]:
     }
     paper = require_ok(client.post("/api/v1/papers", json=paper_payload), 201)["data"]
     paper_id = paper["paper_id"]
+    llm_registry.generate = fake_generate
 
-    papers = require_ok(client.get("/api/v1/papers", params={"q": "Smoke"}))
-    document = require_ok(client.get(f"/api/v1/papers/{paper_id}/documents/human"))["data"]
-    updated_document = require_ok(
+    papers = require_ok(
+        client.get(
+            "/api/v1/papers",
+            params={"q": "Smoke", "paper_stage": "parsed"},
+        )
+    )
+    refine_job = require_ok(
+        client.post(
+            f"/api/v1/papers/{paper_id}/refine-parse",
+            json={"instruction": "Keep canonical section headings."},
+        ),
+        202,
+    )["data"]
+    split_job = require_ok(
+        client.post(f"/api/v1/papers/{paper_id}/split-sections"),
+        202,
+    )["data"]
+    note = require_ok(client.get(f"/api/v1/papers/{paper_id}/note"))["data"]
+    updated_note = require_ok(
         client.put(
-            f"/api/v1/papers/{paper_id}/documents/human",
-            json={"content": "# Local Smoke\n\nReviewed.", "base_version": document["version"]},
+            f"/api/v1/papers/{paper_id}/note",
+            json={"content": "# Local Smoke\n\nReviewed.", "base_version": note["version"]},
         )
     )["data"]
     job = require_ok(client.get(f"/api/v1/jobs/{paper['parse_job_id']}"))["data"]
+    generated_note_job = require_ok(
+        client.post(f"/api/v1/papers/{paper_id}/generate-note"),
+        202,
+    )["data"]
+    final_paper = require_ok(client.get(f"/api/v1/papers/{paper_id}"))["data"]
 
     project = require_ok(
         client.post(
@@ -78,17 +133,25 @@ def run_smoke(client: TestClient) -> dict[str, Any]:
         201,
     )["data"]
     project_id = project["project_id"]
-    linked_papers = require_ok(client.post(f"/api/v1/projects/{project_id}/papers/{paper_id}"))["data"]
+    linked_papers = require_ok(
+        client.post(
+            f"/api/v1/projects/{project_id}/papers:link",
+            json={"paper_id": paper_id, "relation_type": "related_work"},
+        )
+    )["data"]
     project_document = require_ok(client.get(f"/api/v1/projects/{project_id}/documents/overview"))["data"]
 
     return {
         "health": health,
         "paper_id": paper_id,
-        "paper_status": paper["status"],
+        "paper_stage": final_paper["paper_stage"],
         "paper_count": papers["meta"]["total"],
-        "human_doc_version": updated_document["version"],
+        "note_version": updated_note["version"],
         "job_id": job["job_id"],
         "job_status": job["status"],
+        "refine_job_status": refine_job["status"],
+        "split_job_status": split_job["status"],
+        "generate_note_job_status": generated_note_job["status"],
         "project_id": project_id,
         "linked_paper_count": len(linked_papers),
         "project_overview_version": project_document["version"],
@@ -104,8 +167,10 @@ def main() -> int:
     os.environ["RESEARCH_FLOW_ENV_FILE"] = "none"
     os.environ["RFLOW_DB_PATH"] = str(SMOKE_TEMP_ROOT / "research_flow.sqlite")
     os.environ["RFLOW_STORAGE_DIR"] = str(SMOKE_TEMP_ROOT / "storage")
+    reset_settings()
     with TestClient(app) as client:
         summary = run_smoke(client)
+    reset_settings()
     shutil.rmtree(SMOKE_TEMP_ROOT, ignore_errors=True)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

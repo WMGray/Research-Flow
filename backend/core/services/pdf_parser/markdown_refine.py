@@ -30,6 +30,14 @@ def build_markdown_refine_prompt(prompt_template: str, markdown_text: str) -> st
     return f"{prompt_template.rstrip()}\n\n<markdown>\n{markdown_text}\n</markdown>"
 
 
+def resolve_markdown_refine_prompt(config: MarkdownRefineConfig) -> str:
+    if config.prompt.strip():
+        return config.prompt
+    from core.services.papers.prompt_runtime import load_prompt_template
+
+    return load_prompt_template(config.prompt_template_key)
+
+
 def strip_markdown_fence(text: str) -> str:
     stripped = text.strip()
     if not stripped.startswith("```"):
@@ -68,7 +76,10 @@ async def refine_markdown_with_llm(
         messages=[
             LLMMessage(
                 role="user",
-                content=build_markdown_refine_prompt(config.prompt, markdown_text),
+                content=build_markdown_refine_prompt(
+                    resolve_markdown_refine_prompt(config),
+                    markdown_text,
+                ),
             )
         ],
     )
@@ -97,5 +108,6 @@ __all__ = [
     "MarkdownRefineResult",
     "build_markdown_refine_prompt",
     "refine_markdown_with_llm",
+    "resolve_markdown_refine_prompt",
     "strip_markdown_fence",
 ]

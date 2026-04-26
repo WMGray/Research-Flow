@@ -248,6 +248,7 @@ def _apply_flat_env_overrides(settings: Settings) -> Settings:
         (
             "PDF_PARSER_MARKDOWN_REFINE_ENABLED",
             "PDF_PARSER_MARKDOWN_REFINE_FEATURE",
+            "PDF_PARSER_MARKDOWN_REFINE_PROMPT_TEMPLATE_KEY",
             "PDF_PARSER_MARKDOWN_REFINE_PROMPT",
             "PDF_PARSER_MARKDOWN_REFINE_MAX_INPUT_CHARS",
             "PDF_PARSER_MARKDOWN_REFINE_OUTPUT_FILENAME",

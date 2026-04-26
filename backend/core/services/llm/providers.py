@@ -11,6 +11,16 @@ from core.llm_config import LLMFeatureConfig, LLMModelConfig, LLMPlatformConfig
 from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse, LLMUsage
 
 
+OPENAI_COMPATIBLE_ROLE_MAP = {
+    "system": "system",
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
+    "model": "assistant",
+}
+MODEL_CALL_EXTRA_KEYS = {"response_format"}
+
+
 class BaseLLMProvider(ABC):
     """Provider 适配层：负责把功能配置和模型库条目转换成 Agno 调用。"""
 
@@ -21,7 +31,7 @@ class BaseLLMProvider(ABC):
     async def generate(self, feature_name: str, feature: LLMFeatureConfig, model_key: str, model_entry: LLMModelConfig, request: LLMRequest) -> LLMResponse:
         model = self.build_model(feature, model_entry, request)
         messages = self.build_messages(feature, request.messages)
-        model_response = await model.aresponse(messages=messages)
+        model_response = await model.aresponse(messages=messages, response_format=self.response_format(feature, model_entry, request))
         return self.build_response(feature_name, model_key, model_entry, model_response)
 
     @abstractmethod
@@ -75,17 +85,29 @@ class BaseLLMProvider(ABC):
         if reasoning_effort is not None:
             kwargs["reasoning_effort"] = reasoning_effort
 
-        kwargs.update(model_entry.extra)
-        kwargs.update(feature.extra)
-        kwargs.update(request.extra)
+        kwargs.update(self._model_init_extra(model_entry.extra))
+        kwargs.update(self._model_init_extra(feature.extra))
+        kwargs.update(self._model_init_extra(request.extra))
         return {key: value for key, value in kwargs.items() if value is not None}
+
+    def _model_init_extra(self, extra: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in extra.items() if key not in MODEL_CALL_EXTRA_KEYS}
+
+    def response_format(self, feature: LLMFeatureConfig, model_entry: LLMModelConfig, request: LLMRequest) -> Any:
+        return (
+            request.extra.get("response_format")
+            or feature.extra.get("response_format")
+            or model_entry.extra.get("response_format")
+        )
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
     def build_model(self, feature: LLMFeatureConfig, model_entry: LLMModelConfig, request: LLMRequest) -> Model:
         from agno.models.openai import OpenAIChat
 
-        return OpenAIChat(**self.merged_model_kwargs(feature, model_entry, request))
+        kwargs = self.merged_model_kwargs(feature, model_entry, request)
+        kwargs.setdefault("role_map", OPENAI_COMPATIBLE_ROLE_MAP.copy())
+        return OpenAIChat(**kwargs)
 
 
 class AnthropicProvider(BaseLLMProvider):

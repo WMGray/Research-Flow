@@ -21,7 +21,7 @@ DEFAULT_CASES: dict[str, dict[str, Any]] = {
     "direct_pdf": {
         "description": "直接 PDF URL，覆盖 gPaper 的 direct PDF + final probe 路径。",
         "request": {
-            "url": "https://arxiv.org/pdf/1706.03762.pdf",
+            "source_url": "https://arxiv.org/pdf/1706.03762.pdf",
             "title": "Attention Is All You Need",
             "year": "2017",
             "venue": "NeurIPS",
@@ -30,7 +30,7 @@ DEFAULT_CASES: dict[str, dict[str, Any]] = {
     "arxiv_url": {
         "description": "arXiv 摘要页 URL，覆盖 arXiv -> metadata -> official/fallback 路径。",
         "request": {
-            "url": "https://arxiv.org/abs/1706.03762",
+            "source_url": "https://arxiv.org/abs/1706.03762",
             "title": "Attention Is All You Need",
             "year": "2017",
             "venue": "NeurIPS",
@@ -48,7 +48,7 @@ DEFAULT_CASES: dict[str, dict[str, Any]] = {
     "title_search": {
         "description": "仅标题查询，覆盖 gPaper title search fallback 链。",
         "request": {
-            "name": "Attention Is All You Need",
+            "title": "Attention Is All You Need",
             "year": "2017",
             "venue": "NeurIPS",
         },

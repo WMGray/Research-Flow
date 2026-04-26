@@ -1,8 +1,3 @@
-"""Project P0 API 回归测试。
-
-测试覆盖 Project 创建、六模块初始化、文档版本控制和 Paper 关联。
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -17,8 +12,6 @@ from app.main import app
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClient]:
-    """创建隔离的测试客户端，每个测试使用独立数据库和存储目录。"""
-
     monkeypatch.setenv("RFLOW_DB_PATH", str(tmp_path / "research_flow.sqlite"))
     monkeypatch.setenv("RFLOW_STORAGE_DIR", str(tmp_path / "storage"))
     with TestClient(app) as test_client:
@@ -26,8 +19,6 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
 
 
 def create_project(client: TestClient) -> dict:
-    """通过 API 创建一个示例 Project。"""
-
     response = client.post(
         "/api/v1/projects",
         json={
@@ -43,14 +34,13 @@ def create_project(client: TestClient) -> dict:
 
 
 def create_paper(client: TestClient) -> dict:
-    """通过 API 创建一个可被 Project 关联的示例 Paper。"""
-
     response = client.post(
         "/api/v1/papers",
         json={
             "title": "LoRA: Low-Rank Adaptation of Large Language Models",
             "authors": ["Edward J. Hu"],
             "doi": "10.48550/arXiv.2106.09685",
+            "source_url": "https://arxiv.org/abs/2106.09685",
         },
     )
     assert response.status_code == 201
@@ -58,15 +48,13 @@ def create_paper(client: TestClient) -> dict:
 
 
 def test_project_crud_initializes_six_documents(client: TestClient) -> None:
-    """验证 Project CRUD 与六个默认模块文档初始化。"""
-
     project = create_project(client)
     project_id = project["project_id"]
 
-    assert project["status"] == "active"
+    assert project["status"] == "planning"
     assert set(project["assets"]) == {
         "overview",
-        "related-work",
+        "related_work",
         "method",
         "experiment",
         "conclusion",
@@ -79,91 +67,102 @@ def test_project_crud_initializes_six_documents(client: TestClient) -> None:
 
     update_response = client.patch(
         f"/api/v1/projects/{project_id}",
-        json={"status": "paused", "summary": "Paused for review."},
+        json={"status": "writing", "summary": "Drafting the paper."},
     )
     assert update_response.status_code == 200
-    assert update_response.json()["data"]["status"] == "paused"
+    assert update_response.json()["data"]["status"] == "writing"
 
     detail_response = client.get(f"/api/v1/projects/{project_id}")
     assert detail_response.status_code == 200
-    assert detail_response.json()["data"]["summary"] == "Paused for review."
+    assert detail_response.json()["data"]["summary"] == "Drafting the paper."
 
 
-def test_project_documents_are_versioned(client: TestClient) -> None:
-    """验证 Project 模块文档读写和乐观版本冲突检测。"""
+def test_project_rejects_legacy_status_input(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Legacy Status Project",
+            "status": "active",
+        },
+    )
 
+    assert response.status_code == 422
+
+
+def test_project_documents_use_related_work_role(client: TestClient) -> None:
     project = create_project(client)
     project_id = project["project_id"]
 
-    get_response = client.get(f"/api/v1/projects/{project_id}/documents/method")
+    get_response = client.get(f"/api/v1/projects/{project_id}/documents/related_work")
     assert get_response.status_code == 200
-    document = get_response.json()["data"]
-    assert document["version"] == 1
-    assert document["content"].startswith("# Method")
+    assert get_response.json()["data"]["doc_role"] == "related_work"
 
     update_response = client.put(
-        f"/api/v1/projects/{project_id}/documents/method",
-        json={"content": "# Method\n\nNew idea.", "base_version": 1},
+        f"/api/v1/projects/{project_id}/documents/related_work",
+        json={"content": "# Related Work\n\nPaper cluster.", "base_version": 1},
     )
     assert update_response.status_code == 200
-    updated = update_response.json()["data"]
-    assert updated["version"] == 2
-    assert "New idea." in updated["content"]
+    assert update_response.json()["data"]["version"] == 2
+    assert "Paper cluster." in update_response.json()["data"]["content"]
 
-    conflict_response = client.put(
-        f"/api/v1/projects/{project_id}/documents/method",
-        json={"content": "stale", "base_version": 1},
-    )
-    assert conflict_response.status_code == 409
-    assert (
-        conflict_response.json()["detail"]["code"]
-        == "PROJECT_DOCUMENT_VERSION_CONFLICT"
-    )
+    legacy_response = client.get(f"/api/v1/projects/{project_id}/documents/related-work")
+    assert legacy_response.status_code == 422
 
 
-def test_project_can_link_existing_paper(
+def test_project_can_link_and_unlink_existing_paper(
     client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """验证 Project 可以关联已有 Paper，并写入 asset_link。"""
-
     db_path = tmp_path / "research_flow.sqlite"
-    monkeypatch.setenv("RFLOW_DB_PATH", str(db_path))
-    monkeypatch.setenv("RFLOW_STORAGE_DIR", str(tmp_path / "storage"))
-
     paper = create_paper(client)
     project = create_project(client)
 
     link_response = client.post(
-        f"/api/v1/projects/{project['project_id']}/papers/{paper['paper_id']}"
+        f"/api/v1/projects/{project['project_id']}/papers:link",
+        json={"paper_id": paper["paper_id"], "relation_type": "related_work"},
     )
     assert link_response.status_code == 200
     linked = link_response.json()["data"]
     assert linked[0]["paper_id"] == paper["paper_id"]
-    assert linked[0]["relation_type"] == "REFERENCES"
+    assert linked[0]["relation_type"] == "related_work"
 
     list_response = client.get(f"/api/v1/projects/{project['project_id']}/papers")
     assert list_response.status_code == 200
     assert list_response.json()["data"][0]["title"].startswith("LoRA")
 
+    unlink_response = client.delete(
+        f"/api/v1/projects/{project['project_id']}/papers/{paper['paper_id']}"
+    )
+    assert unlink_response.status_code == 200
+    assert unlink_response.json()["data"] == {
+        "project_id": project["project_id"],
+        "paper_id": paper["paper_id"],
+    }
+
+    empty_response = client.get(f"/api/v1/projects/{project['project_id']}/papers")
+    assert empty_response.status_code == 200
+    assert empty_response.json()["data"] == []
+
     with sqlite3.connect(db_path) as conn:
         doc_count = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM biz_doc_layout
-            WHERE parent_id = ?
-            """,
+            "SELECT COUNT(*) FROM biz_doc_layout WHERE parent_id = ?",
             (project["project_id"],),
         ).fetchone()[0]
         paper_link_count = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM asset_link
-            WHERE source_id = ? AND target_id = ? AND relation_type = 'REFERENCES'
-            """,
+            "SELECT COUNT(*) FROM asset_link WHERE source_id = ? AND target_id = ?",
             (project["project_id"], paper["paper_id"]),
         ).fetchone()[0]
 
     assert doc_count == 6
-    assert paper_link_count == 1
+    assert paper_link_count == 0
+
+
+def test_project_link_legacy_route_is_removed(client: TestClient) -> None:
+    paper = create_paper(client)
+    project = create_project(client)
+
+    response = client.post(
+        f"/api/v1/projects/{project['project_id']}/papers/{paper['paper_id']}"
+    )
+
+    assert response.status_code == 405

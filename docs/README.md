@@ -28,6 +28,8 @@ docs/
 │   ├── 架构概览.md               ✓
 │   ├── 数据模型.md               ✓
 │   ├── 表设计.md                ✓
+│   ├── 功能状态.md               ✓
+│   ├── 全局风险排查.md            ✓
 │   ├── modules/
 │   │   ├── 文献管理.md           ✓
 │   │   ├── 课题管理.md           ✓
@@ -42,6 +44,7 @@ docs/
 │   │   └── 定时任务.md           ○
 │   └── services/                ← 第三方服务接入文档
 │       ├── README.md            ✓
+│       ├── pdf-parser.md        ✓
 │       ├── zotero-mcp.md        ✓
 │       ├── llm/
 │       │   └── minimax.md       ✓

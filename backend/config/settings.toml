@@ -43,19 +43,9 @@ llm_pdf_section_chars = 2600
 [pdf_parser.markdown_refine]
 enabled = true
 feature = "pdf_markdown_refiner"
+prompt_template_key = "paper_refine_parse.default"
 output_filename = "LLM.refined.md"
 fail_open = true
-prompt = """
-Rewrite the following MinerU Markdown for downstream section splitting.
-
-Requirements:
-- Preserve all factual content, equations, citations, tables, and image links.
-- Normalize heading levels and remove obvious OCR or layout artifacts.
-- Do not summarize, translate, add new content, or remove technical details.
-- Return only Markdown, with no explanations outside the Markdown.
-
-{{markdown}}
-"""
 
 [llm]
 default_feature = "default_chat"
@@ -109,4 +99,29 @@ model = "chat_fast"
 [llm.features.pdf_markdown_refiner]
 model = "chat_kimi_26"
 system_prompt = "You are a careful academic Markdown editor. Return only cleaned Markdown."
+temperature = 0.1
+
+[llm.features.pdf_markdown_refine_diagnose]
+model = "chat_fast"
+system_prompt = "You diagnose MinerU academic Markdown and return only JSON."
+temperature = 0.0
+
+[llm.features.pdf_markdown_refine_repair]
+model = "chat_fast"
+system_prompt = "You emit deterministic line-based Markdown repair patches as JSON."
+temperature = 0.0
+
+[llm.features.pdf_markdown_refine_verify]
+model = "chat_fast"
+system_prompt = "You verify academic Markdown refinements and return only JSON."
+temperature = 0.0
+
+[llm.features.paper_section_splitter]
+model = "chat_fast"
+system_prompt = "You map academic paper headings to canonical section line ranges and return only JSON."
+temperature = 0.0
+
+[llm.features.paper_note_summarizer]
+model = "chat_fast"
+system_prompt = "You generate evidence-grounded academic paper notes and return only JSON."
 temperature = 0.1

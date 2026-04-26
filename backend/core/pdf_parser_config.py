@@ -3,16 +3,7 @@ from __future__ import annotations
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
-DEFAULT_MARKDOWN_REFINE_PROMPT = """Rewrite the following MinerU Markdown for downstream section splitting.
-
-Requirements:
-- Preserve all factual content, equations, citations, tables, and image links.
-- Normalize heading levels and remove obvious OCR or layout artifacts.
-- Do not summarize, translate, add new content, or remove technical details.
-- Return only Markdown, with no explanations outside the Markdown.
-
-{{markdown}}
-"""
+DEFAULT_MARKDOWN_REFINE_TEMPLATE_KEY = "paper_refine_parse.default"
 
 
 class MarkdownRefineConfig(BaseModel):
@@ -28,8 +19,15 @@ class MarkdownRefineConfig(BaseModel):
         default="pdf_markdown_refiner",
         validation_alias=AliasChoices("feature", "PDF_PARSER_MARKDOWN_REFINE_FEATURE"),
     )
+    prompt_template_key: str = Field(
+        default=DEFAULT_MARKDOWN_REFINE_TEMPLATE_KEY,
+        validation_alias=AliasChoices(
+            "prompt_template_key",
+            "PDF_PARSER_MARKDOWN_REFINE_PROMPT_TEMPLATE_KEY",
+        ),
+    )
     prompt: str = Field(
-        default=DEFAULT_MARKDOWN_REFINE_PROMPT,
+        default="",
         validation_alias=AliasChoices("prompt", "PDF_PARSER_MARKDOWN_REFINE_PROMPT"),
     )
     max_input_chars: int | None = Field(

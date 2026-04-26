@@ -2,29 +2,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PaperResolveRequest(BaseModel):
-    # 三种输入只允许三选一，和 gPaper 原生入口保持一致。
-    url: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    source_url: str | None = None
     doi: str | None = None
-    name: str | None = None
-    title: str = ""
+    title: str | None = None
     year: str = ""
     venue: str = ""
 
     @model_validator(mode="after")
     def validate_single_input(self) -> "PaperResolveRequest":
-        # 这里不额外引入复杂请求结构，直接约束 gPaper 支持的三类主输入。
-        provided = [bool(self.url), bool(self.doi), bool(self.name)]
+        provided = [bool(self.source_url), bool(self.doi), bool(self.title)]
         if sum(provided) != 1:
-            raise ValueError("Exactly one of url, doi, or name must be provided.")
+            raise ValueError("Exactly one of source_url, doi, or title must be provided.")
         return self
 
 
 class PaperDownloadRequest(PaperResolveRequest):
-    # download 相比 resolve 只多两个运行时选项。
     output_dir: str | None = None
     overwrite: bool | None = None
 

@@ -22,9 +22,9 @@ from core.services.pdf_parser import PDFParserService
 # Default: run full pipeline. Use --download-only to skip parsing.
 RUN_PARSE_PIPELINE = True
 
-# Add one dict per paper. Each dict must contain exactly one of url / doi / name.
+# Add one dict per paper. Each dict must contain exactly one of source_url / doi / title.
 PAPER_QUERIES: list[dict[str, str]] = [
-    {"url": "https://arxiv.org/abs/1706.03762"},
+    {"source_url": "https://arxiv.org/abs/1706.03762"},
 ]
 
 OUTPUT_DIR = Path("data/papers/service_smoke")
@@ -42,17 +42,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_paper_query(query: dict[str, str], index: int) -> dict[str, str]:
-    allowed_keys = {"url", "doi", "name"}
+    allowed_keys = {"source_url", "doi", "title"}
     unknown_keys = set(query) - allowed_keys
     if unknown_keys:
         raise ValueError(
-            f"Only url / doi / name are allowed in PAPER_QUERIES[{index}], got: {sorted(unknown_keys)}"
+            f"Only source_url / doi / title are allowed in PAPER_QUERIES[{index}], got: {sorted(unknown_keys)}"
         )
 
     provided = {key: value for key, value in query.items() if value}
     if len(provided) != 1:
         raise ValueError(
-            f"PAPER_QUERIES[{index}] must provide exactly one of url / doi / name, got: {sorted(provided)}"
+            f"PAPER_QUERIES[{index}] must provide exactly one of source_url / doi / title, got: {sorted(provided)}"
         )
     return provided
 

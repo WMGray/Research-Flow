@@ -37,10 +37,17 @@ build/
 .pytest_cache/
 backend/.pytest-basetemp/
 backend/.pytest-basetemp*/
+backend/.pytest-*/
+backend/.codex*/
 backend/.smoke-tmp/
 backend/.uv-cache/
 backend/acl_probe_pytest_mode/
+backend/codex_tmp/
+backend/pytest_*/
 backend/tmp*/
+.pytest-local-*/
+pytest_tmp*/
+data/tmp/
 .coverage
 coverage.xml
 htmlcov/

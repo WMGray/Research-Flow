@@ -5,11 +5,16 @@ from core.services.papers.models import (
     DocumentUpdateInput,
     DocumentVersionConflictError,
     DuplicatePaperError,
+    JobCancelNotAllowedError,
+    JobListInput,
+    JobNotFoundError,
     PaperCreateInput,
     PaperListInput,
     PaperNotFoundError,
+    PaperPipelineInput,
     PaperUpdateInput,
     ParsePaperInput,
+    RefineParseInput,
 )
 from core.services.papers.service import PaperService
 
@@ -18,10 +23,15 @@ __all__ = [
     "DocumentUpdateInput",
     "DocumentVersionConflictError",
     "DuplicatePaperError",
+    "JobCancelNotAllowedError",
+    "JobListInput",
+    "JobNotFoundError",
     "PaperCreateInput",
     "PaperListInput",
     "PaperNotFoundError",
+    "PaperPipelineInput",
     "PaperService",
     "PaperUpdateInput",
     "ParsePaperInput",
+    "RefineParseInput",
 ]
