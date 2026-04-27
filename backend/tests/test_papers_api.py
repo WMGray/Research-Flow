@@ -746,7 +746,7 @@ def test_extract_actions_write_final_jobs(
     assert datasets_response.json()["data"]["status"] == "succeeded"
 
     paper_response = client.get(f"/api/v1/papers/{paper_id}")
-    assert paper_response.json()["data"]["paper_stage"] == "dataset_extracted"
+    assert paper_response.json()["data"]["paper_stage"] == "completed"
 
 
 def test_cancel_rejects_finished_job(client: TestClient) -> None:

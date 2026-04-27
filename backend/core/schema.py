@@ -144,6 +144,79 @@ CREATE INDEX IF NOT EXISTS idx_biz_paper_artifact_paper ON biz_paper_artifact(pa
 CREATE INDEX IF NOT EXISTS idx_biz_paper_artifact_key ON biz_paper_artifact(artifact_key);
 CREATE INDEX IF NOT EXISTS idx_biz_paper_pipeline_paper ON biz_paper_pipeline_run(paper_id);
 CREATE INDEX IF NOT EXISTS idx_biz_paper_pipeline_stage ON biz_paper_pipeline_run(stage);
+
+CREATE TABLE IF NOT EXISTS biz_note_state (
+    paper_id INTEGER PRIMARY KEY,
+    note_doc_id INTEGER,
+    note_status TEXT NOT NULL DEFAULT 'empty',
+    document_hash TEXT NOT NULL DEFAULT '',
+    managed_block_hash_json TEXT NOT NULL DEFAULT '{}',
+    last_generated_at TEXT,
+    last_user_modified_at TEXT,
+    last_merge_policy TEXT NOT NULL DEFAULT '',
+    conflict_reason TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (paper_id) REFERENCES biz_paper(asset_id),
+    FOREIGN KEY (note_doc_id) REFERENCES asset_registry(asset_id)
+);
+
+CREATE TABLE IF NOT EXISTS biz_knowledge (
+    asset_id INTEGER PRIMARY KEY,
+    knowledge_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary_zh TEXT NOT NULL DEFAULT '',
+    original_text_en TEXT DEFAULT '',
+    citation_marker TEXT DEFAULT '',
+    category_label TEXT DEFAULT '',
+    research_field TEXT DEFAULT '',
+    source_paper_asset_id INTEGER,
+    source_section TEXT DEFAULT '',
+    source_locator TEXT DEFAULT '',
+    evidence_text TEXT DEFAULT '',
+    confidence_score REAL DEFAULT 0.0,
+    review_status TEXT NOT NULL DEFAULT 'pending_review',
+    llm_run_id TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (asset_id) REFERENCES asset_registry(asset_id),
+    FOREIGN KEY (source_paper_asset_id) REFERENCES biz_paper(asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biz_knowledge_source_paper ON biz_knowledge(source_paper_asset_id);
+CREATE INDEX IF NOT EXISTS idx_biz_knowledge_type ON biz_knowledge(knowledge_type);
+CREATE INDEX IF NOT EXISTS idx_biz_knowledge_confidence ON biz_knowledge(confidence_score);
+
+CREATE TABLE IF NOT EXISTS biz_dataset (
+    asset_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    normalized_name TEXT DEFAULT '',
+    aliases_json TEXT NOT NULL DEFAULT '[]',
+    task_type TEXT NOT NULL DEFAULT '',
+    data_domain TEXT NOT NULL DEFAULT '',
+    scale TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    access_url TEXT NOT NULL DEFAULT '',
+    benchmark_summary TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (asset_id) REFERENCES asset_registry(asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biz_dataset_name ON biz_dataset(name);
+CREATE INDEX IF NOT EXISTS idx_biz_dataset_normalized ON biz_dataset(normalized_name);
+
+CREATE TABLE IF NOT EXISTS biz_category (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    parent_id INTEGER,
+    path TEXT NOT NULL UNIQUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (parent_id) REFERENCES biz_category(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biz_category_parent ON biz_category(parent_id);
+CREATE INDEX IF NOT EXISTS idx_biz_category_path ON biz_category(path);
 """
 )
 

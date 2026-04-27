@@ -58,7 +58,7 @@ backend/
 
 `app/` 当前只保留 HTTP API、请求/响应 schema、应用生命周期和任务投递入口；`core/services/papers/` 已完成 DTO 分离，不再依赖 `app.schemas`。后续目标位置：`core/models/` 承载 ORM，`core/database.py` 承载两边共享的数据库连接。
 
-当前代码与目标文档之间的功能状态、已挂载 API 和 schema 缺口见 [`docs/02_backend/功能状态.md`](../docs/02_backend/功能状态.md)。截至 2026-04-26，Paper / Project / Job 已具备本地 P0 雏形；真实异步队列、完整 Category / Config API、Knowledge / Dataset / Presentation CRUD 仍未完整落地。
+截至 2026-04-27，Paper / Project / Job 已具备本地 P0 雏形；真实异步队列、完整 Category / Config API、Knowledge / Dataset / Presentation CRUD 仍未完整落地。当前实现状态以 `backend/core/`、`backend/app/api/` 与 `backend/tests/` 为准，长期目标设计见 `docs/02_backend/`。
 
 ---
 

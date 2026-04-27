@@ -90,6 +90,7 @@ parsed/
     diagnosis.json
     patches.json
     patch_apply_report.json
+    prompt_context.json
     verify.json
     review_items.json
   sections/
@@ -329,40 +330,52 @@ create paper
 - `generate-note` 不应直接消费未确认的 `refined.md`。
 - 如果重新执行 `parse` 或 `refine-parse`，下游 `sections`、`note`、Knowledge / Dataset 状态应失效或要求显式确认。
 
-## 10. 当前实现差距
+## 10. 当前落地状态
 
-当前代码已有：
+当前 runtime 已把 MinerU `full.md` 优化从“LLM 直接重写整篇 Markdown”收敛为“LLM 诊断并产出 patch，后端确定性应用 patch”的受控流程。
 
-- `PDFParserService`
-- MinerU 配置与测试
-- `paper_refine_parse` skill binding 雏形
-- `parsed/raw.md` 与 `parsed/refined.md` 路由
-- `submit-review` / `confirm-review`
+已落地模块：
 
-尚需补齐：
+- `backend/core/services/papers/refine_runtime.py`：编排 diagnose / repair / verify。
+- `backend/core/services/papers/refine_parsing.py`：line index、issue / patch / report 数据结构、LLM JSON 解析、结构证据窗口与 payload 归一化。
+- `backend/core/services/papers/refine_patch.py`：patch apply engine 与本地 preservation checks。
 
-- 将 MinerU `full.md` 真正接入 PaperService 的 `parse`
-- `diagnosis.json`、`patches.json`、`verify.json` 产物
-- patch apply engine
-- verifier
-- 低置信度 review item 展示
-- `SkillBinding` 拆分为 diagnose / repair / verify
-- 状态机前置约束和下游失效策略
+已接入配置：
 
-## 11. 第一阶段落地建议
+- `backend/config/skill_bindings.toml` 已将 `paper_refine_parse` 拆为：
+  - `paper_refine_parse.diagnose`
+  - `paper_refine_parse.repair`
+  - `paper_refine_parse.verify`
+- `backend/config/prompt_templates.toml` 注册对应 prompt 文件。
+- `backend/config/prompts/paper_refine.md` 合并保存 `diagnose`、`repair`、`verify`、`default` 四个 section。
+- legacy `pdf_parser.markdown_refine` 默认通过 `prompt_template_key = "paper_refine_parse.default"` 读取同一份 prompt；`prompt` 字段只作为显式覆盖入口。
 
-第一阶段不追求视觉级 PDF reconstruction，先完成基于 `full.md` 的可靠优化闭环：
+安全边界：
 
-1. `parse` 保存 MinerU `full.md` 为 `parsed/raw.md`。
-2. 为 raw markdown 生成 line index 和 hash。
-3. `diagnose` 输出问题清单。
-4. `repair` 只针对问题 span 输出 patch。
-5. 程序应用高置信度 patch。
-6. verifier 生成报告。
-7. `refined.md` 进入人工审查。
+- 后端只在 verifier 未失败时写入 `parsed/refined.md`。
+- 本地检查会拦截 citation、number、formula、image link 与异常长度变化。
+- LLM `pass` 不能覆盖本地 preservation check 的 `fail`。
+- 低置信度、重叠、越界、空 replacement、未知 op 的 patch 会被拒绝并进入 apply report。
+- LLM 控制 JSON 解析失败时执行 warning/no-op：保留 raw markdown，不应用不可信 patch，并把 warning 写入 refine artifacts。
 
-若遇到 `full.md` 无法判断的问题，再标记 `needs_pdf_context`，后续结合 content list、bbox 或 page image 扩展。
+## 11. 当前限制与下一阶段建议
+
+当前限制：
+
+- API job 仍是同步执行并立即落库，不是真正异步队列。
+- patch engine 暂不支持复杂 `move_span` 自动应用，遇到大范围 reading-order 错乱应先 `mark_needs_review`。
+- 部分 LLM provider 可能返回非严格 JSON；后续应接入 JSON mode、schema enforcement 或 repair-on-invalid。
+- 低置信度 review item 的前端展示与人工确认体验仍需补齐。
+- 如果重新执行 `parse` 或 `refine-parse`，下游 `sections`、`note`、Knowledge / Dataset 状态应失效或要求显式确认。
+
+下一阶段优先级：
+
+1. 完成异步 worker 化，避免长任务阻塞 API 请求。
+2. 为 `review_items.json` 提供 API 与前端审查视图。
+3. 将下游失效策略接入状态机。
+4. 引入 schema-enforced JSON 输出，降低 LLM 控制 JSON 解析失败率。
+5. 对 `needs_pdf_context` 的问题再结合 content list、bbox 或 page image 扩展。
 
 ---
 
-*文档版本：v0.1 | 最后更新：2026-04-26*
+*文档版本：v0.2 | 最后更新：2026-04-27*

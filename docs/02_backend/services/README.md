@@ -5,8 +5,8 @@
 ## 当前优先级
 
 - `P0`：`LLM / Agent` 相关配置、模型接入与云服务基础能力
-- `P1`：与 `Project`、`Presentation`、`Knowledge` 生成相关的服务接入
-- `P2`：`Zotero`、每日推荐抓取等外围接入
+- `P1`：与 `Project`、`Presentation`、`Knowledge` 生成以及 Daily Feed 抓取相关的服务接入
+- `P2`：`Zotero`、Recommendation、会议追踪等外围接入
 
 ## 当前条目
 

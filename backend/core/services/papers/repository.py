@@ -1080,7 +1080,7 @@ class PaperRepository:
                 SET paper_stage = ?
                 WHERE asset_id = ?
                 """,
-                ("dataset_extracted", paper_id),
+                ("completed", paper_id),
             )
             conn.execute(
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",

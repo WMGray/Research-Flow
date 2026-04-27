@@ -165,10 +165,9 @@ make clean       # 清理构建产物与缓存
 | 目录 | 说明 |
 |------|------|
 | [`docs/00_overview/`](./docs/00_overview/) | 项目背景与用户需求文档 |
-| [`docs/01_frontend/`](./docs/01_frontend/) | 前端设计文档 |
 | [`docs/02_backend/`](./docs/02_backend/) | 后端架构文档 |
 | [`docs/03_api/`](./docs/03_api/) | API 接口文档 |
-| [`docs/04_reference/`](./docs/04_reference/) | 参考资料 |
+| [`docs/04_reference/`](./docs/04_reference/) | 参考资料与前端参考素材 |
 
 ---
 
