@@ -15,7 +15,7 @@ from app.schemas.paper_download import (
     PaperResolveRequest,
     PaperResolveResponse,
 )
-from core.services.paper_download.service import PaperDownloadService
+from core.services.papers.download import PaperDownloadService
 
 
 router = APIRouter(prefix="/paper-download", tags=["paper_download"])

@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core.services.pdf_parser.sections import ParsedPaperSection
+from .sections import ParsedPaperSection
 
 
 ParserProgressCallback = Callable[[str, str], Awaitable[None] | None]

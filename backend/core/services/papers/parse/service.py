@@ -18,16 +18,16 @@ from core.config import Settings
 from core.mineru_config import MinerUConfig
 from core.pdf_parser_config import PDFParserConfig
 from core.services.llm.registry import llm_registry
-from core.services.pdf_parser.context import build_parsed_content_llm_context
-from core.services.pdf_parser.markdown_refine import LLMGenerateClient, refine_markdown_with_llm
-from core.services.pdf_parser.models import (
+from .context import build_parsed_content_llm_context
+from .markdown_refine import LLMGenerateClient, refine_markdown_with_llm
+from .models import (
     MinerUExtractionResult,
     ParsedPaperContent,
     ParserProgressCallback,
     PDFParserError,
 )
-from core.services.pdf_parser.postprocess import ProcessedMarkdownArtifacts, process_mineru_markdown_artifacts
-from core.services.pdf_parser.sections import SectionArtifacts, split_key_sections
+from .postprocess import ProcessedMarkdownArtifacts, process_mineru_markdown_artifacts
+from .sections import SectionArtifacts, split_key_sections
 
 
 class PDFParserService:

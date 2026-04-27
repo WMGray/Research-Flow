@@ -5,7 +5,8 @@ from difflib import SequenceMatcher
 import hashlib
 import re
 
-from core.services.papers.refine_parsing import (
+from .image_annotations import normalize_image_annotations
+from .parsing import (
     DeterministicNormalizationOperation,
     DeterministicNormalizationReport,
 )
@@ -18,9 +19,10 @@ NUMBERED_HEADING_RE = re.compile(
 LETTER_HEADING_RE = re.compile(
     r"^(?P<number>[A-H])(?:\.)?\s+(?P<title>\S.{0,180})$"
 )
+APPENDIX_CHILD_HEADING_RE = re.compile(
+    r"^(?P<number>[A-H](?:\.\d+)+)(?:\.)?\s+(?P<title>\S.{0,180})$"
+)
 BULLET_RE = re.compile(r"^(?P<indent>\s*)[\u2022\u25cf\u25aa]\s+")
-IMAGE_RE = re.compile(r"^\s*!\[[^\]]*]\([^)]+\)")
-CAPTION_RE = re.compile(r"^\s*(?:fig(?:ure)?|table)\s*\d+", re.IGNORECASE)
 SENTENCE_END_RE = re.compile(r"[.!?。！？]\s*$")
 SPACED_LETTER_RUN_RE = re.compile(r"(?<![A-Za-z])(?:[A-Za-z]\s+){2,}[A-Za-z](?![A-Za-z])")
 TERM_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9-]{1,}\b")
@@ -52,7 +54,12 @@ def normalize_markdown_structure(
     first_content_line = _first_content_line(entries)
     term_case_map = _build_term_case_map(markdown_text)
     entries = _normalize_lines(entries, first_content_line, expected_title, term_case_map, operations)
-    entries = _remove_image_caption_gap(entries, operations)
+    entries = normalize_image_annotations(
+        entries,
+        operations,
+        make_line=_LineEntry,
+        make_operation=_operation_from_args,
+    )
     entries = _collapse_blank_runs(entries, operations)
 
     normalized_text = "\n".join(entry.text for entry in entries).rstrip() + "\n"
@@ -146,7 +153,7 @@ def _normalize_heading(
         return line
 
     canonical = _canonical_special_heading(content)
-    if canonical is not None:
+    if canonical is not None and (had_markdown_heading or not SENTENCE_END_RE.search(content)):
         return f"## {canonical}"
 
     numbered_match = NUMBERED_HEADING_RE.match(content)
@@ -157,6 +164,15 @@ def _normalize_heading(
         number = numbered_match.group("number")
         level = min(6, number.count(".") + 2)
         return f"{'#' * level} {number} {numbered_match.group('title').strip()}"
+
+    appendix_child_match = APPENDIX_CHILD_HEADING_RE.match(content)
+    if appendix_child_match and _looks_like_heading_title(
+        appendix_child_match.group("title"),
+        had_markdown_heading=had_markdown_heading,
+    ):
+        number = appendix_child_match.group("number")
+        level = min(6, number.count(".") + 2)
+        return f"{'#' * level} {number} {appendix_child_match.group('title').strip()}"
 
     letter_match = LETTER_HEADING_RE.match(content)
     if letter_match and _looks_like_heading_title(
@@ -294,44 +310,6 @@ def _looks_like_heading_title(title: str, *, had_markdown_heading: bool) -> bool
     return uppercase_ratio >= 0.45 or stripped.istitle()
 
 
-def _remove_image_caption_gap(
-    entries: list[_LineEntry],
-    operations: list[DeterministicNormalizationOperation],
-) -> list[_LineEntry]:
-    normalized: list[_LineEntry] = []
-    index = 0
-    while index < len(entries):
-        entry = entries[index]
-        normalized.append(entry)
-        if not IMAGE_RE.match(entry.text):
-            index += 1
-            continue
-
-        next_index = index + 1
-        blanks: list[_LineEntry] = []
-        while next_index < len(entries) and not entries[next_index].text.strip():
-            blanks.append(entries[next_index])
-            next_index += 1
-        if blanks and next_index < len(entries) and CAPTION_RE.match(entries[next_index].text):
-            for blank in blanks:
-                operations.append(
-                    _operation(
-                        operation_type="remove_image_caption_gap",
-                        line_no=blank.line_no,
-                        before=blank.text,
-                        after="",
-                        rationale="Keep an image and its immediate caption adjacent.",
-                        index=len(operations) + 1,
-                    )
-                )
-            index = next_index
-            continue
-
-        normalized.extend(blanks)
-        index += len(blanks) + 1
-    return normalized
-
-
 def _collapse_blank_runs(
     entries: list[_LineEntry],
     operations: list[DeterministicNormalizationOperation],
@@ -383,6 +361,24 @@ def _operation(
         before=before,
         after=after,
         rationale=rationale,
+    )
+
+
+def _operation_from_args(
+    operation_type: str,
+    line_no: int,
+    before: str,
+    after: str,
+    rationale: str,
+    index: int,
+) -> DeterministicNormalizationOperation:
+    return _operation(
+        operation_type=operation_type,
+        line_no=line_no,
+        before=before,
+        after=after,
+        rationale=rationale,
+        index=index,
     )
 
 

@@ -20,12 +20,13 @@ Treat MinerU `full.md` as the source artifact and LLM output as structured contr
 7. Apply deterministic normalization after patching:
    - normalize numbered heading hierarchy (`5` -> major, `5.1` -> child);
    - repair safe title/author metadata spacing artifacts in the early metadata window;
+   - render figure/table captions as Markdown blockquotes and mark missing captions with `>[!Caution]`;
    - preserve citations, numbers, formulas, image links, tables, and captions.
 8. Run local preservation checks plus `paper_refine_parse.verify` when LLM patches changed text.
 9. Write `parsed/refined.md` only when verification does not fail.
 10. If LLM control JSON is invalid, do not apply unsafe LLM patches; deterministic normalization may still make safe structural changes and must be recorded in `deterministic_normalization.json`.
 11. Route uncertain items to review artifacts; do not silently invent section boundaries.
-12. For canonical split, use deterministic major-heading rules first and only use LLM split plans as line-range control data when deterministic coverage is incomplete or suspicious.
+12. For canonical split, use LLM semantic line-range planning first, after excluding References/Bibliography/Acknowledgments defensively; deterministic heading rules are only a fallback when LLM planning fails or returns unsafe ranges.
 
 ## External Patterns
 
@@ -38,6 +39,7 @@ Read `references/paper-reading-patterns.md` before changing prompts for section 
 - Mention the three recurring MinerU failures: ambiguous chapters, figure/text mixing, and reading-order disorder.
 - Mention metadata artifacts and heading hierarchy failures explicitly.
 - Preserve citations, numbers, formulas, tables, image links, captions, model names, dataset names, and technical terms.
+- `parsed/refined.md` must already contain blockquoted figure/table captions (`> **图注**：...`) and human-review callouts (`>[!Caution]`) where captions or image associations are uncertain.
 - Preserve author identity exactly; only repair visible spacing/punctuation artifacts.
 - Use `mark_needs_review` when the correction requires PDF visual context.
 - For split prompts, require line ranges and tell the LLM that child headings such as `5.1` remain under parent `5`.
@@ -54,6 +56,7 @@ Read `references/paper-reading-patterns.md` before changing prompts for section 
 - Prompt registry: `backend/config/prompt_templates.toml`
 - Merged refine prompt file: `backend/config/prompts/paper_refine.md`
 - Section split prompt: `backend/config/prompts/paper_section_split.md`
+- Note generation skill: `skills/paper-note-generate/SKILL.md`
 - Tests: `backend/tests/test_paper_refine_runtime.py`, `backend/tests/test_papers_api.py`
 
 ## Validation

@@ -24,7 +24,7 @@ from app.schemas.papers import (
     ParsePaperRequest,
     SectionDocumentResponse,
 )
-from core.services.paper_download.service import PaperDownloadService
+from core.services.papers.download import PaperDownloadService
 from core.services.papers import (
     DocumentNotFoundError,
     DocumentUpdateInput,

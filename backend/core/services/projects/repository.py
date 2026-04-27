@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -13,76 +12,30 @@ from core.assets import create_asset, create_asset_link, update_asset_from_path
 from core.schema import PROJECT_SCHEMA_SQL
 from core.storage import configured_data_root, configured_db_path
 
-
-PROJECT_DOCUMENTS: tuple[tuple[str, str, str], ...] = (
-    ("overview", "overview.md", "# Overview\n\n"),
-    ("related_work", "related-work.md", "# Related Work\n\n"),
-    ("method", "method.md", "# Method\n\n"),
-    ("experiment", "experiment.md", "# Experiment\n\n"),
-    ("conclusion", "conclusion.md", "# Conclusion\n\n"),
-    ("manuscript", "manuscript.md", "# Manuscript\n\n"),
+from core.services.projects.models import (
+    DEFAULT_PAPER_RELATION_TYPE,
+    DEFAULT_PROJECT_STATUS,
+    PROJECT_DOCUMENTS,
+    LinkedPaperNotFoundError,
+    LinkedPaperRecord,
+    ProjectDocumentNotFoundError,
+    ProjectDocumentRecord,
+    ProjectDocumentVersionConflictError,
+    ProjectNotFoundError,
+    ProjectRecord,
 )
-DEFAULT_PROJECT_STATUS = "planning"
-DEFAULT_PAPER_RELATION_TYPE = "related_work"
-
-
-class ProjectRepositoryError(RuntimeError):
-    code = "PROJECT_REPOSITORY_ERROR"
-
-
-class ProjectNotFoundError(ProjectRepositoryError):
-    code = "PROJECT_NOT_FOUND"
-
-
-class ProjectDocumentNotFoundError(ProjectRepositoryError):
-    code = "PROJECT_DOCUMENT_NOT_FOUND"
-
-
-class ProjectDocumentVersionConflictError(ProjectRepositoryError):
-    code = "PROJECT_DOCUMENT_VERSION_CONFLICT"
-
-
-class LinkedPaperNotFoundError(ProjectRepositoryError):
-    code = "PAPER_NOT_FOUND"
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectRecord:
-    project_id: int
-    asset_id: int
-    name: str
-    project_slug: str
-    status: str
-    summary: str
-    owner: str
-    assets: dict[str, int]
-    created_at: str
-    updated_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectDocumentRecord:
-    project_id: int
-    doc_id: int
-    doc_role: str
-    path: Path
-    content: str
-    version: int
-    updated_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class LinkedPaperRecord:
-    paper_id: int
-    title: str
-    status: str
-    relation_type: str
 
 
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     base = slug or "project"
     return f"{base}-{uuid4().hex[:8]}"
+
+
+def utc_now() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat()
 
 
 class ProjectRepository:
@@ -96,6 +49,10 @@ class ProjectRepository:
         self.project_root = self.data_root / "projects_api"
         self.initialize()
 
+    # ============================================================
+    # Initialization
+    # ============================================================
+
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.project_root.mkdir(parents=True, exist_ok=True)
@@ -106,6 +63,10 @@ class ProjectRepository:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    # ============================================================
+    # CRUD Operations
+    # ============================================================
 
     def create_project(self, values: dict[str, Any]) -> ProjectRecord:
         now = utc_now()
@@ -234,6 +195,10 @@ class ProjectRepository:
             conn.commit()
         return self.get_project(project_id)
 
+    # ============================================================
+    # Paper Linking
+    # ============================================================
+
     def link_paper(
         self,
         project_id: int,
@@ -290,6 +255,10 @@ class ProjectRepository:
             )
             for row in rows
         ]
+
+    # ============================================================
+    # Document Management
+    # ============================================================
 
     def get_document(self, project_id: int, doc_role: str) -> ProjectDocumentRecord:
         self.get_project(project_id)
@@ -353,6 +322,10 @@ class ProjectRepository:
             )
             conn.commit()
         return self.get_document(project_id, doc_role)
+
+    # ============================================================
+    # Internal Helpers
+    # ============================================================
 
     def _ensure_paper_exists(self, paper_id: int) -> None:
         with self.connect() as conn:
@@ -428,39 +401,3 @@ class ProjectRepository:
                 (project_id,),
             ).fetchall()
         return {str(row["doc_role"]): int(row["doc_id"]) for row in rows}
-
-
-def utc_now() -> str:
-    from datetime import UTC, datetime
-
-    return datetime.now(UTC).isoformat()
-
-
-def records_to_dicts(records: list[LinkedPaperRecord]) -> list[dict[str, Any]]:
-    return [asdict(record) for record in records]
-
-
-def record_to_dict(record: ProjectRecord) -> dict[str, Any]:
-    return {
-        "project_id": record.project_id,
-        "asset_id": record.asset_id,
-        "name": record.name,
-        "project_slug": record.project_slug,
-        "status": record.status,
-        "summary": record.summary,
-        "owner": record.owner,
-        "assets": record.assets,
-        "created_at": record.created_at,
-        "updated_at": record.updated_at,
-    }
-
-
-def document_to_dict(record: ProjectDocumentRecord) -> dict[str, Any]:
-    return {
-        "project_id": record.project_id,
-        "doc_id": record.doc_id,
-        "doc_role": record.doc_role,
-        "content": record.content,
-        "version": record.version,
-        "updated_at": record.updated_at,
-    }

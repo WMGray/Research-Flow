@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.api.paper_download import get_paper_download_service
 from app.main import app
@@ -140,17 +141,21 @@ def install_fake_refiner(
                 }
             )
         elif request.feature == "paper_note_summarizer":
-            content = json.dumps(
-                {
-                    "blocks": {
-                        "research_question": "What problem the paper addresses.",
-                        "core_method": "The core method described by the parsed sections.",
-                        "main_contributions": "The paper contributions.",
-                        "experiment_summary": "The experiment summary.",
-                        "limitations": "The limitations.",
+            prompt = request.messages[0].content
+            if "当前只生成 note.md" in prompt:
+                content = json.dumps({"content": "What problem the paper addresses."})
+            else:
+                content = json.dumps(
+                    {
+                        "blocks": {
+                            "research_question": "What problem the paper addresses.",
+                            "core_method": "The core method described by the parsed sections.",
+                            "main_contributions": "The paper contributions.",
+                            "experiment_summary": "The experiment summary.",
+                            "limitations": "The limitations.",
+                        }
                     }
-                }
-            )
+                )
         else:
             content = json.dumps(
                 {
@@ -407,7 +412,7 @@ def test_download_parse_and_sections_flow(
     sections_response = client.get(f"/api/v1/papers/{paper_id}/parsed/sections")
     assert sections_response.status_code == 200
     section_keys = [item["section_key"] for item in sections_response.json()["data"]]
-    assert section_keys == ["related_work", "method", "experiment", "conclusion"]
+    assert section_keys == ["related_work", "method", "experiment", "appendix", "conclusion"]
 
     with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
         artifact_keys = {
@@ -436,6 +441,132 @@ def test_download_parse_and_sections_flow(
 
     assert {"source_pdf", "raw_markdown", "refined_markdown", "section_method"} <= artifact_keys
     assert {"download", "parse", "refine", "split"} <= set(run_stages)
+
+
+def test_parse_uses_postprocessed_figures_for_refined_markdown(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paper = create_sample_paper(client)
+    paper_id = paper["paper_id"]
+    db_path = tmp_path / "research_flow.sqlite"
+
+    with sqlite3.connect(db_path) as conn:
+        paper_dir = Path(
+            conn.execute(
+                """
+                SELECT pi.storage_path
+                FROM asset_registry ar
+                JOIN physical_item pi ON pi.item_id = ar.item_id
+                WHERE ar.asset_id = ?
+                """,
+                (paper_id,),
+            ).fetchone()[0]
+        )
+    mineru_dir = paper_dir / "parsed" / "mineru"
+    mineru_image_dir = mineru_dir / "images"
+    mineru_image_dir.mkdir(parents=True)
+    (mineru_dir / "full.md").write_text(
+        "\n".join(
+            [
+                "# Visual Paper",
+                "",
+                "## 4 Method",
+                "Method context line one.",
+                "Method context line two.",
+                "Method context line three.",
+                "![](images/fig1.jpg)",
+                "Figure 1: Method overview.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    Image.new("RGB", (120, 80), (20, 120, 220)).save(mineru_image_dir / "fig1.jpg")
+    (mineru_dir / "content_list_v2.json").write_text(
+        json.dumps(
+            [
+                [
+                    {
+                        "type": "image",
+                        "bbox": [10, 20, 130, 100],
+                        "content": {
+                            "image_source": {"path": "images/fig1.jpg"},
+                            "image_caption": [
+                                {"type": "text", "content": "Figure 1: Method overview."}
+                            ],
+                            "image_footnote": [],
+                        },
+                    }
+                ]
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    parse_response = client.post(f"/api/v1/papers/{paper_id}/parse", json={})
+
+    assert parse_response.status_code == 202
+    assert parse_response.json()["data"]["status"] == "succeeded"
+    parse_job = parse_response.json()["data"]
+    assert (paper_dir / "parsed" / "figures" / "figure_1.png").exists()
+    assert parse_job["result"]["artifacts"]["postprocessed_figure_count"] == "1"
+    assert "![](figures/figure_1.png)" in (
+        paper_dir / "parsed" / "raw.md"
+    ).read_text(encoding="utf-8")
+
+    with sqlite3.connect(db_path) as conn:
+        artifact_keys = {
+            row[0]
+            for row in conn.execute(
+                """
+                SELECT artifact_key
+                FROM biz_paper_artifact
+                WHERE paper_id = ?
+                """,
+                (paper_id,),
+            )
+        }
+        parse_metrics = json.loads(
+            conn.execute(
+                """
+                SELECT metrics
+                FROM biz_paper_pipeline_run
+                WHERE paper_id = ? AND stage = 'parse'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (paper_id,),
+            ).fetchone()[0]
+        )
+    assert "parse_figures" in artifact_keys
+    assert parse_metrics["figure_count"] == 1
+
+    install_fake_refiner(
+        monkeypatch,
+        response_content="\n".join(
+            [
+                "# Refined",
+                "",
+                "## Method",
+                "![](figures/figure_1.png)",
+                "Figure 1: Method overview.",
+                "",
+                "## Experiment",
+                "Experiment section.",
+                "",
+                "## Conclusion",
+                "Conclusion section.",
+            ]
+        ),
+    )
+    refine_response = client.post(f"/api/v1/papers/{paper_id}/refine-parse", json={})
+
+    assert refine_response.status_code == 202
+    assert refine_response.json()["data"]["status"] == "succeeded"
+    refined_text = (paper_dir / "parsed" / "refined.md").read_text(encoding="utf-8")
+    assert "![](figures/figure_1.png)" in refined_text
+    assert (paper_dir / "parsed" / "figures" / "figure_1.png").exists()
 
 
 def test_review_and_note_generation_flow(
@@ -497,7 +628,7 @@ def test_review_and_note_generation_flow(
 
     note_document = client.get(f"/api/v1/papers/{paper_id}/note")
     assert note_document.status_code == 200
-    assert 'RF:BLOCK_START id="research_question"' in note_document.json()["data"]["content"]
+    assert 'RF:BLOCK_START id="paper_overview"' in note_document.json()["data"]["content"]
     assert "What problem the paper addresses." in note_document.json()["data"]["content"]
 
     with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
@@ -569,7 +700,7 @@ def test_generate_note_preserves_user_modified_note(
     assert note_response.json()["data"]["result"]["merge_policy"] == "merged"
     content = client.get(f"/api/v1/papers/{paper_id}/note").json()["data"]["content"]
     assert "Manual insight stays." in content
-    assert 'RF:BLOCK_START id="research_question"' in content
+    assert 'RF:BLOCK_START id="paper_overview"' in content
     assert "What problem the paper addresses." in content
     paper_response = client.get(f"/api/v1/papers/{paper_id}")
     assert paper_response.json()["data"]["note_status"] == "merged"

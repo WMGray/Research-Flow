@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sqlite3
 import shutil
 from dataclasses import asdict, dataclass, is_dataclass
@@ -25,7 +26,7 @@ from core.assets import (
 )
 from core.config import get_settings
 from core.schema import PAPER_SCHEMA_SQL
-from core.services.paper_download.service import PaperDownloadService
+from core.services.papers.download import PaperDownloadService
 from core.services.papers.models import (
     DocumentNotFoundError,
     DocumentRecord,
@@ -44,23 +45,25 @@ from core.services.papers.models import (
     paper_sort_column,
     utc_now,
 )
-from core.services.papers.refine_runtime import refine_markdown
-from core.services.papers.section_split_runtime import split_canonical_sections
-from core.services.papers.summary_runtime import (
+from core.services.papers.refine import refine_markdown
+from core.services.papers.split import split_canonical_sections
+from core.services.papers.note import (
     generate_paper_note,
     merge_managed_note_blocks,
 )
-from core.services.pdf_parser import PDFParserService
-from core.services.pdf_parser.models import PDFParserError
+from core.services.papers.parse import PDFParserService
+from core.services.papers.parse.models import PDFParserError
+from core.services.papers.parse.postprocess import process_mineru_markdown_artifacts
 from core.storage import configured_data_root, configured_db_path
 
 
 SCHEMA_SQL = PAPER_SCHEMA_SQL
 FINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
 CANONICAL_SECTION_ORDER: tuple[tuple[str, str], ...] = (
-    ("related_work", "Related Work"),
+    ("related_work", "Background and Related Work"),
     ("method", "Method"),
     ("experiment", "Experiment"),
+    ("appendix", "Appendix"),
     ("conclusion", "Conclusion"),
 )
 @dataclass(frozen=True, slots=True)
@@ -76,6 +79,10 @@ class RepositoryPaperDownloadRequest:
 
 class PaperRepository:
     """Paper 资源、文档和动作任务的仓储实现。"""
+
+    # ============================================================
+    # Initialization
+    # ============================================================
 
     def __init__(
         self, db_path: Path | None = None, data_root: Path | None = None
@@ -95,6 +102,10 @@ class PaperRepository:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    # ============================================================
+    # CRUD Operations
+    # ============================================================
 
     def create_paper(self, values: dict[str, Any]) -> PaperRecord:
         """创建 Paper 资产、业务记录和默认文档。"""
@@ -283,6 +294,10 @@ class PaperRepository:
             )
             conn.commit()
 
+    # ============================================================
+    # Document Management
+    # ============================================================
+
     def get_document(self, paper_id: int, doc_role: str) -> DocumentRecord:
         self.get_paper(paper_id)
         with self.connect() as conn:
@@ -354,6 +369,10 @@ class PaperRepository:
                 )
             conn.commit()
         return self.get_document(paper_id, doc_role)
+
+    # ============================================================
+    # Pipeline Stages
+    # ============================================================
 
     def run_download(self, paper_id: int) -> JobRecord:
         paper = self.get_paper(paper_id)
@@ -464,6 +483,20 @@ class PaperRepository:
 
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_text(raw_content, encoding="utf-8")
+        figure_dir = self._postprocessed_figure_dir(parsed_artifacts)
+        figure_count = self._count_files(figure_dir) if figure_dir is not None else 0
+        image_count = 0
+        if figure_count == 0:
+            image_count = self._sync_parse_images(
+                raw_path=raw_path,
+                parsed_artifacts=parsed_artifacts,
+            )
+        if image_count:
+            parsed_artifacts = {
+                **parsed_artifacts,
+                "normalized_image_dir": str(raw_path.parent / "images"),
+                "normalized_image_count": str(image_count),
+            }
 
         now = utc_now()
         with self.connect() as conn:
@@ -482,6 +515,28 @@ class PaperRepository:
                 },
                 now=now,
             )
+            if figure_count and figure_dir is not None:
+                self._upsert_paper_artifact(
+                    conn=conn,
+                    paper_id=paper_id,
+                    artifact_key="parse_figures",
+                    artifact_type="directory",
+                    stage="parse",
+                    path=figure_dir,
+                    metadata={"figure_count": figure_count},
+                    now=now,
+                )
+            if image_count:
+                self._upsert_paper_artifact(
+                    conn=conn,
+                    paper_id=paper_id,
+                    artifact_key="parse_images",
+                    artifact_type="directory",
+                    stage="parse",
+                    path=raw_path.parent / "images",
+                    metadata={"image_count": image_count},
+                    now=now,
+                )
             conn.execute(
                 """
                 UPDATE biz_paper
@@ -511,8 +566,16 @@ class PaperRepository:
             },
             stage="parse",
             input_artifacts=["source_pdf"] if self._pdf_path(paper_id).exists() else [],
-            output_artifacts=["raw_markdown"],
-            metrics={"raw_chars": len(raw_content)},
+            output_artifacts=[
+                "raw_markdown",
+                *(["parse_figures"] if figure_count else []),
+                *(["parse_images"] if image_count else []),
+            ],
+            metrics={
+                "raw_chars": len(raw_content),
+                "figure_count": figure_count,
+                "image_count": image_count,
+            },
         )
 
     def run_refine_parse(self, paper_id: int, request: RefineParseInput) -> JobRecord:
@@ -885,8 +948,14 @@ class PaperRepository:
                 metrics={"section_count": len(sections)},
             )
 
-        existing_note = self.get_document(paper_id, "note").content
-        note_result = generate_paper_note(paper=paper, sections=sections)
+        note_doc = self.get_document(paper_id, "note")
+        existing_note = note_doc.content
+        note_result = generate_paper_note(
+            paper=paper,
+            sections=sections,
+            note_path=note_doc.path,
+            image_base_dirs=self._note_image_base_dirs(paper_id),
+        )
         note_content = note_result.content
         next_note_status = "clean_generated"
         if paper.note_status in {"user_modified", "merged"}:
@@ -913,6 +982,8 @@ class PaperRepository:
                     "template_key": note_result.template_key,
                     "feature": note_result.feature,
                     "merge_policy": next_note_status,
+                    "figure_count": note_result.figure_count,
+                    "block_failures": list(note_result.block_failures),
                 },
                 now=now,
             )
@@ -942,6 +1013,8 @@ class PaperRepository:
                 "feature": note_result.feature,
                 "llm_run_id": note_result.llm_run_id,
                 "merge_policy": next_note_status,
+                "figure_count": note_result.figure_count,
+                "block_failures": list(note_result.block_failures),
             },
             stage="summarize",
             input_artifacts=[
@@ -951,6 +1024,7 @@ class PaperRepository:
             metrics={
                 "managed_blocks": note_result.block_count,
                 "section_count": len(sections),
+                "figure_count": note_result.figure_count,
             },
         )
 
@@ -1068,6 +1142,10 @@ class PaperRepository:
             )
         return records
 
+    # ============================================================
+    # Job & Artifact Management
+    # ============================================================
+
     def get_job(self, job_id: str) -> JobRecord:
         with self.connect() as conn:
             row = conn.execute(
@@ -1163,6 +1241,10 @@ class PaperRepository:
             )
             conn.commit()
         return self.get_job(job_id)
+
+    # ============================================================
+    # Internal Helpers
+    # ============================================================
 
     def _create_default_documents(
         self,
@@ -1314,6 +1396,85 @@ class PaperRepository:
     def _sections_dir(self, paper_id: int) -> Path:
         return self._paper_dir(paper_id) / "parsed" / "sections"
 
+    def _note_image_base_dirs(self, paper_id: int) -> list[Path]:
+        paper_dir = self._paper_dir(paper_id)
+        return [
+            paper_dir,
+            paper_dir / "figures",
+            paper_dir / "parsed",
+            paper_dir / "parsed" / "sections",
+            paper_dir / "parsed" / "figures",
+            paper_dir / "parsed" / "images",
+            paper_dir / "parsed" / "mineru",
+            paper_dir / "parsed" / "mineru" / "images",
+        ]
+
+    def _postprocessed_figure_dir(self, parsed_artifacts: dict[str, str]) -> Path | None:
+        value = parsed_artifacts.get("postprocessed_figure_dir")
+        if not value:
+            return None
+        path = Path(value)
+        return path if path.exists() else None
+
+    def _count_files(self, directory: Path | None) -> int:
+        if directory is None or not directory.exists():
+            return 0
+        return sum(1 for path in directory.rglob("*") if path.is_file())
+
+    def _sync_parse_images(
+        self,
+        *,
+        raw_path: Path,
+        parsed_artifacts: dict[str, str],
+    ) -> int:
+        target_dir = raw_path.parent / "images"
+        source_dirs = self._parse_image_source_dirs(raw_path, parsed_artifacts)
+        copied = 0
+        for source_dir in source_dirs:
+            if not source_dir.exists() or source_dir.resolve() == target_dir.resolve():
+                continue
+            for source_path in source_dir.rglob("*"):
+                if not source_path.is_file():
+                    continue
+                relative_path = source_path.relative_to(source_dir)
+                target_path = target_dir / relative_path
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if target_path.exists() and path_hash(target_path) == path_hash(source_path):
+                    copied += 1
+                    continue
+                shutil.copy2(source_path, target_path)
+                copied += 1
+        return copied
+
+    def _parse_image_source_dirs(
+        self,
+        raw_path: Path,
+        parsed_artifacts: dict[str, str],
+    ) -> list[Path]:
+        paper_dir = raw_path.parent.parent
+        candidates: list[Path] = [
+            raw_path.parent / "mineru" / "images",
+            paper_dir / "mineru" / "images",
+        ]
+        for key in ("mineru_image_dir", "source_image_dir"):
+            value = parsed_artifacts.get(key)
+            if value:
+                candidates.append(Path(value))
+        for key in ("mineru_markdown_path", "source_markdown_path"):
+            value = parsed_artifacts.get(key)
+            if value:
+                candidates.append(Path(value).parent / "images")
+
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            marker = str(candidate.resolve()) if candidate.exists() else str(candidate)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            unique.append(candidate)
+        return unique
+
     def _download_request_for_paper(
         self, paper: PaperRecord
     ) -> RepositoryPaperDownloadRequest:
@@ -1366,12 +1527,14 @@ class PaperRepository:
         raw_candidates = self._local_mineru_markdown_candidates(paper_id)
         for candidate in raw_candidates:
             if candidate.exists():
-                return (
-                    candidate.read_text(encoding="utf-8"),
-                    "existing_mineru_markdown",
-                    None,
-                    {"source_markdown_path": str(candidate)},
+                raw_content, artifacts, warning = self._postprocess_mineru_markdown(
+                    paper_id=paper_id,
+                    markdown_path=candidate,
+                    image_dir=candidate.parent / "images",
+                    content_list_path=self._resolve_local_content_list_path(candidate.parent),
+                    base_artifacts={"source_markdown_path": str(candidate)},
                 )
+                return raw_content, "existing_mineru_markdown", warning, artifacts
 
         pdf_path = self._pdf_path(paper_id)
         if pdf_path.exists() and get_settings().mineru.api_token:
@@ -1382,11 +1545,12 @@ class PaperRepository:
                         artifact_dir=self._paper_dir(paper_id) / "parsed" / "mineru",
                     )
                 )
-                return (
-                    bundle.markdown_path.read_text(encoding="utf-8"),
-                    "mineru",
-                    None,
-                    {
+                raw_content, artifacts, warning = self._postprocess_mineru_markdown(
+                    paper_id=paper_id,
+                    markdown_path=bundle.markdown_path,
+                    image_dir=bundle.image_dir,
+                    content_list_path=bundle.content_list_path,
+                    base_artifacts={
                         "mineru_markdown_path": str(bundle.markdown_path),
                         "mineru_image_dir": str(bundle.image_dir),
                         "mineru_content_list_path": ""
@@ -1394,6 +1558,7 @@ class PaperRepository:
                         else str(bundle.content_list_path),
                     },
                 )
+                return raw_content, "mineru", warning, artifacts
             except PDFParserError as exc:
                 return (
                     self._build_raw_markdown(paper, parser),
@@ -1424,6 +1589,54 @@ class PaperRepository:
             paper_dir / "parsed" / "full.md",
             paper_dir / "full.md",
         ]
+
+    def _postprocess_mineru_markdown(
+        self,
+        *,
+        paper_id: int,
+        markdown_path: Path,
+        image_dir: Path,
+        content_list_path: Path | None,
+        base_artifacts: dict[str, str],
+    ) -> tuple[str, dict[str, str], str | None]:
+        if not image_dir.exists():
+            return markdown_path.read_text(encoding="utf-8"), base_artifacts, None
+
+        parsed_dir = self._paper_dir(paper_id) / "parsed"
+        output_markdown_path = parsed_dir / "postprocessed.md"
+        output_figure_dir = parsed_dir / "figures"
+        try:
+            processed = process_mineru_markdown_artifacts(
+                raw_markdown_path=markdown_path,
+                source_image_dir=image_dir,
+                content_list_path=content_list_path,
+                output_markdown_path=output_markdown_path,
+                output_figure_dir=output_figure_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - raw MinerU Markdown remains usable
+            return (
+                markdown_path.read_text(encoding="utf-8"),
+                base_artifacts,
+                f"MINERU_POSTPROCESS_SKIPPED: {exc}",
+            )
+
+        artifacts = {
+            **base_artifacts,
+            "postprocessed_markdown_path": str(processed.markdown_path),
+            "postprocessed_figure_dir": str(processed.figure_dir),
+            "postprocessed_figure_count": str(processed.figure_count),
+            "postprocessed_raw_image_ref_count": str(processed.raw_image_ref_count),
+            "postprocessed_grouped_image_ref_count": str(processed.grouped_image_ref_count),
+        }
+        return processed.markdown_path.read_text(encoding="utf-8"), artifacts, None
+
+    def _resolve_local_content_list_path(self, artifact_dir: Path) -> Path | None:
+        candidates = [
+            artifact_dir / "content_list_v2.json",
+            artifact_dir / "content_list.json",
+            *sorted(artifact_dir.glob("*_content_list.json")),
+        ]
+        return next((candidate for candidate in candidates if candidate.exists()), None)
 
     def _upsert_paper_artifact(
         self,
@@ -1751,6 +1964,7 @@ class PaperRepository:
         records: list[dict[str, Any]] = []
         for section_key, title in CANONICAL_SECTION_ORDER:
             section_content = blocks.get(section_key) or f"## {title}\n\nPending extraction.\n"
+            section_content = _rewrite_section_image_links(section_content)
             path = section_dir / f"{section_key}.md"
             path.write_text(section_content.rstrip() + "\n", encoding="utf-8")
             records.append(
@@ -1794,3 +2008,14 @@ class PaperRepository:
                 )
             )
         return f"# {paper.title}\n\n" + "\n\n".join(rendered_blocks) + "\n"
+
+
+def _rewrite_section_image_links(markdown_text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        alt = match.group("alt")
+        target = match.group("target").strip()
+        if target.startswith("figures/"):
+            target = f"../{target}"
+        return f"![{alt}]({target})"
+
+    return re.sub(r"!\[(?P<alt>[^\]]*)]\((?P<target>[^)\s]+)\)", replace, markdown_text)

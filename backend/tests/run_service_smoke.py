@@ -15,8 +15,8 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from core.config import get_settings
 from app.schemas.paper_download import PaperDownloadRequest
-from core.services.paper_download.service import PaperDownloadService
-from core.services.pdf_parser import PDFParserService
+from core.services.papers.download import PaperDownloadService
+from core.services.papers.parse import PDFParserService
 
 
 # Default: run full pipeline. Use --download-only to skip parsing.

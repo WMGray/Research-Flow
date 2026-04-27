@@ -9,7 +9,7 @@ from app.api.paper_download import get_paper_download_service
 from app.main import app
 from app.schemas.paper_download import PaperDownloadRequest
 from core.config import reset_settings
-from core.services.paper_download.service import PaperDownloadService
+from core.services.papers.download import PaperDownloadService
 
 
 @dataclass(frozen=True)

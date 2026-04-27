@@ -8,11 +8,17 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from core.services.pdf_parser.sections import APPENDIX_HEADING_RE, classify_heading
+from .sections import APPENDIX_HEADING_RE, classify_heading
 
 
 CAPTION_RE = re.compile(r"\b(Figure|Fig\.|Table)\s+([A-Za-z0-9_.-]+)", re.IGNORECASE)
 IMAGE_LINE_RE = re.compile(r"!\[[^\]]*]\(([^)]+)\)")
+CAPTION_LINE_RE = re.compile(
+    r"^\s*(?:>\s*)?(?:\*\*图注\*\*[:：]\s*)?"
+    r"(?P<label>(?:fig(?:ure)?|table)\s+[A-Za-z]?\d+(?:\.\d+)*)"
+    r"(?P<body>\s*[:.：]?.*)$",
+    re.IGNORECASE,
+)
 NUMBERED_HEADING_RE = re.compile(r"^(?P<num>\d+(?:\.\d+)*)(?:[\.\)]|\s)+(?:\s*)(?P<title>.+)$")
 
 
@@ -310,6 +316,7 @@ def rewrite_markdown(
     rewritten: list[str] = []
     active_group: str | None = None
     first_heading_seen = False
+    skip_caption_labels: set[str] = set()
 
     for line in raw_lines:
         if line.startswith("#"):
@@ -320,6 +327,12 @@ def rewrite_markdown(
 
         match = IMAGE_LINE_RE.fullmatch(line.strip())
         if match is None:
+            caption_label = caption_label_key(line)
+            if caption_label and caption_label in skip_caption_labels:
+                skip_caption_labels.remove(caption_label)
+                if line.strip():
+                    active_group = None
+                continue
             rewritten.append(line)
             if line.strip():
                 active_group = None
@@ -332,6 +345,11 @@ def rewrite_markdown(
             if active_group == group.output_name:
                 continue
             rewritten.append(f"![](figures/{group.output_name})")
+            if group.caption:
+                rewritten.append(f"> **图注**：{group.caption}")
+                skip_caption_labels.add(group.label)
+            else:
+                rewritten.extend(missing_caption_caution_lines())
             active_group = group.output_name
             grouped_image_ref_count += 1
             referenced_figure_names.add(group.output_name)
@@ -346,6 +364,7 @@ def rewrite_markdown(
         active_group = target_name
         referenced_figure_names.add(target_name)
 
+    rewritten = normalize_figure_annotations(rewritten)
     metadata_lines = [
         "- Parser: `MinerU`",
         "- Figure rendering: `MinerU extracted-image montage v2`",
@@ -365,6 +384,64 @@ def rewrite_markdown(
 
     output_markdown_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
     return raw_image_ref_count, grouped_image_ref_count, referenced_figure_names
+
+
+def normalize_figure_annotations(lines: list[str]) -> list[str]:
+    normalized: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        normalized.append(line)
+        if IMAGE_LINE_RE.fullmatch(line.strip()) is None:
+            index += 1
+            continue
+
+        next_index = index + 1
+        blanks: list[str] = []
+        while next_index < len(lines) and not lines[next_index].strip():
+            blanks.append(lines[next_index])
+            next_index += 1
+        if next_index < len(lines) and is_caption_line(lines[next_index]):
+            normalized.append(format_caption_line(lines[next_index]))
+            index = next_index + 1
+            continue
+        if next_index < len(lines) and is_caution_line(lines[next_index]):
+            normalized.extend(blanks)
+            index += len(blanks) + 1
+            continue
+        normalized.extend(missing_caption_caution_lines())
+        normalized.extend(blanks)
+        index += len(blanks) + 1
+    return normalized
+
+
+def is_caption_line(line: str) -> bool:
+    return CAPTION_LINE_RE.match(line.strip()) is not None
+
+
+def is_caution_line(line: str) -> bool:
+    return line.strip().lower() == ">[!caution]"
+
+
+def caption_label_key(line: str) -> str | None:
+    match = CAPTION_LINE_RE.match(line.strip())
+    if match is None:
+        return None
+    return re.sub(r"[^a-z0-9]+", "_", match.group("label").lower()).strip("_")
+
+
+def format_caption_line(line: str) -> str:
+    stripped = line.strip()
+    stripped = re.sub(r"^>\s*", "", stripped)
+    stripped = re.sub(r"^\*\*图注\*\*[:：]\s*", "", stripped)
+    return f"> **图注**：{stripped}"
+
+
+def missing_caption_caution_lines() -> list[str]:
+    return [
+        ">[!Caution]",
+        "> 解析结果没有在图片附近找到可靠图注，需要人工核对原 PDF。",
+    ]
 
 
 def cleanup_stale_figures(figure_dir: Path, keep_names: set[str]) -> None:

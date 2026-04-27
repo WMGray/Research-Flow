@@ -5,7 +5,7 @@ import hashlib
 import re
 from typing import Any
 
-from core.services.papers.refine_parsing import (
+from .parsing import (
     PatchApplyReport,
     RefinePatch,
     RefineVerifyReport,

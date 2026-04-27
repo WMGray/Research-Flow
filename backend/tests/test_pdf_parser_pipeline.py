@@ -14,9 +14,9 @@ if str(BACKEND_ROOT) not in sys.path:
 from core.config import get_settings, reset_settings
 from core.mineru_config import MinerUConfig
 from core.pdf_parser_config import MarkdownRefineConfig, PDFParserConfig
-from core.services.pdf_parser import PDFParserService
-from core.services.pdf_parser.postprocess import normalize_heading, process_mineru_markdown_artifacts
-from core.services.pdf_parser.sections import split_key_sections
+from core.services.papers.parse import PDFParserService
+from core.services.papers.parse.postprocess import normalize_heading, process_mineru_markdown_artifacts
+from core.services.papers.parse.sections import split_key_sections
 from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
 
 
@@ -226,6 +226,8 @@ def test_process_mineru_markdown_artifacts_merges_extracted_images(tmp_path: Pat
     markdown_text = output_markdown_path.read_text(encoding="utf-8")
     assert "images/" not in markdown_text
     assert "![](figures/figure_1.png)" in markdown_text
+    assert "> **图注**：legend text Figure 1. Demo figure." in markdown_text
+    assert "\nFigure 1. Demo figure." not in markdown_text
 
 
 def test_postprocess_normalizes_heading_depth() -> None:

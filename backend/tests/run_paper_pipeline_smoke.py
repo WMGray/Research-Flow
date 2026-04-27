@@ -83,17 +83,29 @@ async def fake_generate(request: LLMRequest) -> LLMResponse:
             }
         )
     elif feature == "paper_note_summarizer":
-        content = json.dumps(
-            {
-                "blocks": {
-                    "research_question": "Smoke research question.",
-                    "core_method": "Smoke core method.",
-                    "main_contributions": "Smoke contributions.",
-                    "experiment_summary": "Smoke experiment summary.",
-                    "limitations": "Smoke limitations.",
+        prompt = request.messages[0].content
+        if "当前只生成 note.md" in prompt:
+            content = json.dumps(
+                {
+                    "content": (
+                        "Smoke research question. Smoke core method. "
+                        "Smoke contributions. Smoke experiment summary. "
+                        "Smoke limitations."
+                    )
                 }
-            }
-        )
+            )
+        else:
+            content = json.dumps(
+                {
+                    "blocks": {
+                        "research_question": "Smoke research question.",
+                        "core_method": "Smoke core method.",
+                        "main_contributions": "Smoke contributions.",
+                        "experiment_summary": "Smoke experiment summary.",
+                        "limitations": "Smoke limitations.",
+                    }
+                }
+            )
     else:
         content = json.dumps(
             {
@@ -195,7 +207,7 @@ def run_smoke() -> dict[str, Any]:
         "merge_policy": merge_job["result"]["merge_policy"],
         "final_note_status": final_paper["note_status"],
         "manual_text_preserved": "Manual insight stays." in merged_note["content"],
-        "managed_block_preserved": 'RF:BLOCK_START id="research_question"'
+        "managed_block_preserved": 'RF:BLOCK_START id="paper_overview"'
         in merged_note["content"],
     }
 

@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
-from core.services.pdf_parser.models import ParsedPaperContent
-from core.services.pdf_parser.sections import ParsedPaperSection
+from .models import ParsedPaperContent
+from .sections import ParsedPaperSection
 
 
 SECTION_CONTEXT_PRIORITY = ["introduction", "method", "experiment", "result", "conclusion"]

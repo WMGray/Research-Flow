@@ -1,38 +1,39 @@
-You are planning canonical section extraction for an academic paper Markdown file.
+You are planning semantic section extraction for an academic paper Markdown file.
 
-You receive heading evidence from the complete `parsed/refined.md`. Do not rewrite or summarize the paper. Return only line ranges for the four canonical Research-Flow sections.
+You receive heading evidence and local snippets from the complete `parsed/refined.md`.
+Do not rewrite or summarize the paper. Return only audited line ranges. The backend
+will copy the selected Markdown lines into section files, preserving equations,
+tables, images, blockquoted captions, and caution callouts.
 
-Canonical section keys:
-- `related_work`: prior work, background, literature context.
-- `method`: main approach, model, algorithm, system, theoretical method.
-- `experiment`: experiments, evaluation, empirical setup, results, ablations.
-- `conclusion`: conclusion, limitations, future work.
+Target output files:
+- `related_work.md`: research background, motivation, Introduction, problem setting, and Related Work. Merge Introduction and Related Work here when both exist; the file name is canonical, not a strict title match.
+- `method.md`: main approach, model, algorithm, architecture, system, theoretical method, and method-specific figures.
+- `experiment.md`: datasets, metrics, baselines, implementation details, experiments, evaluation, results, ablations, and analysis.
+- `appendix.md`: appendices, supplementary material, additional experiments, extra proofs, extra implementation details, and appendix figures/tables.
+- `conclusion.md`: conclusion, limitations, discussion, and future work.
 
 Rules:
-- Use full line ranges from the refined Markdown, inclusive.
-- Treat numbered child headings like `5.1`, `5.2`, `A.1` as children of their nearest major heading unless the outline clearly shows a new top-level section.
-- Do not classify a child heading as a canonical section just because its label contains words like "method" or "experiment".
-- Prefer major headings where `major=true`.
-- If MinerU made parent and child headings the same Markdown level, trust the numbering hierarchy rather than the Markdown level.
-- A canonical range should normally start at the major heading that owns the section and end immediately before the next major heading that is not its child.
-- Related work may be absent in short papers; omit it if there is no explicit background/prior-work section.
-- Method ranges should include approach/model/algorithm/system/theory subsections under the method parent.
-- Experiment ranges should include setup, datasets, metrics, baselines, results, ablations, and analysis under the experiment parent.
-- Conclusion ranges may include limitations or future work only when they are part of the conclusion/discussion area.
-- Exclude References, Acknowledgments, Appendix, author affiliations, and metadata unless they are clearly part of a canonical section body.
-- If evidence is insufficient for a section, omit it instead of guessing.
+- Use full line ranges from refined.md, inclusive.
+- Split by semantic content, not by keyword matching. A section heading does not need to literally match the target file name if its content belongs there.
+- It is valid to return multiple ranges with the same `section_key`; the backend will concatenate them in order. Use this to merge Introduction and Related Work into `related_work`.
+- Treat numbered child headings like `5.1`, `5.2`, `A.1` as children of their nearest parent unless the outline clearly shows a new top-level section.
+- If MinerU made parent and child headings the same Markdown level, trust numbering hierarchy and local snippets over Markdown level.
+- Exclude References, Bibliography, Acknowledgments, author affiliations, metadata, parser metadata, and unrelated boilerplate. The backend also removes these lines defensively.
+- Do not exclude Appendix; Appendix is paper content and must be returned under `appendix` when present, even if it appears after References.
+- Preserve figure lines and their following `> **图注**：...` or `>[!Caution]` lines by selecting ranges that include them.
+- If evidence is insufficient for a target file, omit that section instead of guessing.
 - Use confidence below 0.65 for uncertain ranges so the backend rejects them.
-- Do not split the paper into arbitrary batches. Use the known outline and return only canonical ranges.
+- Do not split the paper into arbitrary batches. Return a small number of semantic line ranges.
 
 Return only JSON with this schema:
 {
   "sections": [
     {
-      "section_key": "related_work|method|experiment|conclusion",
+      "section_key": "related_work|method|experiment|appendix|conclusion",
       "start_line": 1,
       "end_line": 10,
       "confidence": 0.0,
-      "rationale": "brief heading evidence"
+      "rationale": "brief semantic evidence"
     }
   ]
 }

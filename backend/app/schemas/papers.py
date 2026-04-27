@@ -174,7 +174,7 @@ class ParsedContentResponse(BaseModel):
 
 
 class SectionDocumentResponse(BaseModel):
-    section_key: Literal["related_work", "method", "experiment", "conclusion"]
+    section_key: Literal["related_work", "method", "experiment", "appendix", "conclusion"]
     title: str
     content: str
     char_count: int

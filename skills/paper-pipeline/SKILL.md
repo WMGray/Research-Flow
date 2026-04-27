@@ -1,6 +1,6 @@
 ---
 name: paper-pipeline
-description: Maintain Research-Flow's end-to-end Paper workflow. Use when changing Paper download, MinerU raw Markdown parsing, refine-parse, section splitting, note generation, Paper artifacts, pipeline runs, prompts, API contracts, or focused tests.
+description: Maintain Research-Flow's end-to-end Paper workflow. Use when changing Paper download, MinerU raw Markdown parsing, refine-parse, section splitting, note generation with figure/table evidence, Paper artifacts, pipeline runs, prompts, API contracts, or focused tests.
 ---
 
 # Paper Pipeline
@@ -22,8 +22,8 @@ Keep `biz_paper` focused on status and metadata. Store files in the filesystem, 
 3. Do not ask an LLM to rewrite a full paper freely; refine must use diagnose / repair patch / deterministic normalization / verify.
 4. Write every durable machine output as an artifact with a stable `artifact_key`.
 5. Record each action as a job and pipeline run, including failed precondition jobs.
-6. Generate `note.md` only from canonical sections; split must respect heading hierarchy and may use LLM line-range plans only as audited control data.
-7. If deterministic split misses major sections, use the section split prompt to recover canonical line ranges; reject low-confidence, overlapping, or unknown section keys.
+6. Generate `note.md` only from semantic section files; split must remove References/Acknowledgments, preserve Appendix, keep figures/captions, and use LLM line-range plans as audited control data.
+7. If LLM split fails or returns unsafe ranges, fall back to deterministic split; reject low-confidence, overlapping, unknown section keys, or ranges that only contain excluded non-paper content.
 8. Preserve user-authored note text. Only update RF managed blocks when regenerating notes.
 
 ## Code Touchpoints
@@ -38,6 +38,7 @@ Keep `biz_paper` focused on status and metadata. Store files in the filesystem, 
 - Refine normalization: `backend/core/services/papers/refine_normalization.py`
 - Section split runtime: `backend/core/services/papers/section_split_runtime.py`
 - Note runtime: `backend/core/services/papers/summary_runtime.py`
+- Note skill: `skills/paper-note-generate/SKILL.md`
 - Schema: `backend/core/schema.py`
 - Prompts: `backend/config/prompts/`, `backend/config/prompt_templates.toml`
 - Tests: `backend/tests/test_papers_api.py`, `backend/tests/test_paper_refine_runtime.py`
@@ -45,8 +46,9 @@ Keep `biz_paper` focused on status and metadata. Store files in the filesystem, 
 ## Prompt Rules
 
 - Refine prompts must return JSON-only control data and preserve citations, formulas, numbers, image links, captions, datasets, model names, and technical terms.
-- Section split prompts must return JSON-only canonical line ranges and treat child headings like `5.1` as children of parent `5`.
-- Summary prompts must return JSON blocks, use only supplied section text, and treat `Pending extraction` as missing evidence.
+- Section split prompts must return JSON-only semantic line ranges, merge Introduction/Related Work into the background file when appropriate, include Appendix, and treat child headings like `5.1` as children of parent `5`.
+- Summary prompts must return JSON blocks, use only supplied section text and figure/table evidence, and treat `Pending extraction` as missing evidence.
+- Generated `note.md` must embed available figures/tables with paths relative to `note.md`; the LLM explains images but code renders image Markdown.
 - Keep model-facing prompts separate from backend rendering logic.
 
 ## Validation

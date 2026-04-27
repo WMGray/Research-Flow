@@ -33,7 +33,7 @@ def build_markdown_refine_prompt(prompt_template: str, markdown_text: str) -> st
 def resolve_markdown_refine_prompt(config: MarkdownRefineConfig) -> str:
     if config.prompt.strip():
         return config.prompt
-    from core.services.papers.prompt_runtime import load_prompt_template
+    from ..prompt_runtime import load_prompt_template
 
     return load_prompt_template(config.prompt_template_key)
 

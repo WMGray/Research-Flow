@@ -15,8 +15,8 @@ from core.services.papers.prompt_runtime import (
     load_toml_config,
     render_template,
 )
-from core.services.papers.refine_normalization import normalize_markdown_structure
-from core.services.papers.refine_parsing import (
+from .normalization import normalize_markdown_structure
+from .parsing import (
     DeterministicNormalizationReport,
     PatchApplyReport,
     RefinePatch,
@@ -27,7 +27,7 @@ from core.services.papers.refine_parsing import (
     extract_json_object,
     patches_from_payload,
 )
-from core.services.papers.refine_patch import (
+from .patch import (
     apply_refine_patches,
     build_local_verify_report,
 )
