@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Knowledge Mining"
+  short_description: "Extract reusable paper views and definitions with evidence"
+  default_prompt: "Use $paper-knowledge-mining when changing Paper Knowledge extraction, citation-marker preservation, source locators, or Knowledge evidence contracts."

@@ -35,7 +35,7 @@ def _source_lines(prompt: str) -> list[str]:
 async def fake_generate(request: LLMRequest) -> LLMResponse:
     feature = request.feature or ""
     lines = _source_lines(request.messages[0].content)
-    if feature == "pdf_markdown_refine_diagnose":
+    if feature == "paper_refine_parse_diagnose":
         content = json.dumps(
             {
                 "source_hash": "",
@@ -54,7 +54,7 @@ async def fake_generate(request: LLMRequest) -> LLMResponse:
                 ],
             }
         )
-    elif feature == "pdf_markdown_refine_repair":
+    elif feature == "paper_refine_parse_repair":
         metadata = [line for line in lines if line.startswith(("- DOI:", "- Year:"))]
         replacement = "\n\n".join(
             [
@@ -82,7 +82,7 @@ async def fake_generate(request: LLMRequest) -> LLMResponse:
                 ],
             }
         )
-    elif feature == "paper_note_summarizer":
+    elif feature == "paper_note_generate_block":
         prompt = request.messages[0].content
         if "当前只生成 note.md" in prompt:
             content = json.dumps(

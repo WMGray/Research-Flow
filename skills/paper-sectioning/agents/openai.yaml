@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Sectioning"
+  short_description: "Plan canonical paper sections with audited line ranges"
+  default_prompt: "Use $paper-sectioning when changing Research-Flow paper section splitting, canonical section keys, appendix handling, or section-range LLM contracts."

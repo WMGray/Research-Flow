@@ -1,9 +1,0 @@
-["paper_refine_parse"]
-template_key = "paper_refine_parse.repair"
-feature = "pdf_markdown_refine_repair"
-diagnose_template_key = "paper_refine_parse.diagnose"
-repair_template_key = "paper_refine_parse.repair"
-verify_template_key = "paper_refine_parse.verify"
-diagnose_feature = "pdf_markdown_refine_diagnose"
-repair_feature = "pdf_markdown_refine_repair"
-verify_feature = "pdf_markdown_refine_verify"

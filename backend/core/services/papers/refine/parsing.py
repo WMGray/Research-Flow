@@ -188,7 +188,7 @@ def build_structural_evidence_markdown(
         blocks.append(block)
         current_len += len(block)
     if skipped:
-        blocks.append(f"\n[Skipped {skipped} lower-priority evidence windows due to prompt budget.]\n")
+        blocks.append(f"\n[Skipped {skipped} lower-priority evidence windows due to model context budget.]\n")
     return "\n".join(blocks).rstrip()
 
 

@@ -1,6 +1,6 @@
 # Paper Reading Patterns
 
-Use this reference when improving Research-Flow's paper refine, split, and note prompts.
+Use this reference when improving Research-Flow's paper refine, split, and note generation behavior.
 
 ## Sources reviewed
 
@@ -14,7 +14,7 @@ Use this reference when improving Research-Flow's paper refine, split, and note 
    - Backend code owns patch application, validation, persistence, and rejection.
 
 2. Evidence-grounded reading
-   - Prompts should name the supplied evidence boundary.
+   - LLM tasks should name the supplied evidence boundary.
    - If the evidence is a structural window, the LLM must not infer missing sections.
    - If visual layout is required, route to review rather than inventing a fix.
 
@@ -33,9 +33,9 @@ Use this reference when improving Research-Flow's paper refine, split, and note 
    - Summaries must preserve source attribution and uncertainty.
    - Do not dump raw full text into notes.
 
-## Prompt design rules for this project
+## LLM task design rules for this project
 
-- Keep prompts JSON-only where the runtime expects JSON.
+- Keep outputs JSON-only where the runtime expects JSON.
 - Include `source_hash` in refine stages.
 - Prefer small, high-confidence patches over broad rewrites.
 - Preserve citations, numbers, formulas, image links, tables, captions, model names, dataset names, and author identity.

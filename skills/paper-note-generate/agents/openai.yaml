@@ -1,5 +1,4 @@
-name: paper-note-generate
-version: 1
-interfaces:
+interface:
+  display_name: "Paper Note Generate"
   short_description: "Generate deep paper notes with resolved figure/table evidence"
-  default_prompt: "Use $paper-note-generate when improving Research-Flow paper note prompts, managed note blocks, or image-backed note rendering."
+  default_prompt: "Use $paper-note-generate when improving Research-Flow paper note generation, managed note blocks, or image-backed note rendering."

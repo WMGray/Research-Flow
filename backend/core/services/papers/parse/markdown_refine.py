@@ -23,19 +23,19 @@ class MarkdownRefineResult:
     error: str | None = None
 
 
-def build_markdown_refine_prompt(prompt_template: str, markdown_text: str) -> str:
+def build_markdown_refine_request_content(instructions: str, markdown_text: str) -> str:
     for placeholder in MARKDOWN_PLACEHOLDERS:
-        if placeholder in prompt_template:
-            return prompt_template.replace(placeholder, markdown_text)
-    return f"{prompt_template.rstrip()}\n\n<markdown>\n{markdown_text}\n</markdown>"
+        if placeholder in instructions:
+            return instructions.replace(placeholder, markdown_text)
+    return f"{instructions.rstrip()}\n\n<markdown>\n{markdown_text}\n</markdown>"
 
 
-def resolve_markdown_refine_prompt(config: MarkdownRefineConfig) -> str:
-    if config.prompt.strip():
-        return config.prompt
-    from ..prompt_runtime import load_prompt_template
+def resolve_markdown_refine_instructions(config: MarkdownRefineConfig) -> str:
+    if config.instruction_override.strip():
+        return config.instruction_override
+    from ..skill_runtime import load_skill_runtime_instructions
 
-    return load_prompt_template(config.prompt_template_key)
+    return load_skill_runtime_instructions(config.runtime_instruction_key)
 
 
 def strip_markdown_fence(text: str) -> str:
@@ -76,8 +76,8 @@ async def refine_markdown_with_llm(
         messages=[
             LLMMessage(
                 role="user",
-                content=build_markdown_refine_prompt(
-                    resolve_markdown_refine_prompt(config),
+                content=build_markdown_refine_request_content(
+                    resolve_markdown_refine_instructions(config),
                     markdown_text,
                 ),
             )
@@ -106,8 +106,8 @@ async def refine_markdown_with_llm(
 __all__ = [
     "LLMGenerateClient",
     "MarkdownRefineResult",
-    "build_markdown_refine_prompt",
+    "build_markdown_refine_request_content",
     "refine_markdown_with_llm",
-    "resolve_markdown_refine_prompt",
+    "resolve_markdown_refine_instructions",
     "strip_markdown_fence",
 ]

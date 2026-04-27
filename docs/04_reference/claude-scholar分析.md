@@ -16,13 +16,13 @@
 
 - 当前不引入整套 layout vision pipeline，避免把已有 MinerU + refine runtime 变重。
 - 保留 MinerU `full.md` 作为源 artifact，LLM 只做诊断、补丁、验证、section range、note block 生成。
-- prompt 明确处理三类真实问题：章节层级错误、图文混层、章节错乱。
+- Paper skill runtime instructions 明确处理三类真实问题：章节层级错误、图文混层、章节错乱。
 - section split 不再被描述为 batch；它基于论文 outline 和行号范围。
 - note generation 采用 evidence-grounded schema，缺证据时显式写 `Not stated in the parsed paper.`，不补脑。
 
 ## 本次已同步到项目
 
 - `skills/paper-refine-parse/references/paper-reading-patterns.md`
-- `backend/config/prompts/paper_refine.md`
-- `backend/config/prompts/paper_section_split.md`
-- `backend/config/prompts/paper_note_generate.md`
+- `skills/paper-refine-parse/references/runtime-instructions.md`
+- `skills/paper-sectioning/references/runtime-instructions.md`
+- `skills/paper-note-generate/references/runtime-instructions.md`

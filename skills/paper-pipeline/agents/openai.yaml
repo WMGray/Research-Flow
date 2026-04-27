@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Pipeline"
   short_description: "Maintain the Paper download-to-note pipeline"
-  default_prompt: "Use this skill when changing Research-Flow Paper pipeline code, prompts, database artifacts, or tests."
+  default_prompt: "Use this skill when changing Research-Flow Paper pipeline code, database artifacts, API contracts, or tests."

@@ -130,7 +130,7 @@ def attach_figures_to_note_blocks(
     blocks: dict[str, str],
     figures: list[FigureEvidence],
 ) -> dict[str, str]:
-    """Attach deterministic figure Markdown inside the prompt-defined note sections."""
+    """Attach deterministic figure Markdown inside the skill-defined note sections."""
 
     if not figures:
         return blocks

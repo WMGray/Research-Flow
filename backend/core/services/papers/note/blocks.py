@@ -5,13 +5,14 @@ from typing import Any, Protocol
 
 from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
 from core.services.papers.models import PaperRecord
+from core.services.papers.refine.parsing import extract_json_object
+from core.services.papers.skill_runtime import load_skill_runtime_instructions, render_skill_instructions
 from .context import build_block_section_context
 from .visuals import (
     FigureEvidence,
     attach_figures_to_note_blocks,
     render_figure_context,
 )
-from core.services.papers.refine.parsing import extract_json_object
 from .schema import (
     LEGACY_BLOCK_MAP,
     NOTE_BLOCK_ORDER,
@@ -98,6 +99,7 @@ async def generate_detailed_note_blocks(
     sections: list[dict[str, Any]],
     figures: list[FigureEvidence],
     llm_client: LLMGenerateClient,
+    instruction_key: str,
     feature: str,
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     blocks: dict[str, str] = {}
@@ -110,6 +112,7 @@ async def generate_detailed_note_blocks(
                 sections=sections,
                 figures=figures,
                 llm_client=llm_client,
+                instruction_key=instruction_key,
                 feature=feature,
                 block_id=spec.block_id,
             )
@@ -194,35 +197,26 @@ async def _generate_single_note_block(
     sections: list[dict[str, Any]],
     figures: list[FigureEvidence],
     llm_client: LLMGenerateClient,
+    instruction_key: str,
     feature: str,
     block_id: str,
 ) -> str:
     spec = note_block_spec(block_id)
-    prompt = "\n".join(
-        [
-            "你是 Research-Flow 的中文论文深度笔记生成器。",
-            "只使用提供的论文 metadata、section 内容和 Figure/Table Evidence。不要编造事实。",
-            "返回 JSON object，格式必须是 {\"content\": \"...\"}，不要 Markdown fence，不要额外字段。",
-            f"当前只生成 note.md 的 `{block_id}` block，渲染器会自动输出顶层标题“{spec.title}”。",
-            "不要在 content 中重复输出该顶层标题；内部小标题必须从 `###` 或更低层级开始。",
-            f"最低篇幅：不少于 {spec.min_chars} 中文字；若证据不足，必须逐项说明缺失证据，不能用一句话草草结束。",
-            "写作要求：中文分析，英文专业术语保留；按论文原文结构逐节分析；引用 Figure/Table 编号必须来自证据。",
-            "若发现解析不确定、章节错乱、图文错位或图注缺失，使用 `>[!Caution]` callout 标注人工审查原因。",
-            spec.instruction,
-            "",
-            "Paper metadata:",
-            f"- Title: {paper.title}",
-            f"- Authors: {', '.join(paper.authors)}",
-            f"- Year: {'' if paper.year is None else paper.year}",
-            f"- Venue: {paper.venue}",
-            f"- DOI: {paper.doi}",
-            "",
-            "Figure/Table Evidence:",
-            render_figure_context(figures),
-            "",
-            "Relevant parsed sections:",
-            _section_context_for_block(block_id, sections),
-        ]
+    prompt = render_skill_instructions(
+        load_skill_runtime_instructions(instruction_key),
+        {
+            "block_id": block_id,
+            "block_title": spec.title,
+            "min_chars": str(spec.min_chars),
+            "block_instruction": spec.instruction,
+            "title": paper.title,
+            "authors": ", ".join(paper.authors),
+            "year": "" if paper.year is None else str(paper.year),
+            "venue": paper.venue,
+            "doi": paper.doi,
+            "figure_context": render_figure_context(figures),
+            "section_context": _section_context_for_block(block_id, sections),
+        },
     )
     response = await llm_client.generate(
         LLMRequest(

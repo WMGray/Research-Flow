@@ -10,6 +10,8 @@ from uuid import uuid4
 from core.services.llm import llm_registry
 from core.services.llm.schemas import LLMMessage, LLMRequest
 from core.services.papers.models import PaperRecord
+from core.services.papers.refine.parsing import extract_json_object
+from core.services.papers.skill_runtime import load_skill_runtime_instructions
 from .blocks import (
     LLMGenerateClient,
     NOTE_BLOCK_ORDER,
@@ -22,12 +24,12 @@ from .visuals import (
     collect_figure_evidence,
     render_figure_context,
 )
-from core.services.papers.prompt_runtime import load_prompt_template
-from core.services.papers.refine.parsing import extract_json_object
 
 
-DEFAULT_NOTE_TEMPLATE_KEY = "paper_note_generate.default"
-DEFAULT_NOTE_FEATURE = "paper_note_summarizer"
+DEFAULT_NOTE_INSTRUCTION_KEY = "paper_note_generate.default"
+DEFAULT_NOTE_FEATURE = "paper_note_generate_default"
+DEFAULT_NOTE_BLOCK_INSTRUCTION_KEY = "paper_note_generate.block"
+DEFAULT_NOTE_BLOCK_FEATURE = "paper_note_generate_block"
 DEPRECATED_NOTE_BLOCK_IDS = {"visual_evidence", "limitations"}
 MANAGED_BLOCK_RE = re.compile(
     r'<!-- RF:BLOCK_START id="(?P<id>[^"]+)" managed="true" version="[^"]+" -->'
@@ -42,7 +44,7 @@ class NoteGenerationResult:
     content: str
     source: str
     llm_run_id: str | None
-    template_key: str
+    instruction_key: str
     feature: str
     block_count: int
     figure_count: int = 0
@@ -51,7 +53,7 @@ class NoteGenerationResult:
 
 def render_note_prompt(
     *,
-    template_text: str,
+    instructions: str,
     paper: PaperRecord,
     sections: list[dict[str, Any]],
     figures: list[FigureEvidence] | None = None,
@@ -69,7 +71,7 @@ def render_note_prompt(
         "section_context": section_context,
         "figure_context": render_figure_context(figures or []),
     }
-    rendered = template_text
+    rendered = instructions
     for key, value in values.items():
         rendered = rendered.replace(f"{{{{{key}}}}}", value)
     return rendered
@@ -184,12 +186,12 @@ async def _generate_note_async(
     sections: list[dict[str, Any]],
     figures: list[FigureEvidence],
     llm_client: LLMGenerateClient,
-    template_key: str,
+    instruction_key: str,
     feature: str,
 ) -> NoteGenerationResult:
-    template = load_prompt_template(template_key)
+    instructions = load_skill_runtime_instructions(instruction_key)
     prompt = render_note_prompt(
-        template_text=template,
+        instructions=instructions,
         paper=paper,
         sections=sections,
         figures=figures,
@@ -212,7 +214,7 @@ async def _generate_note_async(
         content=render_note_markdown(title=paper.title, blocks=blocks),
         source="llm",
         llm_run_id=f"llm_{uuid4().hex}",
-        template_key=template_key,
+        instruction_key=instruction_key,
         feature=feature,
         block_count=len(NOTE_BLOCK_ORDER),
         figure_count=len(figures),
@@ -225,22 +227,25 @@ async def _generate_detailed_note_async(
     sections: list[dict[str, Any]],
     figures: list[FigureEvidence],
     llm_client: LLMGenerateClient,
-    template_key: str,
+    instruction_key: str,
     feature: str,
+    block_instruction_key: str,
+    block_feature: str,
 ) -> NoteGenerationResult:
     blocks, block_failures = await generate_detailed_note_blocks(
         paper=paper,
         sections=sections,
         figures=figures,
         llm_client=llm_client,
-        feature=feature,
+        instruction_key=block_instruction_key,
+        feature=block_feature,
     )
     return NoteGenerationResult(
         content=render_note_markdown(title=paper.title, blocks=blocks),
         source="llm" if not block_failures else "llm_partial",
         llm_run_id=f"llm_{uuid4().hex}",
-        template_key=template_key,
-        feature=feature,
+        instruction_key=block_instruction_key,
+        feature=block_feature,
         block_count=len(NOTE_BLOCK_ORDER),
         figure_count=len(figures),
         block_failures=block_failures,
@@ -252,8 +257,10 @@ def generate_paper_note(
     paper: PaperRecord,
     sections: list[dict[str, Any]],
     llm_client: LLMGenerateClient = llm_registry,
-    template_key: str = DEFAULT_NOTE_TEMPLATE_KEY,
+    instruction_key: str = DEFAULT_NOTE_INSTRUCTION_KEY,
     feature: str = DEFAULT_NOTE_FEATURE,
+    block_instruction_key: str = DEFAULT_NOTE_BLOCK_INSTRUCTION_KEY,
+    block_feature: str = DEFAULT_NOTE_BLOCK_FEATURE,
     note_path: Path | None = None,
     image_base_dirs: list[Path] | None = None,
 ) -> NoteGenerationResult:
@@ -270,8 +277,10 @@ def generate_paper_note(
                     sections=sections,
                     figures=figures,
                     llm_client=llm_client,
-                    template_key=template_key,
+                    instruction_key=instruction_key,
                     feature=feature,
+                    block_instruction_key=block_instruction_key,
+                    block_feature=block_feature,
                 )
             )
         return asyncio.run(
@@ -280,7 +289,7 @@ def generate_paper_note(
                 sections=sections,
                 figures=figures,
                 llm_client=llm_client,
-                template_key=template_key,
+                instruction_key=instruction_key,
                 feature=feature,
             )
         )
@@ -290,7 +299,7 @@ def generate_paper_note(
             content=render_note_markdown(title=paper.title, blocks=blocks),
             source="deterministic_fallback",
             llm_run_id=None,
-            template_key=template_key,
+            instruction_key=instruction_key,
             feature=feature,
             block_count=len(NOTE_BLOCK_ORDER),
             figure_count=len(figures),

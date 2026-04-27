@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
-DEFAULT_MARKDOWN_REFINE_TEMPLATE_KEY = "paper_refine_parse.default"
+DEFAULT_MARKDOWN_REFINE_INSTRUCTION_KEY = "paper_refine_parse.default"
 
 
 class MarkdownRefineConfig(BaseModel):
@@ -19,16 +19,19 @@ class MarkdownRefineConfig(BaseModel):
         default="pdf_markdown_refiner",
         validation_alias=AliasChoices("feature", "PDF_PARSER_MARKDOWN_REFINE_FEATURE"),
     )
-    prompt_template_key: str = Field(
-        default=DEFAULT_MARKDOWN_REFINE_TEMPLATE_KEY,
+    runtime_instruction_key: str = Field(
+        default=DEFAULT_MARKDOWN_REFINE_INSTRUCTION_KEY,
         validation_alias=AliasChoices(
-            "prompt_template_key",
-            "PDF_PARSER_MARKDOWN_REFINE_PROMPT_TEMPLATE_KEY",
+            "runtime_instruction_key",
+            "PDF_PARSER_MARKDOWN_REFINE_RUNTIME_INSTRUCTION_KEY",
         ),
     )
-    prompt: str = Field(
+    instruction_override: str = Field(
         default="",
-        validation_alias=AliasChoices("prompt", "PDF_PARSER_MARKDOWN_REFINE_PROMPT"),
+        validation_alias=AliasChoices(
+            "instruction_override",
+            "PDF_PARSER_MARKDOWN_REFINE_INSTRUCTION_OVERRIDE",
+        ),
     )
     max_input_chars: int | None = Field(
         default=None,

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Dataset Mining"
+  short_description: "Extract dataset and benchmark mentions from papers"
+  default_prompt: "Use $paper-dataset-mining when changing Paper Dataset extraction, benchmark metadata, source linkage, citation markers, or dataset evidence contracts."

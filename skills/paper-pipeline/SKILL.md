@@ -1,6 +1,6 @@
 ---
 name: paper-pipeline
-description: Maintain Research-Flow's end-to-end Paper workflow. Use when changing Paper download, MinerU raw Markdown parsing, refine-parse, section splitting, note generation with figure/table evidence, Paper artifacts, pipeline runs, prompts, API contracts, or focused tests.
+description: Maintain Research-Flow's end-to-end Paper workflow. Use when changing Paper download, MinerU raw Markdown parsing, refine-parse, section splitting, note generation with figure/table evidence, Paper artifacts, pipeline runs, API contracts, or focused tests.
 ---
 
 # Paper Pipeline
@@ -33,23 +33,23 @@ Keep `biz_paper` focused on status and metadata. Store files in the filesystem, 
 - Core DTOs: `backend/core/services/papers/models.py`
 - Orchestration: `backend/core/services/papers/service.py`
 - Persistence and artifacts: `backend/core/services/papers/repository.py`
-- Prompt/config helper: `backend/core/services/papers/prompt_runtime.py`
-- Refine runtime: `backend/core/services/papers/refine_runtime.py`
-- Refine normalization: `backend/core/services/papers/refine_normalization.py`
-- Section split runtime: `backend/core/services/papers/section_split_runtime.py`
-- Note runtime: `backend/core/services/papers/summary_runtime.py`
-- Note skill: `skills/paper-note-generate/SKILL.md`
+- Skill runtime helper: `backend/core/services/papers/skill_runtime.py`
+- Refine runtime: `backend/core/services/papers/refine/runtime.py`
+- Refine normalization: `backend/core/services/papers/refine/normalization.py`
+- Section split runtime: `backend/core/services/papers/split/runtime.py`
+- Note runtime: `backend/core/services/papers/note/runtime.py`
+- Paper skills: `skills/paper-refine-parse/`, `skills/paper-sectioning/`, `skills/paper-note-generate/`, `skills/paper-knowledge-mining/`, `skills/paper-dataset-mining/`
 - Schema: `backend/core/schema.py`
-- Prompts: `backend/config/prompts/`, `backend/config/prompt_templates.toml`
+- Runtime LLM instructions: `skills/{paper-skill}/references/runtime-instructions.md`
 - Tests: `backend/tests/test_papers_api.py`, `backend/tests/test_paper_refine_runtime.py`
 
-## Prompt Rules
+## LLM Output Contract
 
-- Refine prompts must return JSON-only control data and preserve citations, formulas, numbers, image links, captions, datasets, model names, and technical terms.
-- Section split prompts must return JSON-only semantic line ranges, merge Introduction/Related Work into the background file when appropriate, include Appendix, and treat child headings like `5.1` as children of parent `5`.
-- Summary prompts must return JSON blocks, use only supplied section text and figure/table evidence, and treat `Pending extraction` as missing evidence.
+- Refine calls must return JSON-only control data and preserve citations, formulas, numbers, image links, captions, datasets, model names, and technical terms.
+- Section split calls must return JSON-only semantic line ranges, merge Introduction/Related Work into the background file when appropriate, include Appendix, and treat child headings like `5.1` as children of parent `5`.
+- Summary calls must return JSON blocks, use only supplied section text and figure/table evidence, and treat `Pending extraction` as missing evidence.
 - Generated `note.md` must embed available figures/tables with paths relative to `note.md`; the LLM explains images but code renders image Markdown.
-- Keep model-facing prompts separate from backend rendering logic.
+- Keep model-facing skill instructions separate from backend rendering logic.
 
 ## Validation
 

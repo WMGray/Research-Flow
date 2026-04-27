@@ -10,10 +10,9 @@ from uuid import uuid4
 from core.config import get_settings
 from core.services.llm import llm_registry
 from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
-from core.services.papers.prompt_runtime import (
-    load_prompt_template,
-    load_toml_config,
-    render_template,
+from core.services.papers.skill_runtime import (
+    load_skill_runtime_instructions,
+    render_skill_instructions,
 )
 from .normalization import normalize_markdown_structure
 from .parsing import (
@@ -44,16 +43,16 @@ class LLMGenerateClient(Protocol):
 @dataclass(frozen=True, slots=True)
 class ResolvedSkillBinding:
     skill_key: str
-    diagnose_template_key: str
-    repair_template_key: str
-    verify_template_key: str
+    diagnose_instruction_key: str
+    repair_instruction_key: str
+    verify_instruction_key: str
     diagnose_feature: str
     repair_feature: str
     verify_feature: str
 
     @property
-    def template_key(self) -> str:
-        return self.repair_template_key
+    def instruction_key(self) -> str:
+        return self.repair_instruction_key
 
     @property
     def feature(self) -> str:
@@ -67,7 +66,7 @@ class RefineExecutionResult:
     error: str | None
     llm_run_id: str | None
     skill_key: str
-    template_key: str
+    instruction_key: str
     feature: str
     artifact_dir: Path
     artifacts: dict[str, str]
@@ -83,41 +82,14 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def resolve_skill_binding(skill_key: str) -> ResolvedSkillBinding:
-    skill_bindings = load_toml_config("skill_bindings.toml")
-    if skill_key not in skill_bindings:
-        raise KeyError(f"Unknown refine skill: {skill_key}")
-
-    binding = skill_bindings[skill_key]
-    if not isinstance(binding, dict):
-        raise ValueError(f"Invalid refine skill binding: {skill_key}")
-
-    legacy_template = str(binding.get("template_key") or "").strip()
-    legacy_feature = str(binding.get("feature") or "").strip()
-    diagnose_template = str(binding.get("diagnose_template_key") or "").strip()
-    repair_template = str(binding.get("repair_template_key") or legacy_template).strip()
-    verify_template = str(binding.get("verify_template_key") or "").strip()
-    diagnose_feature = str(binding.get("diagnose_feature") or legacy_feature).strip()
-    repair_feature = str(binding.get("repair_feature") or legacy_feature).strip()
-    verify_feature = str(binding.get("verify_feature") or legacy_feature).strip()
-    required = [
-        diagnose_template,
-        repair_template,
-        verify_template,
-        diagnose_feature,
-        repair_feature,
-        verify_feature,
-    ]
-    if not all(required):
-        raise ValueError(f"Incomplete refine skill binding: {skill_key}")
-
     return ResolvedSkillBinding(
         skill_key=skill_key,
-        diagnose_template_key=diagnose_template,
-        repair_template_key=repair_template,
-        verify_template_key=verify_template,
-        diagnose_feature=diagnose_feature,
-        repair_feature=repair_feature,
-        verify_feature=verify_feature,
+        diagnose_instruction_key=f"{skill_key}.diagnose",
+        repair_instruction_key=f"{skill_key}.repair",
+        verify_instruction_key=f"{skill_key}.verify",
+        diagnose_feature=f"{skill_key}_diagnose",
+        repair_feature=f"{skill_key}_repair",
+        verify_feature=f"{skill_key}_verify",
     )
 
 
@@ -174,7 +146,10 @@ async def _refine_markdown_async(
         diagnosis_payload = await _generate_json(
             llm_client=llm_client,
             feature=binding.diagnose_feature,
-            prompt=render_template(load_prompt_template(binding.diagnose_template_key), common_values),
+            prompt=render_skill_instructions(
+                load_skill_runtime_instructions(binding.diagnose_instruction_key),
+                common_values,
+            ),
             max_tokens=2048,
         )
     except Exception as exc:  # noqa: BLE001 - preserve source and continue with review warning
@@ -202,8 +177,8 @@ async def _refine_markdown_async(
             patches_payload = await _generate_json(
                 llm_client=llm_client,
                 feature=binding.repair_feature,
-                prompt=render_template(
-                    load_prompt_template(binding.repair_template_key),
+                prompt=render_skill_instructions(
+                    load_skill_runtime_instructions(binding.repair_instruction_key),
                     {
                         **common_values,
                         "diagnosis_json": json.dumps(asdict(diagnosis), ensure_ascii=False, indent=2),
@@ -251,7 +226,7 @@ async def _refine_markdown_async(
         normalization_report=normalization_report,
     )
     _write_json(
-        artifacts["prompt_context"],
+        artifacts["skill_context"],
         {
             "source_hash": line_index.source_hash,
             "raw_chars": len(raw_text),
@@ -281,8 +256,8 @@ async def _refine_markdown_async(
             verify_payload = await _generate_json(
                 llm_client=llm_client,
                 feature=binding.verify_feature,
-                prompt=render_template(
-                    load_prompt_template(binding.verify_template_key),
+                prompt=render_skill_instructions(
+                    load_skill_runtime_instructions(binding.verify_instruction_key),
                     {
                         "instruction": instruction.strip(),
                         "source_hash": line_index.source_hash,
@@ -343,7 +318,7 @@ def _artifact_paths(artifact_dir: Path) -> dict[str, Path]:
         "patches": artifact_dir / "patches.json",
         "patch_apply_report": artifact_dir / "patch_apply_report.json",
         "deterministic_normalization": artifact_dir / "deterministic_normalization.json",
-        "prompt_context": artifact_dir / "prompt_context.json",
+        "skill_context": artifact_dir / "skill_context.json",
         "verify": artifact_dir / "verify.json",
     }
 
@@ -395,7 +370,7 @@ def _failed_result(
         error=error,
         llm_run_id=None,
         skill_key=skill_key,
-        template_key="",
+        instruction_key="",
         feature="",
         artifact_dir=output_path.parent / "refine",
         artifacts={},
@@ -424,7 +399,7 @@ def _execution_result(
         error=error,
         llm_run_id=f"llm_{uuid4().hex}" if refined else None,
         skill_key=binding.skill_key,
-        template_key=binding.template_key,
+        instruction_key=binding.instruction_key,
         feature=binding.feature,
         artifact_dir=artifact_dir,
         artifacts={key: str(path) for key, path in artifacts.items()},

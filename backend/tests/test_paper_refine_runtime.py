@@ -122,9 +122,9 @@ def test_refine_runtime_applies_structured_patch_and_writes_artifacts(tmp_path: 
     assert result.applied_patch_count == 1
     assert result.verify_status == "pass"
     assert [request.feature for request in fake_llm.requests] == [
-        "pdf_markdown_refine_diagnose",
-        "pdf_markdown_refine_repair",
-        "pdf_markdown_refine_verify",
+        "paper_refine_parse_diagnose",
+        "paper_refine_parse_repair",
+        "paper_refine_parse_verify",
     ]
     assert "## 1 Introduction" in output_path.read_text(encoding="utf-8")
     assert "95% [1]" in output_path.read_text(encoding="utf-8")
@@ -235,7 +235,7 @@ def test_refine_runtime_uses_structural_evidence_for_large_markdown(tmp_path: Pa
     full_line_numbered = build_line_numbered_markdown(build_line_index(raw_path, raw_text))
     diagnose_prompt = fake_llm.requests[0].messages[0].content
     assert result.refined is True
-    assert [request.feature for request in fake_llm.requests] == ["pdf_markdown_refine_diagnose"]
+    assert [request.feature for request in fake_llm.requests] == ["paper_refine_parse_diagnose"]
     assert "Only selected structural windows are shown." in diagnose_prompt
     assert len(diagnose_prompt) < len(full_line_numbered) // 2
     refined_text = output_path.read_text(encoding="utf-8")
@@ -280,7 +280,7 @@ def test_refine_runtime_still_normalizes_structure_when_llm_returns_bad_json(tmp
     verify_payload = json.loads((tmp_path / "refine" / "verify.json").read_text(encoding="utf-8"))
     assert result.refined is True
     assert result.verify_status == "warning"
-    assert [request.feature for request in bad_llm.requests] == ["pdf_markdown_refine_diagnose"]
+    assert [request.feature for request in bad_llm.requests] == ["paper_refine_parse_diagnose"]
     assert result.deterministic_operation_count > 0
     refined_text = output_path.read_text(encoding="utf-8")
     assert "# LoRA: Low-Rank Adaptation of Large Language Models" in refined_text
@@ -468,7 +468,7 @@ def test_llm_section_split_fallback_uses_audited_line_ranges() -> None:
 
     assert result.report["used_llm"] is True
     assert result.report["strategy"] == "llm_semantic"
-    assert fake_llm.requests[0].feature == "paper_section_splitter"
+    assert fake_llm.requests[0].feature == "paper_sectioning_default"
     assert "Proposed Framework" in result.blocks["method"]
     assert "Results" in result.blocks["experiment"]
 

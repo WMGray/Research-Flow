@@ -683,7 +683,7 @@ class PaperRepository:
                 },
                 result={
                     "skill_key": execution.skill_key,
-                    "template_key": execution.template_key,
+                    "instruction_key": execution.instruction_key,
                     "feature": execution.feature,
                     "artifact_dir": str(execution.artifact_dir),
                     "artifacts": execution.artifacts,
@@ -758,7 +758,7 @@ class PaperRepository:
                 "refined_chars": len(refined_content),
                 "refined_path": str(refined_path),
                 "skill_key": execution.skill_key,
-                "template_key": execution.template_key,
+                "instruction_key": execution.instruction_key,
                 "feature": execution.feature,
                 "llm_run_id": execution.llm_run_id,
                 "artifact_dir": str(execution.artifact_dir),
@@ -979,7 +979,7 @@ class PaperRepository:
                 path=note_doc.path,
                 metadata={
                     "summary_source": note_result.source,
-                    "template_key": note_result.template_key,
+                    "instruction_key": note_result.instruction_key,
                     "feature": note_result.feature,
                     "merge_policy": next_note_status,
                     "figure_count": note_result.figure_count,
@@ -1009,7 +1009,7 @@ class PaperRepository:
             result={
                 "managed_blocks": note_result.block_count,
                 "summary_source": note_result.source,
-                "template_key": note_result.template_key,
+                "instruction_key": note_result.instruction_key,
                 "feature": note_result.feature,
                 "llm_run_id": note_result.llm_run_id,
                 "merge_policy": next_note_status,

@@ -1,6 +1,6 @@
 ---
 name: paper-refine-parse
-description: Maintain Research-Flow's MinerU `full.md` to `parsed/refined.md`, canonical section split, and paper note prompts. Use when changing PDF refine prompts, `skill_bindings.toml`, line-index diagnosis, JSON patch repair, deterministic normalization, heading hierarchy, author metadata cleanup, figure/table text separation, LLM section split plans, verification reports, or tests for academic paper Markdown refinement.
+description: Maintain Research-Flow's MinerU `full.md` to `parsed/refined.md` workflow. Use when changing line-index diagnosis, JSON patch repair, deterministic normalization, heading hierarchy, author metadata cleanup, figure/table text separation, LLM section split plans, verification reports, or tests for academic paper Markdown refinement.
 ---
 
 # Paper Refine Parse
@@ -30,11 +30,11 @@ Treat MinerU `full.md` as the source artifact and LLM output as structured contr
 
 ## External Patterns
 
-Read `references/paper-reading-patterns.md` before changing prompts for section splitting, figure/table handling, or paper note generation. It records the compact lessons from `claude-scholar` and `AI-paper-reading`: schema-first control, evidence-grounded reading, section-aware ranges, figure/table role awareness, and durable paper-note structure.
+Read `references/paper-reading-patterns.md` before changing section splitting, figure/table handling, or paper note generation behavior. It records the compact lessons from `claude-scholar` and `AI-paper-reading`: schema-first control, evidence-grounded reading, section-aware ranges, figure/table role awareness, and durable paper-note structure.
 
-## Prompt Rules
+## LLM Output Contract
 
-- Keep diagnose, repair, and verify prompts separate.
+- Keep diagnose, repair, and verify stages separate.
 - Require JSON-only responses with `source_hash`.
 - Mention the three recurring MinerU failures: ambiguous chapters, figure/text mixing, and reading-order disorder.
 - Mention metadata artifacts and heading hierarchy failures explicitly.
@@ -42,20 +42,18 @@ Read `references/paper-reading-patterns.md` before changing prompts for section 
 - `parsed/refined.md` must already contain blockquoted figure/table captions (`> **图注**：...`) and human-review callouts (`>[!Caution]`) where captions or image associations are uncertain.
 - Preserve author identity exactly; only repair visible spacing/punctuation artifacts.
 - Use `mark_needs_review` when the correction requires PDF visual context.
-- For split prompts, require line ranges and tell the LLM that child headings such as `5.1` remain under parent `5`.
+- For split planning, require line ranges and treat child headings such as `5.1` as belonging under parent `5`.
 
 ## Backend Touchpoints
 
-- Runtime: `backend/core/services/papers/refine_runtime.py`
-- Prompt/config helper: `backend/core/services/papers/prompt_runtime.py`
-- Deterministic normalization: `backend/core/services/papers/refine_normalization.py`
-- Canonical split runtime: `backend/core/services/papers/section_split_runtime.py`
-- Refine contracts and parsing helpers: `backend/core/services/papers/refine_parsing.py`
-- Patch and verification helpers: `backend/core/services/papers/refine_patch.py`
-- Binding config: `backend/config/skill_bindings.toml`
-- Prompt registry: `backend/config/prompt_templates.toml`
-- Merged refine prompt file: `backend/config/prompts/paper_refine.md`
-- Section split prompt: `backend/config/prompts/paper_section_split.md`
+- Runtime: `backend/core/services/papers/refine/runtime.py`
+- Skill runtime helper: `backend/core/services/papers/skill_runtime.py`
+- Deterministic normalization: `backend/core/services/papers/refine/normalization.py`
+- Canonical split runtime: `backend/core/services/papers/split/runtime.py`
+- Refine contracts and parsing helpers: `backend/core/services/papers/refine/parsing.py`
+- Patch and verification helpers: `backend/core/services/papers/refine/patch.py`
+- Runtime refine instructions: `skills/paper-refine-parse/references/runtime-instructions.md`
+- Runtime sectioning instructions: `skills/paper-sectioning/references/runtime-instructions.md`
 - Note generation skill: `skills/paper-note-generate/SKILL.md`
 - Tests: `backend/tests/test_paper_refine_runtime.py`, `backend/tests/test_papers_api.py`
 
@@ -77,5 +75,5 @@ Review outputs before accepting a change:
 
 ## Reference
 
-Read `references/patch-contract.md` before changing patch schemas or prompt JSON examples.
-Read `references/paper-reading-patterns.md` before changing refine/split/note prompt strategy.
+Read `references/patch-contract.md` before changing patch schemas or JSON examples.
+Read `references/paper-reading-patterns.md` before changing refine/split/note strategy.

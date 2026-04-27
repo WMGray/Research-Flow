@@ -8,7 +8,8 @@
 
 - `paper_refine_parse`
 - `paper_generate_note`
-- `paper_extract_knowledge`
+- `paper_knowledge_mining`（兼容 job type：`paper_extract_knowledge`）
+- `paper_dataset_mining`（兼容 job type：`paper_extract_datasets`）
 - `presentation_generate_outline`
 - `presentation_generate_slides`
 - `llm_connectivity_probe`
@@ -17,10 +18,10 @@
 
 - 模型接入信息通过后端配置或环境变量管理
 - 模型选择通过 `AgentProfile` 绑定到具体场景
-- Prompt 内容通过 `PromptTemplate` 管理，不直接写死在业务代码中
+- Paper 模型指令通过 `skills/{paper-skill}/references/*.md` 管理，不直接写死在业务代码中
 
 ## 当前边界
 
 - 当前文档仅说明服务定位，不限定必须使用 `MiniMax`
-- 若后续引入其他 `LLM Provider`，仍复用统一的 `AgentProfile + PromptTemplate` 配置模型
+- 若后续引入其他 `LLM Provider`，仍复用统一的 `AgentProfile + SkillPackage + feature routing` 模型
 - 凭证信息不得写入仓库

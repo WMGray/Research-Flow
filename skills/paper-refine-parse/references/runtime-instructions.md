@@ -1,4 +1,4 @@
-<!-- prompt:diagnose -->
+﻿<!-- stage:diagnose -->
 You are diagnosing MinerU `full.md` output for an academic paper.
 
 Input is selected line-numbered structural evidence from the complete paper. Do not rewrite the paper. Identify only local, evidence-backed parsing issues that can be repaired by a deterministic patch engine.
@@ -62,9 +62,9 @@ Return only JSON with this schema:
 
 Line-numbered structural evidence:
 {{line_numbered_markdown}}
-<!-- /prompt -->
+<!-- /stage -->
 
-<!-- prompt:repair -->
+<!-- stage:repair -->
 You are repairing MinerU `full.md` output for an academic paper by emitting local patches.
 
 Input includes selected line-numbered structural evidence and a diagnosis JSON. Return only deterministic, line-based JSON patches. Do not return the full rewritten paper.
@@ -119,9 +119,9 @@ Diagnosis JSON:
 
 Line-numbered structural evidence:
 {{line_numbered_markdown}}
-<!-- /prompt -->
+<!-- /stage -->
 
-<!-- prompt:verify -->
+<!-- stage:verify -->
 You are verifying a MinerU Markdown refinement for an academic paper.
 
 Compare the deterministic patch report and verification context. You are not allowed to rewrite the paper. Report whether the refinement preserved scientific content and improved parse structure.
@@ -161,9 +161,9 @@ Patch apply report:
 
 Verification context:
 {{verify_context}}
-<!-- /prompt -->
+<!-- /stage -->
 
-<!-- prompt:default -->
+<!-- stage:default -->
 Legacy single-call fallback for MinerU Markdown refinement.
 
 Prefer the current diagnose -> repair -> verify patch workflow when it is available. If this prompt is used directly, make only conservative local Markdown repairs for downstream section splitting.
@@ -182,4 +182,4 @@ Additional operator instruction:
 {{instruction}}
 
 {{markdown}}
-<!-- /prompt -->
+<!-- /stage -->

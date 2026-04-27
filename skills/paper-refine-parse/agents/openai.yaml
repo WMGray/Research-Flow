@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Refine Parse"
-  short_description: "MinerU full.md refine, figure/table-aware repair, section split, and paper note prompts"
-  default_prompt: "Use $paper-refine-parse to improve MinerU full.md refinement, canonical section splitting, and paper note generation without rewriting the full paper."
+  short_description: "MinerU full.md refinement, figure/table-aware repair, and section split rules"
+  default_prompt: "Use $paper-refine-parse to improve MinerU full.md refinement, canonical section splitting, and verification without rewriting the full paper."

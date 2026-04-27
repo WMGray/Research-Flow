@@ -10,7 +10,7 @@
 - LLM 在解析优化中具体负责什么、不负责什么
 - 如何处理章节划分不明确、图文混排、章节错乱等通用问题
 - 如何让 LLM 优化结果可验证、可回滚、可人工审查
-- 如何接入现有 `Agno`、`SkillBinding`、`PromptTemplate`、`Job` 与文件系统产物
+- 如何接入现有 `Agno`、`SkillBinding`、Skill runtime instructions、`Job` 与文件系统产物
 
 ## 2. 核心原则
 
@@ -90,13 +90,14 @@ parsed/
     diagnosis.json
     patches.json
     patch_apply_report.json
-    prompt_context.json
+    skill_context.json
     verify.json
     review_items.json
   sections/
     related_work.md
     method.md
     experiment.md
+    appendix.md
     conclusion.md
 ```
 
@@ -236,7 +237,7 @@ LLM 可以修复 Markdown 表达，但不应凭空恢复缺失图片。
 
 Agno 的职责：
 
-- 根据 `SkillBinding` 选择 agent profile、provider、prompt template
+- 根据 `SkillBinding` 选择 agent profile、provider、skill runtime instruction
 - 将诊断、修复、验证三个阶段编排为同一个 workflow
 - 对每个 LLM 调用记录 `llm_run_id`
 - 将失败信息写入 job result 和 `refine_report`
@@ -248,9 +249,9 @@ Agno 不直接负责：
 - 覆盖人工确认后的文档
 - 替代 verifier 的机械一致性检查
 
-## 7. Prompt 设计要求
+## 7. Skill Runtime Instructions 设计要求
 
-### 7.1 Diagnose prompt
+### 7.1 Diagnose 阶段
 
 要求：
 
@@ -260,7 +261,7 @@ Agno 不直接负责：
 - issue 必须引用行号范围
 - 对低置信度问题使用 `confidence < 0.75`
 
-### 7.2 Repair prompt
+### 7.2 Repair 阶段
 
 要求：
 
@@ -270,7 +271,7 @@ Agno 不直接负责：
 - replacement 中不得新增原文没有的事实
 - 必须声明 citation、数字、公式是否保留
 
-### 7.3 Verify prompt
+### 7.3 Verify 阶段
 
 要求：
 
@@ -336,19 +337,17 @@ create paper
 
 已落地模块：
 
-- `backend/core/services/papers/refine_runtime.py`：编排 diagnose / repair / verify。
-- `backend/core/services/papers/refine_parsing.py`：line index、issue / patch / report 数据结构、LLM JSON 解析、结构证据窗口与 payload 归一化。
-- `backend/core/services/papers/refine_patch.py`：patch apply engine 与本地 preservation checks。
+- `backend/core/services/papers/refine/runtime.py`：编排 diagnose / repair / verify。
+- `backend/core/services/papers/refine/parsing.py`：line index、issue / patch / report 数据结构、LLM JSON 解析、结构证据窗口与 payload 归一化。
+- `backend/core/services/papers/refine/patch.py`：patch apply engine 与本地 preservation checks。
 
 已接入配置：
 
-- `backend/config/skill_bindings.toml` 已将 `paper_refine_parse` 拆为：
-  - `paper_refine_parse.diagnose`
-  - `paper_refine_parse.repair`
-  - `paper_refine_parse.verify`
-- `backend/config/prompt_templates.toml` 注册对应 prompt 文件。
-- `backend/config/prompts/paper_refine.md` 合并保存 `diagnose`、`repair`、`verify`、`default` 四个 section。
-- legacy `pdf_parser.markdown_refine` 默认通过 `prompt_template_key = "paper_refine_parse.default"` 读取同一份 prompt；`prompt` 字段只作为显式覆盖入口。
+- `backend/core/services/papers/skill_runtime.py` 按约定将 `paper_refine_parse.*` instruction key 解析到 `skills/paper-refine-parse/references/runtime-instructions.md` 中的对应 stage。
+- `backend/core/services/papers/refine/runtime.py` 定义 `paper_refine_parse` 的 diagnose / repair / verify 三阶段 feature binding。
+- `backend/config/settings.toml` 的 `[llm.features]` 注册对应的 3 个 feature -> model 路由。
+- legacy `pdf_parser.markdown_refine` 默认通过 `runtime_instruction_key = "paper_refine_parse.default"` 加载；显式 override 只作为本地调试入口。
+- `skills/paper-refine-parse/` 是 refine skill 的 canonical source，`SKILL.md` 维护流程，`references/runtime-instructions.md` 维护模型指令。
 
 安全边界：
 

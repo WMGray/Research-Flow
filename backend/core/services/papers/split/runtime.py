@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from core.services.llm import llm_registry
 from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
-from core.services.papers.prompt_runtime import load_prompt_template, render_template
+from core.services.papers.skill_runtime import load_skill_runtime_instructions, render_skill_instructions
 from core.services.papers.refine.parsing import extract_json_object
 from .heuristics import (
     CANONICAL_SECTION_ORDER,
@@ -15,6 +15,10 @@ from .heuristics import (
     excluded_line_numbers,
     split_sections_deterministically,
 )
+
+
+DEFAULT_SECTIONING_INSTRUCTION_KEY = "paper_sectioning.default"
+DEFAULT_SECTIONING_FEATURE = "paper_sectioning_default"
 
 
 class LLMGenerateClient(Protocol):
@@ -78,13 +82,13 @@ async def _llm_split_blocks(
     content: str,
     llm_client: LLMGenerateClient,
 ) -> tuple[dict[str, str], dict[str, Any]]:
-    prompt = render_template(
-        load_prompt_template("paper_section_split.default"),
+    prompt = render_skill_instructions(
+        load_skill_runtime_instructions(DEFAULT_SECTIONING_INSTRUCTION_KEY),
         {"section_outline": build_section_outline(content)},
     )
     response = await llm_client.generate(
         LLMRequest(
-            feature="paper_section_splitter",
+            feature=DEFAULT_SECTIONING_FEATURE,
             messages=[LLMMessage(role="user", content=prompt)],
             max_tokens=4096,
             max_completion_tokens=4096,

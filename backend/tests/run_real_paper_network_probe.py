@@ -169,11 +169,12 @@ def main() -> int:
             "llm_features_present": {
                 key: key in settings.llm.features
                 for key in [
-                    "pdf_markdown_refine_diagnose",
-                    "pdf_markdown_refine_repair",
-                    "pdf_markdown_refine_verify",
-                    "paper_section_splitter",
-                    "paper_note_summarizer",
+                    "paper_refine_parse_diagnose",
+                    "paper_refine_parse_repair",
+                    "paper_refine_parse_verify",
+                    "paper_sectioning_default",
+                    "paper_note_generate_default",
+                    "paper_note_generate_block",
                 ]
             },
         },

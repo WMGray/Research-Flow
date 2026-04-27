@@ -43,7 +43,7 @@ llm_pdf_section_chars = 2600
 [pdf_parser.markdown_refine]
 enabled = true
 feature = "pdf_markdown_refiner"
-prompt_template_key = "paper_refine_parse.default"
+runtime_instruction_key = "paper_refine_parse.default"
 output_filename = "LLM.refined.md"
 fail_open = true
 
@@ -101,27 +101,32 @@ model = "chat_kimi_26"
 system_prompt = "You are a careful academic Markdown editor. Return only cleaned Markdown."
 temperature = 0.1
 
-[llm.features.pdf_markdown_refine_diagnose]
+[llm.features.paper_refine_parse_diagnose]
 model = "chat_fast"
 system_prompt = "You diagnose MinerU academic Markdown and return only JSON."
 temperature = 0.0
 
-[llm.features.pdf_markdown_refine_repair]
+[llm.features.paper_refine_parse_repair]
 model = "chat_fast"
 system_prompt = "You emit deterministic line-based Markdown repair patches as JSON."
 temperature = 0.0
 
-[llm.features.pdf_markdown_refine_verify]
+[llm.features.paper_refine_parse_verify]
 model = "chat_fast"
 system_prompt = "You verify academic Markdown refinements and return only JSON."
 temperature = 0.0
 
-[llm.features.paper_section_splitter]
+[llm.features.paper_sectioning_default]
 model = "chat_fast"
 system_prompt = "You map academic paper headings to canonical section line ranges and return only JSON."
 temperature = 0.0
 
-[llm.features.paper_note_summarizer]
+[llm.features.paper_note_generate_default]
 model = "chat_fast"
 system_prompt = "You generate evidence-grounded academic paper notes and return only JSON."
+temperature = 0.1
+
+[llm.features.paper_note_generate_block]
+model = "chat_fast"
+system_prompt = "You generate one evidence-grounded academic paper note block and return only JSON."
 temperature = 0.1

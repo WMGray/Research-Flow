@@ -94,7 +94,7 @@ def install_fake_refiner(
     async def fake_generate(request: LLMRequest) -> LLMResponse:
         requests.append(request)
         source_lines = _extract_line_numbered_markdown(request.messages[0].content)
-        if request.feature == "pdf_markdown_refine_diagnose":
+        if request.feature == "paper_refine_parse_diagnose":
             content = json.dumps(
                 {
                     "source_hash": "",
@@ -113,7 +113,7 @@ def install_fake_refiner(
                     ],
                 }
             )
-        elif request.feature == "pdf_markdown_refine_repair":
+        elif request.feature == "paper_refine_parse_repair":
             preserved_metadata = "\n".join(source_lines[:6])
             replacement = "\n\n".join(
                 part
@@ -140,7 +140,7 @@ def install_fake_refiner(
                     ],
                 }
             )
-        elif request.feature == "paper_note_summarizer":
+        elif request.feature == "paper_note_generate_block":
             prompt = request.messages[0].content
             if "当前只生成 note.md" in prompt:
                 content = json.dumps({"content": "What problem the paper addresses."})
