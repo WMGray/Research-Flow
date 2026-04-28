@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from dataclasses import asdict
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.papers import envelope
-from app.schemas.papers import APIEnvelope
+from app.schemas.papers import APIEnvelope, JobResponse
 from app.schemas.projects import (
     ProjectCreateRequest,
     ProjectDocumentRole,
@@ -13,6 +15,7 @@ from app.schemas.projects import (
     ProjectListQuery,
     ProjectPaperLinkRequest,
     ProjectStatus,
+    ProjectTaskRequest,
     ProjectUpdateRequest,
 )
 from core.services.projects import (
@@ -21,6 +24,8 @@ from core.services.projects import (
     ProjectDocumentVersionConflictError,
     ProjectNotFoundError,
     ProjectRepository,
+    ProjectTaskInput,
+    ProjectTaskService,
     document_to_dict,
     record_to_dict,
     records_to_dicts,
@@ -32,6 +37,24 @@ router = APIRouter(prefix="/api/v1", tags=["projects"])
 
 def get_project_repository() -> ProjectRepository:
     return ProjectRepository()
+
+
+def get_project_task_service() -> ProjectTaskService:
+    return ProjectTaskService()
+
+
+def to_task_input(request: ProjectTaskRequest | None) -> ProjectTaskInput:
+    payload = request or ProjectTaskRequest()
+    return ProjectTaskInput(
+        focus_instructions=payload.focus_instructions,
+        included_paper_ids=tuple(payload.included_paper_ids),
+        included_knowledge_ids=tuple(payload.included_knowledge_ids),
+        skip_locked_blocks=payload.skip_locked_blocks,
+    )
+
+
+def to_job_response(record: object) -> JobResponse:
+    return JobResponse.model_validate(asdict(record))
 
 
 def raise_http_error(exc: Exception) -> None:
@@ -112,6 +135,19 @@ def update_project(
         raise
 
 
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(
+    project_id: int,
+    repository: ProjectRepository = Depends(get_project_repository),
+) -> Response:
+    try:
+        repository.delete_project(project_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
 @router.post("/projects/{project_id}/papers:link", response_model=APIEnvelope)
 def link_project_paper(
     project_id: int,
@@ -151,6 +187,128 @@ def list_project_papers(
 ) -> APIEnvelope:
     try:
         return envelope(records_to_dicts(repository.list_linked_papers(project_id)))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/projects/{project_id}/refresh-overview",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def refresh_project_overview(
+    project_id: int,
+    request: ProjectTaskRequest | None = None,
+    service: ProjectTaskService = Depends(get_project_task_service),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_job_response(service.run_refresh_overview(project_id, to_task_input(request)))
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/projects/{project_id}/generate-related-work",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def generate_project_related_work(
+    project_id: int,
+    request: ProjectTaskRequest | None = None,
+    service: ProjectTaskService = Depends(get_project_task_service),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_job_response(
+                service.run_generate_related_work(project_id, to_task_input(request))
+            )
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/projects/{project_id}/generate-method",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def generate_project_method(
+    project_id: int,
+    request: ProjectTaskRequest | None = None,
+    service: ProjectTaskService = Depends(get_project_task_service),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_job_response(service.run_generate_method(project_id, to_task_input(request)))
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/projects/{project_id}/generate-experiment",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def generate_project_experiment(
+    project_id: int,
+    request: ProjectTaskRequest | None = None,
+    service: ProjectTaskService = Depends(get_project_task_service),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_job_response(
+                service.run_generate_experiment(project_id, to_task_input(request))
+            )
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/projects/{project_id}/generate-conclusion",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def generate_project_conclusion(
+    project_id: int,
+    request: ProjectTaskRequest | None = None,
+    service: ProjectTaskService = Depends(get_project_task_service),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_job_response(
+                service.run_generate_conclusion(project_id, to_task_input(request))
+            )
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/projects/{project_id}/generate-manuscript",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def generate_project_manuscript(
+    project_id: int,
+    request: ProjectTaskRequest | None = None,
+    service: ProjectTaskService = Depends(get_project_task_service),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_job_response(
+                service.run_generate_manuscript(project_id, to_task_input(request))
+            )
+        )
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

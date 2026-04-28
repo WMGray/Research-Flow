@@ -98,6 +98,15 @@ class ProjectPaperLinkRequest(BaseModel):
     relation_type: ProjectPaperRelationType = "related_work"
 
 
+class ProjectTaskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    focus_instructions: str = ""
+    included_paper_ids: list[int] = Field(default_factory=list)
+    included_knowledge_ids: list[int] = Field(default_factory=list)
+    skip_locked_blocks: bool = True
+
+
 class LinkedPaperResponse(BaseModel):
     paper_id: int
     title: str

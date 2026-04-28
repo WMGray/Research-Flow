@@ -49,10 +49,6 @@ class ProjectRepository:
         self.project_root = self.data_root / "projects_api"
         self.initialize()
 
-    # ============================================================
-    # Initialization
-    # ============================================================
-
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.project_root.mkdir(parents=True, exist_ok=True)
@@ -63,10 +59,6 @@ class ProjectRepository:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
-
-    # ============================================================
-    # CRUD Operations
-    # ============================================================
 
     def create_project(self, values: dict[str, Any]) -> ProjectRecord:
         now = utc_now()
@@ -195,9 +187,19 @@ class ProjectRepository:
             conn.commit()
         return self.get_project(project_id)
 
-    # ============================================================
-    # Paper Linking
-    # ============================================================
+    def delete_project(self, project_id: int) -> None:
+        self.get_project(project_id)
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE asset_registry SET is_deleted = 1, updated_at = ? WHERE asset_id = ?",
+                (now, project_id),
+            )
+            conn.execute(
+                "UPDATE biz_project SET updated_at = ? WHERE asset_id = ?",
+                (now, project_id),
+            )
+            conn.commit()
 
     def link_paper(
         self,
@@ -255,10 +257,6 @@ class ProjectRepository:
             )
             for row in rows
         ]
-
-    # ============================================================
-    # Document Management
-    # ============================================================
 
     def get_document(self, project_id: int, doc_role: str) -> ProjectDocumentRecord:
         self.get_project(project_id)
@@ -322,10 +320,6 @@ class ProjectRepository:
             )
             conn.commit()
         return self.get_document(project_id, doc_role)
-
-    # ============================================================
-    # Internal Helpers
-    # ============================================================
 
     def _ensure_paper_exists(self, paper_id: int) -> None:
         with self.connect() as conn:

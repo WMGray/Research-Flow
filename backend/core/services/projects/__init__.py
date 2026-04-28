@@ -19,6 +19,8 @@ from core.services.projects.serialization import (
     record_to_dict,
     records_to_dicts,
 )
+from core.services.projects.service import ProjectTaskService
+from core.services.projects.tasks import ProjectTaskInput
 
 __all__ = [
     "DEFAULT_PAPER_RELATION_TYPE",
@@ -33,6 +35,8 @@ __all__ = [
     "ProjectRecord",
     "ProjectRepository",
     "ProjectRepositoryError",
+    "ProjectTaskInput",
+    "ProjectTaskService",
     "document_to_dict",
     "record_to_dict",
     "records_to_dicts",
