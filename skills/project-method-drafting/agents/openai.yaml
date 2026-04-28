@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Method Drafting"
+  short_description: "Draft Project method managed blocks"
+  default_prompt: "Use $project-method-drafting to draft Project method, innovation, and design-risk blocks."

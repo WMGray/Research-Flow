@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Conclusion Summarizing"
+  short_description: "Summarize Project conclusions and next steps"
+  default_prompt: "Use $project-conclusion-summarizing to summarize Project conclusions, open problems, and next steps."

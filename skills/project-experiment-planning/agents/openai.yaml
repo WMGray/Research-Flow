@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Experiment Planning"
+  short_description: "Plan Project experiments and evaluation blocks"
+  default_prompt: "Use $project-experiment-planning to propose Project experiments, baselines, and metrics."

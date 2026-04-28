@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Manuscript Compiling"
+  short_description: "Compile Project modules into manuscript blocks"
+  default_prompt: "Use $project-manuscript-compiling to compile Project module outputs into manuscript draft blocks."

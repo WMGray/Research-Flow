@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Overview Refreshing"
+  short_description: "Refresh Project overview managed statistics blocks"
+  default_prompt: "Use $project-overview-refreshing to maintain deterministic Project overview managed blocks."

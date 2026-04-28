@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Related Work Writing"
+  short_description: "Generate Project related-work managed blocks"
+  default_prompt: "Use $project-related-work-writing to synthesize linked papers into Project related-work managed blocks."
