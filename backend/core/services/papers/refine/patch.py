@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict
 import hashlib
 import re
@@ -16,6 +17,13 @@ CITATION_RE = re.compile(r"\[[0-9,\-\s;]+\]|\([A-Z][A-Za-z-]+(?: et al\.)?,\s*\d
 NUMBER_RE = re.compile(r"(?<![A-Za-z])\d+(?:\.\d+)?%?")
 IMAGE_RE = re.compile(r"!\[[^\]]*]\([^)]+\)")
 FORMULA_RE = re.compile(r"\$\$?|\\begin\{(?:equation|align|gather)")
+TRUNCATED_EVIDENCE_RE = re.compile(r"\[truncated chars=\d+\s+sha256=[0-9a-f]{16,}\]")
+FLOAT_NUMBER_PATTERN = r"(?:[A-Za-z]\.\d+(?:\.\d+)*|[A-Za-z]?\d+(?:\.\d+)*)"
+FLOAT_CAPTION_RE = re.compile(
+    rf"^\s*>\s*(?:fig(?:ure)?|table)\s*{FLOAT_NUMBER_PATTERN}",
+    re.IGNORECASE,
+)
+EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
 
 
 def _sha256_text(text: str) -> str:
@@ -46,6 +54,10 @@ def apply_refine_patches(
             continue
         start = patch.start_line - 1
         end = patch.end_line
+        content_reason = _patch_content_rejection_reason(patch, lines[start:end])
+        if content_reason is not None:
+            rejected.append({"patch": asdict(patch), "reason": content_reason})
+            continue
         if patch.op == "replace_span":
             edited[start:end] = patch.replacement.splitlines()
         elif patch.op == "insert_after":
@@ -75,11 +87,37 @@ def build_local_verify_report(
     apply_report: PatchApplyReport,
     llm_verdict: dict[str, Any],
 ) -> RefineVerifyReport:
+    raw_paper_text = _paper_content(raw_text)
+    refined_paper_text = _paper_content(refined_text)
     checks = [
-        _count_check("citations", CITATION_RE, raw_text, refined_text, allow_added=True),
-        _count_check("numbers", NUMBER_RE, raw_text, refined_text, allow_added=True),
-        _count_check("image_links", IMAGE_RE, raw_text, refined_text, allow_added=False),
-        _count_check("formula_markers", FORMULA_RE, raw_text, refined_text, allow_added=True),
+        _count_check(
+            "citations",
+            CITATION_RE,
+            raw_paper_text,
+            refined_paper_text,
+            allow_added=True,
+        ),
+        _count_check(
+            "numbers",
+            NUMBER_RE,
+            _without_emails(raw_paper_text),
+            _without_emails(refined_paper_text),
+            allow_added=True,
+        ),
+        _count_check(
+            "image_links",
+            IMAGE_RE,
+            raw_paper_text,
+            refined_paper_text,
+            allow_added=False,
+        ),
+        _count_check(
+            "formula_markers",
+            FORMULA_RE,
+            raw_paper_text,
+            refined_paper_text,
+            allow_added=True,
+        ),
         _length_ratio_check(raw_text, refined_text),
     ]
     if apply_report.rejected_patches:
@@ -123,10 +161,22 @@ def _patch_rejection_reason(
         return "line_range_out_of_bounds"
     if patch.op in {"replace_span", "insert_after"} and not patch.replacement.strip():
         return "replacement_is_empty"
+    if patch.op in {"replace_span", "insert_after"} and TRUNCATED_EVIDENCE_RE.search(patch.replacement):
+        return "replacement_contains_truncated_evidence"
     if patch.op != "insert_after" and any(
         line_no in occupied for line_no in range(patch.start_line, patch.end_line + 1)
     ):
         return "overlapping_patch_range"
+    return None
+
+
+def _patch_content_rejection_reason(patch: RefinePatch, source_lines: list[str]) -> str | None:
+    if patch.op != "replace_span" or not FLOAT_CAPTION_RE.match(patch.replacement):
+        return None
+    source_numbers = Counter(NUMBER_RE.findall("\n".join(source_lines)))
+    replacement_numbers = Counter(NUMBER_RE.findall(patch.replacement))
+    if source_numbers - replacement_numbers:
+        return "caption_replacement_drops_numbers"
     return None
 
 
@@ -148,6 +198,22 @@ def _count_check(
         "raw_count": len(raw_items),
         "refined_count": len(refined_items),
     }
+
+
+def _without_emails(text: str) -> str:
+    return EMAIL_RE.sub("", text)
+
+
+def _paper_content(text: str) -> str:
+    ignored_prefixes = (
+        "- Parser:",
+        "- Figure rendering:",
+        "- Organization:",
+        "- Embedded figure references:",
+    )
+    return "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith(ignored_prefixes)
+    )
 
 
 def _length_ratio_check(raw_text: str, refined_text: str) -> dict[str, Any]:

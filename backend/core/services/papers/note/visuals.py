@@ -8,9 +8,10 @@ from typing import Any
 
 
 IMAGE_LINK_RE = re.compile(r"!\[(?P<alt>[^\]]*)]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
+FLOAT_NUMBER_PATTERN = r"(?:[A-Za-z]\.\d+(?:\.\d+)*|[A-Za-z]?\d+(?:\.\d+)*)"
 CAPTION_RE = re.compile(
     r"^\s*(?:>\s*)?(?:\*\*图注\*\*[:：]\s*)?"
-    r"(?P<label>(?:fig(?:ure)?|table)\s*[A-Za-z]?\d+(?:\.\d+)*)(?:\s*[:.：])?\s*(?P<body>.*)$",
+    rf"(?P<label>(?:fig(?:ure)?|table)\s*{FLOAT_NUMBER_PATTERN})(?:\s*[:.：])?\s*(?P<body>.*)$",
     re.IGNORECASE,
 )
 MAX_FIGURE_EVIDENCE = 8

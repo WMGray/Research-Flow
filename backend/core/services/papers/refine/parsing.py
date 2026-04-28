@@ -108,7 +108,11 @@ class RefineVerifyReport:
 JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S+")
 NUMBERED_HEADING_RE = re.compile(r"^\s*(?:\d+(?:\.\d+)*|[A-H])\s+[A-Z][A-Z0-9 ,:;()/'\-\u2013\u2014]+$")
-CAPTION_RE = re.compile(r"^\s*(?:fig(?:ure)?|table)\s*\d+", re.IGNORECASE)
+FLOAT_NUMBER_PATTERN = r"(?:[A-Za-z]\.\d+(?:\.\d+)*|[A-Za-z]?\d+(?:\.\d+)*)"
+CAPTION_RE = re.compile(
+    rf"^\s*(?:fig(?:ure)?|table)\s*{FLOAT_NUMBER_PATTERN}",
+    re.IGNORECASE,
+)
 IMAGE_RE = re.compile(r"^\s*!\[[^\]]*]\([^)]+\)")
 TABLE_RE = re.compile(r"^\s*(?:<table\b|\|.+\|)", re.IGNORECASE)
 OCR_SPLIT_RE = re.compile(r"[A-Za-z]-\s+[A-Za-z]|[A-Za-z]-[A-Z]{2,}")

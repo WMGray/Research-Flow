@@ -6,8 +6,12 @@ from typing import Any
 
 HEADING_RE = re.compile(r"^\s*#{1,6}\s+")
 IMAGE_RE = re.compile(r"^\s*!\[[^\]]*]\([^)]+\)")
-CAPTION_RE = re.compile(r"^\s*>\s*\*\*图注\*\*：")
-CAUTION_RE = re.compile(r"^\s*>\[!Caution]", re.IGNORECASE)
+FLOAT_NUMBER_PATTERN = r"(?:[A-Za-z]\.\d+(?:\.\d+)*|[A-Za-z]?\d+(?:\.\d+)*)"
+CAPTION_RE = re.compile(
+    rf"^\s*>\s*(?:\*\*图注\*\*：)?(?:fig(?:ure)?|table)\s*{FLOAT_NUMBER_PATTERN}",
+    re.IGNORECASE,
+)
+CAUTION_RE = re.compile(r"^\s*>\[!(?:Caution|warning)]", re.IGNORECASE)
 TABLE_RE = re.compile(r"^\s*\|")
 FORMULA_RE = re.compile(r"(\$\$|\\begin\{|\\end\{|equation_inline|equation block)", re.IGNORECASE)
 CONTEXT_CHAR_LIMITS: dict[str, int] = {

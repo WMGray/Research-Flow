@@ -26,6 +26,17 @@ BULLET_RE = re.compile(r"^(?P<indent>\s*)[\u2022\u25cf\u25aa]\s+")
 SENTENCE_END_RE = re.compile(r"[.!?。！？]\s*$")
 SPACED_LETTER_RUN_RE = re.compile(r"(?<![A-Za-z])(?:[A-Za-z]\s+){2,}[A-Za-z](?![A-Za-z])")
 TERM_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9-]{1,}\b")
+EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
+AUTHOR_HEADER_RE = re.compile(r"^\s*Authors?\s*:", re.IGNORECASE)
+INSTITUTION_START_RE = re.compile(
+    r"\b("
+    r"University|Institute|College|School|Department|Laboratory|Lab|"
+    r"Corporation|Inc\.?|Ltd\.?|Microsoft|Google|Meta|OpenAI|"
+    r"Xiaohongshu|Beihang|Shanghai|Amsterdam|Oxford|Carnegie|CMU"
+    r")\b",
+    re.IGNORECASE,
+)
+AUTHOR_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z.'-]*[*†∗]?$")
 
 MAX_HEADING_CHARS = 180
 MAX_HEADING_WORDS = 18
@@ -51,9 +62,16 @@ def normalize_markdown_structure(
         for index, line in enumerate(markdown_text.splitlines(), start=1)
     ]
     operations: list[DeterministicNormalizationOperation] = []
+    entries = _normalize_front_matter_metadata(entries, operations)
     first_content_line = _first_content_line(entries)
     term_case_map = _build_term_case_map(markdown_text)
-    entries = _normalize_lines(entries, first_content_line, expected_title, term_case_map, operations)
+    entries = _normalize_lines(
+        entries,
+        first_content_line,
+        expected_title,
+        term_case_map,
+        operations,
+    )
     entries = normalize_image_annotations(
         entries,
         operations,
@@ -96,11 +114,18 @@ def _normalize_lines(
             operation_types.append("normalize_metadata_spacing")
             rationales.append("Repair safe spacing artifacts in the title/author metadata window.")
 
-        title_line = _normalize_title_line(after, entry.line_no, first_content_line, expected_title)
+        title_line = _normalize_title_line(
+            after,
+            entry.line_no,
+            first_content_line,
+            expected_title,
+        )
         if title_line != after:
             after = title_line
             operation_types.append("normalize_title_metadata")
-            rationales.append("Use known Paper metadata to repair a high-confidence title OCR artifact.")
+            rationales.append(
+                "Use known Paper metadata to repair a high-confidence title OCR artifact."
+            )
 
         heading = _normalize_heading(after, entry.line_no, first_content_line)
         if heading != after:
@@ -118,7 +143,9 @@ def _normalize_lines(
         if term_case_line != after:
             after = term_case_line
             operation_types.append("restore_term_case")
-            rationales.append("Restore casing for technical terms observed elsewhere in the paper.")
+            rationales.append(
+                "Restore casing for technical terms observed elsewhere in the paper."
+            )
 
         if after != entry.text:
             operations.append(
@@ -133,6 +160,171 @@ def _normalize_lines(
             )
         normalized.append(_LineEntry(line_no=entry.line_no, text=after))
     return normalized
+
+
+def _normalize_front_matter_metadata(
+    entries: list[_LineEntry],
+    operations: list[DeterministicNormalizationOperation],
+) -> list[_LineEntry]:
+    abstract_index = _find_abstract_index(entries)
+    first_content_index = _first_content_index(entries)
+    if (
+        abstract_index is None
+        or first_content_index is None
+        or abstract_index > METADATA_WINDOW_LINES
+    ):
+        return entries
+
+    metadata_start = first_content_index + 1
+    while metadata_start < abstract_index:
+        text = entries[metadata_start].text.strip()
+        if not text or text.startswith("- "):
+            metadata_start += 1
+            continue
+        break
+    if metadata_start >= abstract_index:
+        return entries
+
+    metadata_entries = entries[metadata_start:abstract_index]
+    if any(AUTHOR_HEADER_RE.match(entry.text) for entry in metadata_entries):
+        return entries
+
+    authors, institutions, extras = _extract_front_matter(metadata_entries)
+    if not authors or (not institutions and not extras):
+        return entries
+
+    replacement_lines = [f"Authors: {', '.join(authors)}"]
+    if institutions:
+        replacement_lines.append(f"Institutions: {', '.join(institutions)}")
+    replacement_lines.extend(extras)
+    replacement_lines.append("")
+
+    before = "\n".join(entry.text for entry in metadata_entries)
+    after = "\n".join(replacement_lines)
+    operations.append(
+        _operation(
+            operation_type="normalize_author_institution_metadata",
+            line_no=entries[metadata_start].line_no,
+            before=before,
+            after=after,
+            rationale="Normalize paper front matter to Authors/Institutions and omit email addresses.",
+            index=len(operations) + 1,
+        )
+    )
+    replacement_entries = [
+        _LineEntry(line_no=entries[metadata_start].line_no, text=line)
+        for line in replacement_lines
+    ]
+    return entries[:metadata_start] + replacement_entries + entries[abstract_index:]
+
+
+def _find_abstract_index(entries: list[_LineEntry]) -> int | None:
+    for index, entry in enumerate(entries[:METADATA_WINDOW_LINES]):
+        content = HEADING_PREFIX_RE.sub(r"\g<title>", entry.text.strip()).strip()
+        if content.lower() == "abstract":
+            return index
+    return None
+
+
+def _first_content_index(entries: list[_LineEntry]) -> int | None:
+    for index, entry in enumerate(entries):
+        if entry.text.strip():
+            return index
+    return None
+
+
+def _extract_front_matter(entries: list[_LineEntry]) -> tuple[list[str], list[str], list[str]]:
+    authors: list[str] = []
+    institutions: list[str] = []
+    extras: list[str] = []
+    for entry in entries:
+        line = entry.text.strip()
+        if not line:
+            continue
+        if EMAIL_RE.fullmatch(line):
+            continue
+        line_without_email = EMAIL_RE.sub("", line).strip(" ,;")
+        if not line_without_email:
+            continue
+        if line_without_email.startswith("(") and line_without_email.endswith(")"):
+            extras.append(line_without_email)
+            continue
+
+        author_text, institution_text = _split_author_institution_line(line_without_email)
+        if _looks_like_author_text(author_text):
+            authors.extend(_split_author_names(author_text))
+        elif author_text:
+            extras.append(_clean_metadata_value(author_text))
+        if institution_text:
+            institutions.append(_clean_metadata_value(institution_text))
+    return _dedupe(authors), _dedupe(institutions), _dedupe(extras)
+
+
+def _split_author_institution_line(line: str) -> tuple[str, str]:
+    match = INSTITUTION_START_RE.search(line)
+    if match is None:
+        return line, ""
+    if match.start() == 0:
+        return "", line
+    prefix = line[: match.start()].strip(" ,;")
+    if "," not in prefix:
+        return "", line
+    author_text = prefix
+    institution_text = line[match.start() :].strip(" ,;")
+    return author_text, institution_text
+
+
+def _split_author_names(text: str) -> list[str]:
+    cleaned = _clean_metadata_value(text)
+    if not cleaned:
+        return []
+    comma_parts = [part.strip() for part in cleaned.split(",") if part.strip()]
+    if len(comma_parts) > 1:
+        return comma_parts
+
+    tokens = cleaned.split()
+    if (
+        len(tokens) >= 2
+        and len(tokens) % 2 == 0
+        and all(AUTHOR_TOKEN_RE.match(token) for token in tokens)
+    ):
+        return [" ".join(tokens[index : index + 2]) for index in range(0, len(tokens), 2)]
+    return [cleaned]
+
+
+def _looks_like_author_text(text: str) -> bool:
+    cleaned = _clean_metadata_value(text)
+    if not cleaned:
+        return False
+    comma_parts = [part.strip() for part in cleaned.split(",") if part.strip()]
+    if len(comma_parts) > 1:
+        return all(_looks_like_author_name_part(part) for part in comma_parts)
+    return _looks_like_author_name_part(cleaned)
+
+
+def _looks_like_author_name_part(text: str) -> bool:
+    cleaned = _clean_metadata_value(text)
+    tokens = cleaned.split()
+    return (
+        len(tokens) >= 2
+        and all(AUTHOR_TOKEN_RE.match(token) for token in tokens)
+    )
+
+
+def _clean_metadata_value(text: str) -> str:
+    return re.sub(r"\s+", " ", text.replace("∗", "*")).strip(" ,;")
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        key = value.lower()
+        if not value or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
 
 
 def _normalize_heading(

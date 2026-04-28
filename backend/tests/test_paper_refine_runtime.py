@@ -8,7 +8,12 @@ from core.services.llm.schemas import LLMMessage, LLMRequest, LLMResponse
 from core.services.papers.models import PaperRecord, utc_now
 from core.services.papers.repository import _rewrite_section_image_links
 from core.services.papers.refine import normalize_markdown_structure, refine_markdown
-from core.services.papers.refine.parsing import build_line_index, build_line_numbered_markdown
+from core.services.papers.refine.patch import apply_refine_patches, build_local_verify_report
+from core.services.papers.refine.parsing import (
+    RefinePatch,
+    build_line_index,
+    build_line_numbered_markdown,
+)
 from core.services.papers.split import (
     split_canonical_sections,
     split_sections_deterministically,
@@ -401,22 +406,142 @@ def test_normalization_formats_captions_and_marks_missing_caption() -> None:
             "![](figures/figure_2.png)",
             "",
             "Method text after an image without a caption.",
+            "",
+            "Table 1: Dataset statistics.",
+            "<table><tr><td>A</td></tr></table>",
+            "",
+            "![](figures/figure_a1.png)",
+            "> **图注**：Figure A.1: Appendix detail.",
         ]
     )
 
     normalized, report = normalize_markdown_structure(content, source_hash="hash")
 
-    assert "![](figures/figure_1.png)\n> **图注**：Figure 1: Method overview." in normalized
-    assert ">[!Caution]" in normalized
-    assert "> 解析结果没有在图片附近找到可靠图注，需要人工核对原 PDF。" in normalized
+    assert "![](figures/figure_1.png)\n> Figure 1: Method overview." in normalized
+    assert ">[!warning]" in normalized
+    assert "> No reliable caption was matched near this image; verify against the source PDF." in normalized
+    assert "> Table 1: Dataset statistics." in normalized
+    assert "> Figure A.1: Appendix detail." in normalized
     assert any(
-        operation.operation_type == "format_figure_caption_blockquote"
+        operation.operation_type == "format_float_caption_blockquote"
         for operation in report.operations
     )
     assert any(
         operation.operation_type == "mark_image_caption_needs_review"
         for operation in report.operations
     )
+
+
+def test_normalization_repairs_front_matter_and_moves_interrupted_figure() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "- Parser: `MinerU`",
+            "",
+            "A. Author B. Writer",
+            "",
+            "Demo University",
+            "",
+            "author@example.com",
+            "",
+            "## Abstract",
+            "",
+            "Existing methods",
+            "",
+            "![](figures/figure_1.png)",
+            "> **图注**：Figure 1: Overview.",
+            "",
+            "often add latency.",
+        ]
+    )
+
+    normalized, report = normalize_markdown_structure(content, source_hash="hash")
+
+    assert "Authors: A. Author, B. Writer" in normalized
+    assert "Institutions: Demo University" in normalized
+    assert "author@example.com" not in normalized
+    assert "Existing methods often add latency.\n\n![](figures/figure_1.png)" in normalized
+    assert "> Figure 1: Overview." in normalized
+    assert any(
+        operation.operation_type == "normalize_author_institution_metadata"
+        for operation in report.operations
+    )
+    assert any(
+        operation.operation_type == "move_interrupted_image_block"
+        for operation in report.operations
+    )
+
+
+def test_patch_engine_rejects_truncated_evidence_replacements() -> None:
+    raw_text = "Table 1: Metrics.\n<table><tr><td>1</td></tr></table>\n"
+    patches = [
+        RefinePatch(
+            patch_id="patch_001",
+            issue_id="issue_001",
+            op="replace_span",
+            start_line=1,
+            end_line=2,
+            replacement=(
+                "> Table 1: Metrics.\n"
+                "<table><tr><td>1</td></tr> ... [truncated chars=80 sha256=abcdef1234567890]</table>"
+            ),
+            confidence=0.9,
+        )
+    ]
+
+    refined, report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="hash",
+        patches=patches,
+    )
+
+    assert refined == raw_text
+    assert report.rejected_patches[0]["reason"] == "replacement_contains_truncated_evidence"
+
+
+def test_patch_engine_rejects_caption_replacements_that_drop_numbers() -> None:
+    raw_text = "Table 2: Results from Houlsby et al. (2019).\n"
+    patches = [
+        RefinePatch(
+            patch_id="patch_001",
+            issue_id="issue_001",
+            op="replace_span",
+            start_line=1,
+            end_line=1,
+            replacement="> Table 2: Results from Houlsby et al.",
+            confidence=0.9,
+        )
+    ]
+
+    refined, report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="hash",
+        patches=patches,
+    )
+
+    assert refined == raw_text
+    assert report.rejected_patches[0]["reason"] == "caption_replacement_drops_numbers"
+
+
+def test_local_verify_allows_omitted_email_numbers() -> None:
+    raw_text = "Authors: A\nh.wang3@uva.nl\nNumber 42 is preserved.\n"
+    refined_text = "Authors: A\nNumber 42 is preserved.\n"
+    _, apply_report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="hash",
+        patches=[],
+    )
+
+    report = build_local_verify_report(
+        raw_text=raw_text,
+        refined_text=refined_text,
+        source_hash="hash",
+        apply_report=apply_report,
+        llm_verdict={"status": "pass"},
+    )
+
+    assert report.status == "pass"
 
 
 def test_llm_section_split_fallback_uses_audited_line_ranges() -> None:
