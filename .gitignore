@@ -36,6 +36,7 @@ build/
 .ruff_cache/
 .pytest_cache/
 reports/
+skill-lab/
 backend/.pytest-basetemp/
 backend/.pytest-basetemp*/
 backend/.pytest-*/
