@@ -1,43 +1,74 @@
 ---
 name: paper-sectioning
-description: Maintain Research-Flow's Paper semantic sectioning skill. Use when changing canonical section names, line-range section plans, appendix handling, reference exclusion, section split validation, or Paper LLM runtime instructions for `paper_sectioning.default`.
+description: Maintain Research-Flow's paper sectioning skill for splitting `parsed/refined.md` into six canonical Markdown files using audited semantic line ranges. Use when changing section keys, LLM classification rules, multi-section matching, reference exclusion, split validation, or `paper_sectioning.default` runtime instructions.
 ---
 
 # Paper Sectioning
 
-## Core Rule
+## Boundary
 
-Produce audited line ranges from `parsed/refined.md`; do not summarize, rewrite, or invent paper content. Backend code owns copying Markdown lines into canonical section files.
+This skill plans semantic line ranges from `parsed/refined.md`. It does not rewrite, summarize, or improve paper content. The backend copies accepted lines into canonical section files, writes placeholders for missing sections, and provides deterministic fallback.
 
-## Canonical Sections
+## Output Files
 
-Use these section keys:
+The backend always writes these files under `parsed/sections/`:
 
-- `related_work`: background, motivation, Introduction, problem setting, and Related Work.
-- `method`: main approach, model, algorithm, architecture, system, and theory.
-- `experiment`: datasets, metrics, baselines, implementation, experiments, evaluation, results, and analysis.
-- `appendix`: supplementary material, extra experiments, proofs, implementation details, and appendix figures/tables.
-- `conclusion`: conclusion, limitations, discussion, and future work.
+- `01_introduction.md`: title, authors, abstract, problem definition, motivation, and contributions.
+- `02_related_work.md`: literature discussion, including prior-work content embedded in Introduction, body sections, or Appendix.
+- `03_method.md`: method, model, algorithm, architecture, system design, theory, and proofs; appendix lines may also appear here when they are method evidence.
+- `04_experiment.md`: experiments, results, ablations, analysis, implementation details, metrics, baselines, and dataset descriptions; appendix lines may also appear here when they are experiment evidence.
+- `05_conclusion.md`: conclusion, limitations, and future work.
+- `06_appendix.md`: complete appendix or supplementary content in original order.
 
-## Workflow
+Together, the files should cover the whole paper document except References/Bibliography and parser metadata. Do not drop headings, paragraphs, equations, tables, figures, or captions just because their semantic class is ambiguous.
 
-1. Read the heading outline and local snippets built from the complete `parsed/refined.md`.
-2. Return JSON-only ranges with `section_key`, `start_line`, `end_line`, `confidence`, and `rationale`.
-3. Merge Introduction and Related Work into `related_work` when both exist.
-4. Trust numbering hierarchy over Markdown heading level when MinerU gives parent and child headings the same level.
-5. Exclude References, Bibliography, Acknowledgments, author affiliations, parser metadata, and boilerplate.
-6. Preserve Appendix content under `appendix`, including appendix content that appears after References.
-7. Include nearby image lines, blockquoted captions, and caution callouts inside the selected range.
-8. Use confidence below `0.65` for uncertain ranges so the backend rejects them.
+## LLM Contract
+
+The LLM returns JSON with `sections[]`; each item is an audited line range:
+
+- `section_key`: one of `introduction`, `related_work`, `method`, `experiment`, `conclusion`, `appendix`.
+- `start_line` / `end_line`: 1-based inclusive line numbers in `refined.md`.
+- `confidence`: use `< 0.65` only for ranges the backend should reject.
+- `rationale`: brief evidence for the semantic choice.
+
+Every non-reference line in `refined.md` should appear in at least one returned range. Figures, tables, image Markdown, captions, and review callouts move with the surrounding semantic block.
+
+The backend accepts overlapping ranges for intended duplication. Use overlap only when the same paragraph, heading, figure, or table genuinely belongs in more than one output file:
+
+- `introduction` + `related_work` for literature discussion embedded in Introduction.
+- `appendix` + `method` for appendix proofs or method details.
+- `appendix` + `experiment` for appendix experiments, ablations, datasets, or result analysis.
+- `appendix` + `related_work` for appendix literature discussion.
+- Other section combinations are also valid when a single line range has multiple clear semantic roles.
+
+## Classification Rules
+
+- Use semantic role, not exact heading text.
+- `introduction`: title/front matter, abstract, research problem, motivation, contributions, and paper organization.
+- `related_work`: concrete prior work, citations used for literature comparison, limitations of existing methods, and research gap discussion.
+- `method`: proposed approach, algorithm steps, model architecture, objective functions, training/inference design, theoretical derivation, and proofs.
+- `experiment`: datasets, metrics, implementation settings, baselines, quantitative/qualitative results, ablations, sensitivity analysis, and discussion of empirical findings.
+- `conclusion`: closing summary, limitations, future work, and final implications.
+- `appendix`: every appendix/supplementary line. If an appendix subsection also provides method, experiment, or related-work evidence, it may also be emitted with the matching non-appendix `section_key`.
+
+## Multi-Section Matching
+
+- A line range can be selected for multiple sections when it has multiple semantic roles.
+- Use multi-section matching sparingly; do not duplicate content just because it is in Appendix.
+- Keep `06_appendix.md` complete when appendix content exists; any additional non-appendix range is a semantic copy, not a move.
+
+## Exclusion Rules
+
+Do not select References, Bibliography, parser metadata, page headers/footers, or unrelated boilerplate. The backend also removes these defensively from accepted ranges and fills uncovered non-reference paper lines with deterministic assignments.
 
 ## Runtime Reference
 
-The backend runtime instruction for `paper_sectioning.default` is `references/runtime-instructions.md`. Keep the reference JSON schema aligned with `backend/core/services/papers/split/runtime.py`.
+Runtime instructions live in `references/runtime-instructions.md`. Keep the JSON schema aligned with `backend/core/services/papers/split/runtime.py`.
 
 ## Validation
 
-Run focused checks after changes:
+Run focused tests after changes:
 
 ```powershell
-python -m pytest tests\test_paper_refine_runtime.py -q
+python -m pytest backend\tests\test_paper_refine_runtime.py backend\tests\test_papers_api.py -q
 ```

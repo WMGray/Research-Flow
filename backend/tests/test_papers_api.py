@@ -412,7 +412,14 @@ def test_download_parse_and_sections_flow(
     sections_response = client.get(f"/api/v1/papers/{paper_id}/parsed/sections")
     assert sections_response.status_code == 200
     section_keys = [item["section_key"] for item in sections_response.json()["data"]]
-    assert section_keys == ["related_work", "method", "experiment", "appendix", "conclusion"]
+    assert section_keys == [
+        "introduction",
+        "related_work",
+        "method",
+        "experiment",
+        "conclusion",
+        "appendix",
+    ]
 
     with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
         artifact_keys = {

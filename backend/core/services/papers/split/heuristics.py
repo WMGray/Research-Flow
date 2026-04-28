@@ -5,14 +5,24 @@ from typing import Any
 
 
 CANONICAL_SECTION_ORDER: tuple[tuple[str, str], ...] = (
-    ("related_work", "Background and Related Work"),
+    ("introduction", "Introduction"),
+    ("related_work", "Related Work"),
     ("method", "Method"),
     ("experiment", "Experiment"),
-    ("appendix", "Appendix"),
     ("conclusion", "Conclusion"),
+    ("appendix", "Appendix"),
 )
+SECTION_FILENAMES: dict[str, str] = {
+    "introduction": "01_introduction.md",
+    "related_work": "02_related_work.md",
+    "method": "03_method.md",
+    "experiment": "04_experiment.md",
+    "conclusion": "05_conclusion.md",
+    "appendix": "06_appendix.md",
+}
 SECTION_ALIASES: dict[str, tuple[str, ...]] = {
-    "related_work": ("introduction", "related work", "related works", "background"),
+    "introduction": ("abstract", "introduction", "intro", "motivation", "contribution"),
+    "related_work": ("related work", "related works", "background", "prior work"),
     "method": ("method", "our method", "methodology", "approach", "framework"),
     "experiment": ("experiment", "experiments", "empirical experiments", "evaluation", "results"),
     "appendix": ("appendix", "supplementary", "additional"),
@@ -25,41 +35,62 @@ EXCLUDED_HEADING_PREFIXES = (
     "references",
     "reference",
     "bibliography",
-    "acknowledgment",
-    "acknowledgments",
-    "acknowledgement",
-    "acknowledgements",
+)
+EXCLUDED_LINE_PREFIXES = (
+    "- parser:",
+    "- figure rendering:",
 )
 
 
-def split_sections_deterministically(content: str) -> tuple[dict[str, str], dict[str, Any]]:
-    section_lines: dict[str, list[str]] = {key: [] for key, _ in CANONICAL_SECTION_ORDER}
-    headings: list[dict[str, Any]] = []
-    excluded = excluded_line_numbers(content.splitlines())
-    current_key: str | None = None
+def section_filename(section_key: str) -> str:
+    return SECTION_FILENAMES.get(section_key, f"{section_key}.md")
 
-    for line_no, line in enumerate(content.splitlines(), start=1):
+
+def split_sections_deterministically(content: str) -> tuple[dict[str, str], dict[str, Any]]:
+    assignments, report = assign_lines_deterministically(content)
+    lines = content.splitlines()
+    section_lines: dict[str, list[str]] = {key: [] for key, _ in CANONICAL_SECTION_ORDER}
+
+    for line_no, line in enumerate(lines, start=1):
+        if section_key := assignments.get(line_no):
+            section_lines[section_key].append(line)
+
+    blocks = {
+        key: "\n".join(lines_).strip() + "\n"
+        for key, lines_ in section_lines.items()
+        if any(line.strip() for line in lines_)
+    }
+    return blocks, {
+        **report,
+        "status": "pass",
+        "section_keys": sorted(blocks),
+    }
+
+
+def assign_lines_deterministically(content: str) -> tuple[dict[int, str], dict[str, Any]]:
+    lines = content.splitlines()
+    headings: list[dict[str, Any]] = []
+    excluded = excluded_line_numbers(lines)
+    assignments: dict[int, str] = {}
+    current_key = "introduction"
+
+    for line_no, line in enumerate(lines, start=1):
         heading = _parse_heading(line, line_no)
         if heading:
             headings.append(heading)
             matched_key = _canonical_key(heading)
             if matched_key:
                 current_key = matched_key
-            elif _ends_current_section(heading):
-                current_key = None
-        if current_key is not None and line_no not in excluded:
-            section_lines[current_key].append(line)
+        if line_no not in excluded:
+            assignments[line_no] = current_key
 
-    blocks = {
-        key: "\n".join(lines).strip() + "\n"
-        for key, lines in section_lines.items()
-        if any(line.strip() for line in lines)
-    }
-    return blocks, {
-        "status": "pass",
-        "section_keys": sorted(blocks),
+    return assignments, {
         "heading_count": len(headings),
         "excluded_line_count": len(excluded),
+        "assigned_line_count": len(assignments),
+        "assigned_nonempty_line_count": sum(
+            1 for line_no, line in enumerate(lines, start=1) if line_no in assignments and line.strip()
+        ),
         "headings": headings[:80],
     }
 
@@ -75,7 +106,7 @@ def build_section_outline(content: str, *, max_headings: int = 140) -> str:
     rendered = [
         "# Section Split Evidence",
         f"line_count: {len(lines)}",
-        "Ranges refer to full refined.md line numbers. The backend removes References/Bibliography/Acknowledgments from accepted ranges.",
+        "Ranges refer to full refined.md line numbers. Cover all non-reference paper content; the backend removes References/Bibliography and parser metadata from accepted ranges.",
         "",
         "## Metadata Window",
     ]
@@ -102,6 +133,9 @@ def excluded_line_numbers(lines: list[str]) -> set[int]:
         if (heading := _parse_heading(line, index))
     ]
     excluded: set[int] = set()
+    for line_no, line in enumerate(lines, start=1):
+        if _is_excluded_line(line):
+            excluded.add(line_no)
     for index, heading in enumerate(headings):
         if not _is_excluded_heading(heading):
             continue
@@ -113,6 +147,11 @@ def excluded_line_numbers(lines: list[str]) -> set[int]:
                 break
         excluded.update(range(start_line, end_line + 1))
     return excluded
+
+
+def _is_excluded_line(line: str) -> bool:
+    stripped = line.strip().lower()
+    return any(stripped.startswith(prefix) for prefix in EXCLUDED_LINE_PREFIXES)
 
 
 def _parse_heading(line: str, line_no: int) -> dict[str, Any] | None:
@@ -208,7 +247,10 @@ def _heading_snippets(
 
 __all__ = [
     "CANONICAL_SECTION_ORDER",
+    "SECTION_FILENAMES",
+    "assign_lines_deterministically",
     "build_section_outline",
     "excluded_line_numbers",
+    "section_filename",
     "split_sections_deterministically",
 ]

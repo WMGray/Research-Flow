@@ -46,7 +46,11 @@ from core.services.papers.models import (
     utc_now,
 )
 from core.services.papers.refine import refine_markdown
-from core.services.papers.split import split_canonical_sections
+from core.services.papers.split import (
+    CANONICAL_SECTION_ORDER,
+    split_canonical_sections,
+    section_filename,
+)
 from core.services.papers.note import (
     generate_paper_note,
     merge_managed_note_blocks,
@@ -60,13 +64,6 @@ from core.storage import configured_data_root, configured_db_path
 
 SCHEMA_SQL = PAPER_SCHEMA_SQL
 FINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
-CANONICAL_SECTION_ORDER: tuple[tuple[str, str], ...] = (
-    ("related_work", "Background and Related Work"),
-    ("method", "Method"),
-    ("experiment", "Experiment"),
-    ("appendix", "Appendix"),
-    ("conclusion", "Conclusion"),
-)
 @dataclass(frozen=True, slots=True)
 class RepositoryPaperDownloadRequest:
     source_url: str | None
@@ -857,7 +854,7 @@ class PaperRepository:
                     artifact_key=f"section_{section_key}",
                     artifact_type="markdown",
                     stage="split",
-                    path=self._sections_dir(paper_id) / f"{section_key}.md",
+                    path=self._sections_dir(paper_id) / section_filename(section_key),
                     metadata={
                         "title": str(record["title"]),
                         "char_count": int(record["char_count"]),
@@ -1204,7 +1201,7 @@ class PaperRepository:
 
         records: list[dict[str, Any]] = []
         for section_key, title in CANONICAL_SECTION_ORDER:
-            path = section_dir / f"{section_key}.md"
+            path = section_dir / section_filename(section_key)
             if not path.exists():
                 continue
             content = path.read_text(encoding="utf-8")
@@ -2045,7 +2042,7 @@ class PaperRepository:
         for section_key, title in CANONICAL_SECTION_ORDER:
             section_content = blocks.get(section_key) or f"## {title}\n\nPending extraction.\n"
             section_content = _rewrite_section_image_links(section_content)
-            path = section_dir / f"{section_key}.md"
+            path = section_dir / section_filename(section_key)
             path.write_text(section_content.rstrip() + "\n", encoding="utf-8")
             records.append(
                 {
@@ -2094,8 +2091,9 @@ def _rewrite_section_image_links(markdown_text: str) -> str:
     def replace(match: re.Match[str]) -> str:
         alt = match.group("alt")
         target = match.group("target").strip()
-        if target.startswith(("images/", "figures/")):
-            target = f"../{target}"
+        normalized_target = target[2:] if target.startswith("./") else target
+        if normalized_target.startswith(("images/", "figures/")):
+            target = f"../{normalized_target}"
         return f"![{alt}]({target})"
 
     return re.sub(r"!\[(?P<alt>[^\]]*)]\((?P<target>[^)\s]+)\)", replace, markdown_text)

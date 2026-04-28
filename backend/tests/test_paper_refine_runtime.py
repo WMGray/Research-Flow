@@ -332,7 +332,14 @@ def test_deterministic_split_keeps_numbered_child_heading_under_parent() -> None
     assert "LOW-RANK PARAMETRIZATION" in blocks["method"]
     assert "METHOD DETAILS FOR EVALUATION" in blocks["experiment"]
     assert "METHOD DETAILS FOR EVALUATION" not in blocks["method"]
-    assert set(blocks) == {"related_work", "method", "experiment", "conclusion"}
+    assert set(blocks) == {
+        "introduction",
+        "related_work",
+        "method",
+        "experiment",
+        "conclusion",
+    }
+    assert "Demo Paper" in blocks["introduction"]
 
 
 def test_normalization_keeps_appendix_child_heading_under_letter_parent() -> None:
@@ -714,6 +721,13 @@ def test_llm_section_split_fallback_uses_audited_line_ranges() -> None:
             {
                 "sections": [
                     {
+                        "section_key": "introduction",
+                        "start_line": 1,
+                        "end_line": 4,
+                        "confidence": 0.9,
+                        "rationale": "Title and Introduction are the front matter.",
+                    },
+                    {
                         "section_key": "method",
                         "start_line": 5,
                         "end_line": 6,
@@ -744,8 +758,90 @@ def test_llm_section_split_fallback_uses_audited_line_ranges() -> None:
     assert result.report["used_llm"] is True
     assert result.report["strategy"] == "llm_semantic"
     assert fake_llm.requests[0].feature == "paper_sectioning_default"
+    assert "Demo Paper" in result.blocks["introduction"]
     assert "Proposed Framework" in result.blocks["method"]
     assert "Results" in result.blocks["experiment"]
+
+
+def test_llm_section_split_allows_multi_section_line_ranges() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "## 3 Model and Training",
+            "The architecture and training protocol are defined together.",
+        ]
+    )
+    fake_llm = SequenceLLM(
+        [
+            {
+                "sections": [
+                    {
+                        "section_key": "method",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "confidence": 0.9,
+                        "rationale": "The range defines model architecture.",
+                    },
+                    {
+                        "section_key": "experiment",
+                        "start_line": 3,
+                        "end_line": 4,
+                        "confidence": 0.9,
+                        "rationale": "The same range defines the training protocol.",
+                    },
+                ]
+            }
+        ]
+    )
+
+    result = split_canonical_sections(content, llm_client=fake_llm)
+
+    assert "Model and Training" in result.blocks["method"]
+    assert "Model and Training" in result.blocks["experiment"]
+    assert result.report["llm"]["rejected"] == []
+
+
+def test_llm_section_split_fills_uncovered_non_reference_lines_and_images() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "## 1 Introduction",
+            "Intro text.",
+            "![](images/figure_1.png)",
+            "> Figure 1: Intro overview.",
+            "## 2 Related Work",
+            "Prior work evidence.",
+            "## References",
+            "[1] Reference text should be removed.",
+        ]
+    )
+    fake_llm = SequenceLLM(
+        [
+            {
+                "sections": [
+                    {
+                        "section_key": "introduction",
+                        "start_line": 1,
+                        "end_line": 4,
+                        "confidence": 0.9,
+                        "rationale": "The LLM selected the intro text but missed the figure and related work.",
+                    }
+                ]
+            }
+        ]
+    )
+
+    result = split_canonical_sections(content, llm_client=fake_llm)
+
+    assert "![](images/figure_1.png)" in result.blocks["introduction"]
+    assert "> Figure 1: Intro overview." in result.blocks["introduction"]
+    assert "Prior work evidence." in result.blocks["related_work"]
+    assert "Reference text should be removed" not in "\n".join(result.blocks.values())
+    assert result.report["llm"]["coverage"]["initial_uncovered_line_count"] > 0
+    assert result.report["llm"]["coverage"]["filled_range_count"] > 0
+    assert result.report["llm"]["coverage"]["final_uncovered_line_count"] == 0
 
 
 def test_llm_section_split_merges_background_excludes_references_and_keeps_appendix() -> None:
@@ -778,11 +874,11 @@ def test_llm_section_split_merges_background_excludes_references_and_keeps_appen
             {
                 "sections": [
                     {
-                        "section_key": "related_work",
+                        "section_key": "introduction",
                         "start_line": 3,
                         "end_line": 6,
                         "confidence": 0.95,
-                        "rationale": "Introduction belongs to background.",
+                        "rationale": "Introduction is front matter and motivation.",
                     },
                     {
                         "section_key": "background",
@@ -806,6 +902,13 @@ def test_llm_section_split_merges_background_excludes_references_and_keeps_appen
                         "rationale": "Evaluation is the experiment.",
                     },
                     {
+                        "section_key": "experiment",
+                        "start_line": 17,
+                        "end_line": 20,
+                        "confidence": 0.9,
+                        "rationale": "Appendix contains additional experiments.",
+                    },
+                    {
                         "section_key": "conclusion",
                         "start_line": 13,
                         "end_line": 14,
@@ -827,10 +930,11 @@ def test_llm_section_split_merges_background_excludes_references_and_keeps_appen
     result = split_canonical_sections(content, llm_client=fake_llm)
 
     assert result.report["used_llm"] is True
-    assert "Intro motivation." in result.blocks["related_work"]
+    assert "Intro motivation." in result.blocks["introduction"]
     assert "Prior work evidence." in result.blocks["related_work"]
     assert "Reference text should be removed" not in result.blocks["appendix"]
     assert "Appendix experiment body." in result.blocks["appendix"]
+    assert "Appendix experiment body." in result.blocks["experiment"]
     assert "figures/figure_a1.png" in result.blocks["appendix"]
 
 
@@ -999,6 +1103,7 @@ def test_section_markdown_rewrites_figure_paths_for_sections() -> None:
         [
             "## Method",
             "![Overview](images/figure_1.png)",
+            "![Local](./images/local.png)",
             "![External](https://example.com/figure.png)",
         ]
     )
@@ -1006,6 +1111,7 @@ def test_section_markdown_rewrites_figure_paths_for_sections() -> None:
     rewritten = _rewrite_section_image_links(markdown)
 
     assert "![Overview](../images/figure_1.png)" in rewritten
+    assert "![Local](../images/local.png)" in rewritten
     assert "![External](https://example.com/figure.png)" in rewritten
 
 

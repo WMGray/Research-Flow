@@ -343,11 +343,12 @@ def main() -> int:
                 checks.update(
                     {
                         "sections_registered": {
+                            "section_introduction",
                             "section_related_work",
                             "section_method",
                             "section_experiment",
-                            "section_appendix",
                             "section_conclusion",
+                            "section_appendix",
                         }.issubset(set(artifact_keys)),
                         "note_registered": "note_markdown" in artifact_keys,
                         "note_source_uses_llm": (

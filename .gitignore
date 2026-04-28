@@ -39,12 +39,14 @@ build/
 .dmypy.json
 .ruff_cache/
 .pytest_cache/
+.pytest_tmp*/
 .pytest-temp/
 reports/
 skill-lab/
 backend/.pytest-basetemp/
 backend/.pytest-basetemp*/
 backend/.pytest-*/
+backend/.pytest_tmp*/
 backend/.codex*/
 backend/.smoke-tmp/
 backend/.uv-cache/
