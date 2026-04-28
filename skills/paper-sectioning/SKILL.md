@@ -41,7 +41,3 @@ Run focused checks after changes:
 ```powershell
 python -m pytest tests\test_paper_refine_runtime.py -q
 ```
-
-## Standalone Demo
-
-Read `references/io-contract.md` for the standalone input/output contract. Use `assets/examples/sample-input.json` and `assets/examples/sample-output.json` as examples only.

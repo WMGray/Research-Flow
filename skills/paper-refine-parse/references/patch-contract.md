@@ -1,4 +1,4 @@
-# Patch Contract
+﻿# Patch Contract
 
 ## Diagnosis JSON
 
@@ -20,7 +20,6 @@
   ]
 }
 ```
-
 ## Patch JSON
 
 Supported operations:
@@ -56,7 +55,6 @@ Patch policy:
   ]
 }
 ```
-
 ## Verification JSON
 
 ```json
@@ -95,34 +93,3 @@ the backend may apply safe deterministic normalization and must write:
   ]
 }
 ```
-
-## Section Split Plan JSON
-
-LLM section splitting is allowed only as control data. It must return canonical
-line ranges, not rewritten text:
-
-```json
-{
-  "sections": [
-    {
-      "section_key": "method",
-      "start_line": 40,
-      "end_line": 120,
-      "confidence": 0.91,
-      "rationale": "Major heading 4 OUR METHOD starts here."
-    }
-  ]
-}
-```
-
-The backend rejects unknown keys, confidence below `0.65`, invalid ranges, and
-overlapping ranges. Child headings such as `5.1` must stay under parent `5`.
-
-## Reading Note Contract
-
-Paper notes generated after splitting must be evidence-grounded:
-
-- use only supplied canonical section text;
-- separate research question, method, contribution, evidence, and limitation;
-- preserve numbers, dataset names, method names, and citations when present;
-- mark missing or parser-uncertain content explicitly instead of filling gaps.

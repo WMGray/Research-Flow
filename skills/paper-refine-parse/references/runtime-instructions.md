@@ -12,12 +12,20 @@ Focus on common MinerU failure modes:
 - reading-order disorder between nearby paragraphs
 - obvious OCR/layout artifacts
 
+Non-issues that must not be returned:
+- `## 5` followed later by `### 5.1`; these are different Markdown levels and are already valid.
+- `### 5.1` or `### 5.4` under `## 5`; do not claim these are at the same level as the parent.
+- A blockquoted caption using `图注`, `鍥炬敞`, `Figure`, `Table`, or `equation_inline` placeholders unless it is visibly merged with unrelated prose. `equation_inline` placeholders are source evidence; do not report them just to remove or rewrite them.
+- Any candidate whose description would say "valid", "correct", "check only", or "no change needed".
+
 Diagnosis rubric:
 - Treat the input as evidence windows, not as the whole paper. A missing nearby line is not evidence that a section is absent.
 - `metadata_artifact`: use only early metadata lines and supplied metadata. Repair spacing, punctuation, and line-break artifacts only when the visible text already contains the same title/author tokens.
 - `heading_hierarchy`: infer hierarchy from numbering first, Markdown level second. `5` is a parent, `5.1` is a child, and `5.1.1` is deeper even if MinerU gave them the same Markdown level.
+- Canonical numbered Markdown levels are `## 5`, `### 5.1`, and `#### 5.1.1`. A line like `### 5.1 BASELINES` under `## 5 EMPIRICAL EXPERIMENTS` is already valid and must not be reported.
 - `heading_ambiguous`: report only when the line is locally isolated and looks like a real paper heading by numbering, typography artifact, or surrounding structure. Do not convert body sentences into headings.
 - `caption_mixed`: report when a Figure/Table caption is visibly glued to body prose, another caption, a list item, or a table block. Do not move captions across pages without visual evidence.
+- A localized or garbled caption label such as `图注`, `鍥炬敞`, or `Figure` is not by itself `caption_mixed`; preserve caption labels and wording unless the caption is visibly merged with unrelated text.
 - `reading_order_disorder`: report only when adjacent line evidence shows a reversible local ordering problem. If the correct order needs page layout or images, use `needs_pdf_context=true`.
 - `ocr_artifact`: report only local artifacts such as broken hyphenation, repeated glyph fragments, or corrupted line joins. Do not "improve" author wording or scientific prose.
 
@@ -26,12 +34,15 @@ Rules:
 - Do not split the paper into arbitrary batches.
 - Do not assume existing section boundaries are reliable.
 - Do not report a missing section merely because surrounding full-text lines are not shown.
+- Do not return issues for structures that are already correct. If the description says a heading or caption is correct, omit the issue entirely.
 - Do not normalize valid Markdown heading levels just for style; downstream code can read `#`, `##`, and deeper headings.
 - Do report invalid heading hierarchy when a numbered child section has the same Markdown level as its parent.
 - Do report author/title metadata only when the evidence shows local spacing or punctuation artifacts; never invent missing names or affiliations.
 - Do not patch truncated evidence lines unless the safe action is `mark_needs_review`.
+- Do not remove parser placeholders such as `equation_inline` by guessing the intended formula; that requires PDF or math context.
 - If a change would require PDF visual context, set `needs_pdf_context=true`.
 - Prefer fewer, high-confidence issues. Leave uncertain cases to review.
+- Do not fill the five issue slots. If only one real issue is visible, return one issue.
 - Return at most 5 issues, ordered by severity and confidence.
 - Keep each `description` and `suggested_action` under 120 characters.
 - Return compact valid JSON. Do not include Markdown fences, comments, trailing commas, or long copied evidence.
@@ -76,7 +87,7 @@ Patch rules:
 - `mark_needs_review`: no text change; use when visual PDF context is required.
 - Preserve citations, numbers, formulas, tables, image links, captions, and technical terms.
 - Preserve author identity exactly; only repair visible spacing/punctuation artifacts in names or affiliations.
-- Parent/child section hierarchy must follow numbering: `5` is a major heading, `5.1` is a child heading, `5.1.1` is a deeper child.
+- Parent/child section hierarchy must follow numbering: `## 5`, `### 5.1`, and `#### 5.1.1`. Do not change `### 5.1` to `#### 5.1` when its parent is `## 5`.
 - A patch must not summarize, translate, or add scientific claims.
 - Replacement text must be complete Markdown for the target span.
 - Do not patch evidence lines marked as truncated. Use `mark_needs_review` when the full line is needed.
@@ -85,11 +96,14 @@ Patch rules:
 Repair policy:
 - Prefer no text patch over a speculative patch. The backend also runs deterministic normalization after LLM patches.
 - Emit one patch per accepted issue. Keep spans as small as possible and do not combine unrelated issues.
+- If a diagnosis item is actually a non-issue, omit the patch entirely; do not emit `mark_needs_review`.
 - For `metadata_artifact`, only fix visible tokenization artifacts. Never add, remove, reorder, or romanize authors unless the same tokens are already visible.
 - For `heading_hierarchy`, change only Markdown heading markers or the minimum heading line text needed to express the visible numbering. Do not rename sections.
 - For `caption_mixed`, split caption/prose only when both parts are fully visible in the selected span. Preserve image links and table rows exactly.
+- Do not translate caption labels or caption wording. Keep `图注`, `鍥炬敞`, `Figure`, and table labels as source text unless the issue is a visible merge/split problem.
+- Do not replace or delete `equation_inline` placeholders in captions. If the placeholder needs mathematical recovery, omit the patch or use `mark_needs_review`.
 - For `reading_order_disorder`, use `move_span` only through supported operations (`delete_span` plus `insert_after`) when the complete moved text is visible. Otherwise use `mark_needs_review`.
-- For `mark_needs_review`, keep `replacement` as an empty string and put the uncertainty in `rationale`.
+- For `mark_needs_review`, keep `replacement` as an empty string and put the uncertainty in `rationale`. Do not use `mark_needs_review` for "no patch needed"; omit that patch instead.
 
 Additional operator instruction:
 {{instruction}}
@@ -166,7 +180,7 @@ Verification context:
 <!-- stage:default -->
 Legacy single-call fallback for MinerU Markdown refinement.
 
-Prefer the current diagnose -> repair -> verify patch workflow when it is available. If this prompt is used directly, make only conservative local Markdown repairs for downstream section splitting.
+Prefer the current diagnose -> repair -> verify patch workflow when it is available. If this prompt is used directly, make only conservative local Markdown repairs for downstream paper processing.
 
 Requirements:
 - Preserve all factual content, equations, citations, tables, and image links.

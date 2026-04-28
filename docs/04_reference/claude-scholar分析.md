@@ -22,7 +22,8 @@
 
 ## 本次已同步到项目
 
-- `skills/paper-refine-parse/references/paper-reading-patterns.md`
 - `skills/paper-refine-parse/references/runtime-instructions.md`
 - `skills/paper-sectioning/references/runtime-instructions.md`
 - `skills/paper-note-generate/references/runtime-instructions.md`
+
+说明：`claude-scholar` 与 `AI-paper-reading` 只作为阶段性分析来源，不作为单独 reference 文件耦合进某个 skill。单个 skill 只保留自身运行所需的指令与契约。

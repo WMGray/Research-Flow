@@ -47,7 +47,3 @@ Use two levels:
 ## Runtime Reference
 
 The backend runtime instruction for `paper_knowledge_mining.default` is `references/runtime-instructions.md`.
-
-## Standalone Demo
-
-Read `references/io-contract.md` for the standalone input/output contract. Use `assets/examples/sample-input.json` and `assets/examples/sample-output.json` as examples only.

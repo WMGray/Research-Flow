@@ -20,7 +20,7 @@ Generate `note.md` from audited canonical sections and figure/table evidence. Do
 7. Consume captions and review callouts from `parsed/refined.md` / section files; these should already use Markdown blockquotes (`> **图注**：...`) and `>[!Caution]` callouts before note generation.
 8. Preserve user-authored note text by replacing only RF managed blocks.
 9. Mark missing or parser-uncertain content explicitly instead of filling gaps.
-10. Use the AI-paper-reading pattern for visual analysis: choose/interpret figures by role, prioritize method figures, explain what the figure shows, how to read it, and why it matters.
+10. For visual analysis, choose and interpret figures by role, prioritize method figures, and explain what the figure shows, how to read it, and why it matters.
 
 ## Note Schema
 
@@ -66,7 +66,3 @@ python -m pytest tests\test_paper_refine_runtime.py tests\test_papers_api.py -q
 ```
 
 Review generated `note.md` and confirm that image links are relative to the note file and render in Markdown.
-
-## Standalone Demo
-
-Read `references/io-contract.md` for the standalone input/output contract. Use `assets/examples/sample-input.json`, `assets/examples/sample-output.json`, and `assets/examples/sample-output.md` as examples only.
