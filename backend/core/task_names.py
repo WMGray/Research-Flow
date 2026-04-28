@@ -11,11 +11,14 @@ PAPER_REFINE = "worker.tasks.papers.refine"
 PAPER_SPLIT = "worker.tasks.papers.split"
 PAPER_GENERATE_NOTE = "worker.tasks.papers.generate_note"
 PAPER_EXTRACT_KNOWLEDGE = "worker.tasks.papers.extract_knowledge"
+PAPER_EXTRACT_DATASETS = "worker.tasks.papers.extract_datasets"
 
 # Project 模块生成与刷新任务。
 PROJECT_GENERATE_RELATED_WORK = "worker.tasks.projects.generate_related_work"
 PROJECT_GENERATE_METHOD = "worker.tasks.projects.generate_method"
 PROJECT_GENERATE_EXPERIMENT = "worker.tasks.projects.generate_experiment"
+PROJECT_GENERATE_CONCLUSION = "worker.tasks.projects.generate_conclusion"
+PROJECT_GENERATE_MANUSCRIPT = "worker.tasks.projects.generate_manuscript"
 PROJECT_REFRESH_OVERVIEW = "worker.tasks.projects.refresh_overview"
 
 # Knowledge 归一化任务。
@@ -41,9 +44,12 @@ ALL_TASK_NAMES: tuple[str, ...] = (
     PAPER_SPLIT,
     PAPER_GENERATE_NOTE,
     PAPER_EXTRACT_KNOWLEDGE,
+    PAPER_EXTRACT_DATASETS,
     PROJECT_GENERATE_RELATED_WORK,
     PROJECT_GENERATE_METHOD,
     PROJECT_GENERATE_EXPERIMENT,
+    PROJECT_GENERATE_CONCLUSION,
+    PROJECT_GENERATE_MANUSCRIPT,
     PROJECT_REFRESH_OVERVIEW,
     KNOWLEDGE_NORMALIZE,
     FEED_FETCH_AND_SCORE,

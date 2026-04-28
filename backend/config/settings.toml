@@ -130,3 +130,28 @@ temperature = 0.1
 model = "chat_fast"
 system_prompt = "You generate one evidence-grounded academic paper note block and return only JSON."
 temperature = 0.1
+
+[llm.features.project_generate_related_work_default]
+model = "chat_kimi_26"
+system_prompt = "You synthesize project related work from linked papers and project notes. Return only JSON."
+temperature = 0.3
+
+[llm.features.project_generate_method_default]
+model = "chat_kimi_26"
+system_prompt = "You draft project method content from linked papers and project notes. Return only JSON."
+temperature = 0.3
+
+[llm.features.project_generate_experiment_default]
+model = "chat_kimi_26"
+system_prompt = "You draft project experiment planning content from linked papers and project notes. Return only JSON."
+temperature = 0.3
+
+[llm.features.project_generate_conclusion_default]
+model = "chat_kimi_26"
+system_prompt = "You summarize project conclusions, open problems, and next steps. Return only JSON."
+temperature = 0.3
+
+[llm.features.project_generate_manuscript_default]
+model = "chat_kimi_26"
+system_prompt = "You compile manuscript draft sections from project modules. Return only JSON."
+temperature = 0.3

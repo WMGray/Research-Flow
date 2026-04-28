@@ -1,4 +1,4 @@
-"""Deterministic project task rendering.
+"""Project task rendering with LLM generation and deterministic fallback.
 
 The runtime writes useful local Markdown blocks first. LLM-backed generation can
 replace these renderers later without changing the API or merge semantics.
@@ -6,12 +6,19 @@ replace these renderers later without changing the API or merge semantics.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from core.services.llm import llm_registry
 from core.services.documents import render_managed_block
 from core.services.projects.jobs import ProjectJobRecord
 from core.services.projects.models import LinkedPaperRecord, ProjectRecord
+from core.services.projects.tasks.llm import (
+    LLMGenerateClient,
+    generate_project_task_blocks,
+    project_llm_available,
+)
 from core.services.projects.tasks.models import ProjectTaskInput, ProjectTaskResult
 
 
@@ -21,6 +28,7 @@ class ProjectTaskSpec:
     doc_role: str
     message: str
     blocks: tuple[tuple[str, str], ...]
+    feature: str | None = None
 
 
 PROJECT_TASK_SPECS: dict[str, ProjectTaskSpec] = {
@@ -34,6 +42,7 @@ PROJECT_TASK_SPECS: dict[str, ProjectTaskSpec] = {
         job_type="project_generate_related_work",
         doc_role="related_work",
         message="Generated related work synthesis.",
+        feature="project_generate_related_work_default",
         blocks=(
             ("related_work_summary", "Related Work Summary"),
             ("paper_grouping", "Paper Grouping"),
@@ -44,6 +53,7 @@ PROJECT_TASK_SPECS: dict[str, ProjectTaskSpec] = {
         job_type="project_generate_method",
         doc_role="method",
         message="Generated method draft.",
+        feature="project_generate_method_default",
         blocks=(
             ("method_draft", "Method Draft"),
             ("innovation_points", "Innovation Points"),
@@ -54,6 +64,7 @@ PROJECT_TASK_SPECS: dict[str, ProjectTaskSpec] = {
         job_type="project_generate_experiment",
         doc_role="experiment",
         message="Generated experiment plan.",
+        feature="project_generate_experiment_default",
         blocks=(
             ("experiment_plan", "Experiment Plan"),
             ("baseline_comparison", "Baseline Comparison"),
@@ -64,6 +75,7 @@ PROJECT_TASK_SPECS: dict[str, ProjectTaskSpec] = {
         job_type="project_generate_conclusion",
         doc_role="conclusion",
         message="Generated project conclusion summary.",
+        feature="project_generate_conclusion_default",
         blocks=(
             ("conclusion_summary", "Conclusion Summary"),
             ("open_problems", "Open Problems"),
@@ -74,6 +86,7 @@ PROJECT_TASK_SPECS: dict[str, ProjectTaskSpec] = {
         job_type="project_generate_manuscript",
         doc_role="manuscript",
         message="Compiled manuscript draft.",
+        feature="project_generate_manuscript_default",
         blocks=(
             ("manuscript_abstract", "Abstract"),
             ("manuscript_introduction", "Introduction"),
@@ -94,10 +107,37 @@ def render_project_task(
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
+    llm_client: LLMGenerateClient = llm_registry,
 ) -> ProjectTaskResult:
     spec = PROJECT_TASK_SPECS[task_type]
     renderer = _BLOCK_RENDERERS.get(task_type, _render_generic_blocks)
     block_content = renderer(project, linked_papers, documents, recent_jobs, task_input)
+    generation_source = "deterministic_fallback"
+    llm_run_id: str | None = None
+    llm_error: str | None = None
+    if project_llm_available(spec.feature, llm_client):
+        try:
+            llm_result = asyncio.run(
+                generate_project_task_blocks(
+                    feature=str(spec.feature),
+                    project=project,
+                    linked_papers=linked_papers,
+                    documents=documents,
+                    recent_jobs=recent_jobs,
+                    task_input=task_input,
+                    block_specs=spec.blocks,
+                    llm_client=llm_client,
+                )
+            )
+            block_content.update(llm_result.blocks)
+            llm_run_id = llm_result.llm_run_id
+            generation_source = (
+                "llm"
+                if set(llm_result.blocks) >= {block_id for block_id, _ in spec.blocks}
+                else "llm_partial"
+            )
+        except Exception as exc:  # noqa: BLE001 - local fallback keeps Project usable
+            llm_error = f"{type(exc).__name__}: {str(exc)[:160]}"
     rendered_blocks = [
         render_managed_block(
             block_id=block_id,
@@ -117,6 +157,10 @@ def render_project_task(
             "managed_blocks": [block_id for block_id, _ in spec.blocks],
             "linked_paper_count": len(linked_papers),
             "focus_instructions": task_input.focus_instructions,
+            "generation_source": generation_source,
+            "feature": spec.feature,
+            "llm_run_id": llm_run_id,
+            "llm_error": llm_error,
         },
     )
 

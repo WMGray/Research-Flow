@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,15 +8,55 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.projects import get_project_task_service
 from app.main import app
+from core.config import reset_settings
+from core.services.llm import LLMMessage, LLMRequest, LLMResponse
+from core.services.projects import ProjectTaskService
 
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClient]:
     monkeypatch.setenv("RFLOW_DB_PATH", str(tmp_path / "research_flow.sqlite"))
     monkeypatch.setenv("RFLOW_STORAGE_DIR", str(tmp_path / "storage"))
+    monkeypatch.setenv("RESEARCH_FLOW_ENV_FILE", "none")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
+    reset_settings()
     with TestClient(app) as test_client:
         yield test_client
+    reset_settings()
+
+
+class FakeProjectLLM:
+    def __init__(self) -> None:
+        self.requests: list[LLMRequest] = []
+
+    async def generate(self, request: LLMRequest) -> LLMResponse:
+        self.requests.append(request)
+        return LLMResponse(
+            feature=request.feature or "",
+            model_key="fake_project_model",
+            platform="fake",
+            provider="fake",
+            model="fake-model",
+            message=LLMMessage(
+                role="assistant",
+                content=json.dumps(
+                    {
+                        "blocks": {
+                            "method_draft": "LLM generated method draft.",
+                            "innovation_points": [
+                                "LLM generated innovation point.",
+                            ],
+                            "design_risks": {
+                                "risk": "LLM generated design risk.",
+                            },
+                        }
+                    }
+                ),
+            ),
+        )
 
 
 def create_project(client: TestClient) -> dict:
@@ -305,3 +346,38 @@ def test_project_generation_task_endpoints_write_expected_documents(
     assert f'RF:BLOCK_START id="{block_id}" managed="true"' in document_response.json()[
         "data"
     ]["content"]
+
+
+def test_project_generation_uses_llm_when_client_is_available(
+    client: TestClient,
+) -> None:
+    fake_llm = FakeProjectLLM()
+    app.dependency_overrides[get_project_task_service] = lambda: ProjectTaskService(
+        llm_client=fake_llm,
+    )
+    try:
+        project = create_project(client)
+        project_id = project["project_id"]
+
+        response = client.post(
+            f"/api/v1/projects/{project_id}/generate-method",
+            json={"focus_instructions": "Use linked evidence only."},
+        )
+    finally:
+        app.dependency_overrides.pop(get_project_task_service, None)
+
+    assert response.status_code == 202
+    assert fake_llm.requests
+    assert fake_llm.requests[0].feature == "project_generate_method_default"
+    assert fake_llm.requests[0].extra["response_format"] == {"type": "json_object"}
+    job = response.json()["data"]
+    assert job["result"]["generation_source"] == "llm"
+    assert job["result"]["llm_run_id"].startswith("llm_")
+
+    document_response = client.get(
+        f"/api/v1/projects/{project_id}/documents/method"
+    )
+    content = document_response.json()["data"]["content"]
+    assert "LLM generated method draft." in content
+    assert "LLM generated innovation point." in content
+    assert "LLM generated design risk." in content

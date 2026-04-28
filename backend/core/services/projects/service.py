@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from core.services.documents import merge_managed_blocks
+from core.services.llm import llm_registry
 from core.services.projects.jobs import ProjectJobRecord, ProjectJobStore
 from core.services.projects.models import PROJECT_DOCUMENTS, LinkedPaperRecord
 from core.services.projects.repository import ProjectRepository
+from core.services.projects.tasks.llm import LLMGenerateClient
 from core.services.projects.tasks import ProjectTaskInput, render_project_task
 from core.services.projects.tasks.runtime import PROJECT_TASK_SPECS
 
@@ -15,9 +17,11 @@ class ProjectTaskService:
         self,
         repository: ProjectRepository | None = None,
         job_store: ProjectJobStore | None = None,
+        llm_client: LLMGenerateClient = llm_registry,
     ) -> None:
         self.repository = repository or ProjectRepository()
         self.job_store = job_store or ProjectJobStore(self.repository.db_path)
+        self.llm_client = llm_client
 
     def run_refresh_overview(
         self,
@@ -84,6 +88,7 @@ class ProjectTaskService:
             documents=documents,
             recent_jobs=recent_jobs,
             task_input=task_input,
+            llm_client=self.llm_client,
         )
         current_document = self.repository.get_document(project_id, task_result.doc_role)
         merged_content = merge_managed_blocks(
