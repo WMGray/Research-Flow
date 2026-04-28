@@ -20,6 +20,7 @@ from core.services.projects.tasks.llm import (
     project_llm_available,
 )
 from core.services.projects.tasks.models import ProjectTaskInput, ProjectTaskResult
+from core.services.resources.models import ResourceLinkRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +105,8 @@ def render_project_task(
     task_type: str,
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -111,7 +114,15 @@ def render_project_task(
 ) -> ProjectTaskResult:
     spec = PROJECT_TASK_SPECS[task_type]
     renderer = _BLOCK_RENDERERS.get(task_type, _render_generic_blocks)
-    block_content = renderer(project, linked_papers, documents, recent_jobs, task_input)
+    block_content = renderer(
+        project,
+        linked_papers,
+        linked_knowledge,
+        linked_datasets,
+        documents,
+        recent_jobs,
+        task_input,
+    )
     generation_source = "deterministic_fallback"
     llm_run_id: str | None = None
     llm_error: str | None = None
@@ -122,6 +133,8 @@ def render_project_task(
                     feature=str(spec.feature),
                     project=project,
                     linked_papers=linked_papers,
+                    linked_knowledge=linked_knowledge,
+                    linked_datasets=linked_datasets,
                     documents=documents,
                     recent_jobs=recent_jobs,
                     task_input=task_input,
@@ -156,6 +169,8 @@ def render_project_task(
             "doc_role": spec.doc_role,
             "managed_blocks": [block_id for block_id, _ in spec.blocks],
             "linked_paper_count": len(linked_papers),
+            "linked_knowledge_count": len(linked_knowledge),
+            "linked_dataset_count": len(linked_datasets),
             "focus_instructions": task_input.focus_instructions,
             "generation_source": generation_source,
             "feature": spec.feature,
@@ -166,7 +181,15 @@ def render_project_task(
 
 
 BlockRenderer = Callable[
-    [ProjectRecord, list[LinkedPaperRecord], dict[str, str], list[ProjectJobRecord], ProjectTaskInput],
+    [
+        ProjectRecord,
+        list[LinkedPaperRecord],
+        list[ResourceLinkRecord],
+        list[ResourceLinkRecord],
+        dict[str, str],
+        list[ProjectJobRecord],
+        ProjectTaskInput,
+    ],
     dict[str, str],
 ]
 
@@ -174,6 +197,8 @@ BlockRenderer = Callable[
 def _render_overview_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -183,6 +208,8 @@ def _render_overview_blocks(
         ("Status", project.status),
         ("Owner", project.owner or "Unassigned"),
         ("Linked papers", str(len(linked_papers))),
+        ("Linked Knowledge", str(len(linked_knowledge))),
+        ("Linked datasets", str(len(linked_datasets))),
         ("Recent project jobs", str(len(recent_jobs))),
     ]
     if task_input.focus_instructions:
@@ -195,6 +222,8 @@ def _render_overview_blocks(
 def _render_related_work_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -217,15 +246,19 @@ def _render_related_work_blocks(
 def _render_method_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
 ) -> dict[str, str]:
     related_excerpt = _excerpt(documents.get("related_work", ""))
+    knowledge_context = _resource_lines(linked_knowledge, "No linked Knowledge yet.")
     return {
         "method_draft": (
             f"Draft the method for {project.name} from the confirmed research scope.\n\n"
-            f"Related-work context: {related_excerpt}"
+            f"Related-work context: {related_excerpt}\n\n"
+            f"Knowledge context:\n{knowledge_context}"
             + _focus_suffix(task_input)
         ),
         "innovation_points": (
@@ -244,6 +277,8 @@ def _render_method_blocks(
 def _render_experiment_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -252,7 +287,8 @@ def _render_experiment_blocks(
     return {
         "experiment_plan": (
             f"Plan experiments for {project.name} around the current method draft.\n\n"
-            f"Baseline candidates: {baseline_count}."
+            f"Baseline candidates: {baseline_count}.\n\n"
+            f"Dataset context:\n{_resource_lines(linked_datasets, 'No linked datasets yet.')}"
             + _focus_suffix(task_input)
         ),
         "baseline_comparison": _group_papers_by_relation(linked_papers),
@@ -267,6 +303,8 @@ def _render_experiment_blocks(
 def _render_conclusion_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -293,6 +331,8 @@ def _render_conclusion_blocks(
 def _render_manuscript_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -310,6 +350,8 @@ def _render_manuscript_blocks(
 def _render_generic_blocks(
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -345,6 +387,19 @@ def _group_papers_by_relation(linked_papers: list[LinkedPaperRecord]) -> str:
     return "\n".join(
         f"- {relation}: {', '.join(titles)}"
         for relation, titles in sorted(grouped.items())
+    )
+
+
+def _resource_lines(
+    linked_resources: list[ResourceLinkRecord],
+    fallback: str,
+) -> str:
+    if not linked_resources:
+        return fallback
+    return "\n".join(
+        f"- [{resource.relation_type}] {resource.display_name} "
+        f"(asset_id={resource.asset_id})"
+        for resource in linked_resources
     )
 
 

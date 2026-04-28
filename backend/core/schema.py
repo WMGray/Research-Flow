@@ -239,5 +239,23 @@ CREATE TABLE IF NOT EXISTS biz_project (
 
 CREATE INDEX IF NOT EXISTS idx_biz_project_status ON biz_project(status);
 CREATE INDEX IF NOT EXISTS idx_biz_project_slug ON biz_project(project_slug);
+
+CREATE TABLE IF NOT EXISTS biz_presentation (
+    asset_id INTEGER PRIMARY KEY,
+    project_asset_id INTEGER,
+    title TEXT NOT NULL,
+    scene_type TEXT NOT NULL DEFAULT 'group_meeting',
+    status TEXT NOT NULL DEFAULT 'draft',
+    export_format TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (asset_id) REFERENCES asset_registry(asset_id),
+    FOREIGN KEY (project_asset_id) REFERENCES biz_project(asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biz_presentation_project
+    ON biz_presentation(project_asset_id);
+CREATE INDEX IF NOT EXISTS idx_biz_presentation_status
+    ON biz_presentation(status);
 """
 )

@@ -13,6 +13,7 @@ from app.api.jobs import router as jobs_router
 from app.api.paper_download import router as paper_download_router
 from app.api.papers import router as papers_router
 from app.api.projects import router as projects_router
+from app.api.resources import router as resources_router
 from core.services.mcp.zotero_client import zotero_client
 
 
@@ -36,6 +37,7 @@ app = FastAPI(
 app.include_router(paper_download_router)
 app.include_router(papers_router)
 app.include_router(projects_router)
+app.include_router(resources_router)
 app.include_router(jobs_router)
 
 

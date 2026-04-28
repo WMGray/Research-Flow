@@ -24,6 +24,7 @@ from app.schemas.papers import (
     ParsePaperRequest,
     SectionDocumentResponse,
 )
+from app.schemas.resources import ResourceLinkResponse
 from core.services.papers.download import PaperDownloadService
 from core.services.papers import (
     DocumentNotFoundError,
@@ -48,6 +49,7 @@ from core.services.papers.models import (
     ParsedContentRecord,
 )
 from core.services.papers.service import PaperService
+from core.services.resources import ResourceNotFoundError, ResourceRepository
 
 
 router = APIRouter(prefix="/api/v1", tags=["papers"])
@@ -59,6 +61,10 @@ def envelope(data: object = None, meta: dict[str, object] | None = None) -> APIE
 
 def get_paper_service() -> PaperService:
     return PaperService()
+
+
+def get_resource_repository() -> ResourceRepository:
+    return ResourceRepository()
 
 
 def to_paper_input(request: PaperCreateRequest) -> PaperCreateInput:
@@ -115,6 +121,10 @@ def to_parsed_content_response(record: ParsedContentRecord) -> ParsedContentResp
     return ParsedContentResponse.model_validate(asdict(record))
 
 
+def to_resource_link_responses(records: list[object]) -> list[ResourceLinkResponse]:
+    return [ResourceLinkResponse.model_validate(asdict(record)) for record in records]
+
+
 def raise_http_error(exc: Exception) -> None:
     if isinstance(exc, DuplicatePaperError):
         raise HTTPException(
@@ -127,6 +137,11 @@ def raise_http_error(exc: Exception) -> None:
             detail={"code": exc.code, "message": str(exc)},
         )
     if isinstance(exc, (PaperNotFoundError, DocumentNotFoundError)):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": exc.code, "message": str(exc)},
+        )
+    if isinstance(exc, ResourceNotFoundError):
         raise HTTPException(
             status_code=404,
             detail={"code": exc.code, "message": str(exc)},
@@ -489,6 +504,39 @@ def get_assets(
 ) -> APIEnvelope:
     try:
         return envelope(service.get_paper(paper_id).assets)
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.get("/papers/{paper_id}/knowledge", response_model=APIEnvelope)
+def get_paper_knowledge(
+    paper_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_resource_link_responses(repository.list_knowledge_for_paper(paper_id))
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.get("/papers/{paper_id}/datasets", response_model=APIEnvelope)
+def get_paper_datasets(
+    paper_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            to_resource_link_responses(
+                repository.list_links_from_source(
+                    source_id=paper_id,
+                    target_type="Dataset",
+                )
+            )
+        )
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

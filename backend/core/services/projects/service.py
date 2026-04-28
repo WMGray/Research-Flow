@@ -10,6 +10,8 @@ from core.services.projects.repository import ProjectRepository
 from core.services.projects.tasks.llm import LLMGenerateClient
 from core.services.projects.tasks import ProjectTaskInput, render_project_task
 from core.services.projects.tasks.runtime import PROJECT_TASK_SPECS
+from core.services.resources import ResourceRepository
+from core.services.resources.models import ResourceLinkRecord
 
 
 class ProjectTaskService:
@@ -17,10 +19,15 @@ class ProjectTaskService:
         self,
         repository: ProjectRepository | None = None,
         job_store: ProjectJobStore | None = None,
+        resource_repository: ResourceRepository | None = None,
         llm_client: LLMGenerateClient = llm_registry,
     ) -> None:
         self.repository = repository or ProjectRepository()
         self.job_store = job_store or ProjectJobStore(self.repository.db_path)
+        self.resource_repository = resource_repository or ResourceRepository(
+            db_path=self.repository.db_path,
+            data_root=self.repository.data_root,
+        )
         self.llm_client = llm_client
 
     def run_refresh_overview(
@@ -76,6 +83,21 @@ class ProjectTaskService:
             self.repository.list_linked_papers(project_id),
             task_input.included_paper_ids,
         )
+        linked_knowledge = self._filter_linked_resources(
+            self.resource_repository.list_links(
+                source_id=project_id,
+                target_type="Knowledge",
+            ),
+            task_input.included_knowledge_ids,
+        )
+        linked_datasets = self.resource_repository.list_links(
+            source_id=project_id,
+            target_type="Dataset",
+        )
+        linked_datasets = self._filter_linked_resources(
+            linked_datasets,
+            task_input.included_dataset_ids,
+        )
         documents = {
             role: self.repository.get_document(project_id, role).content
             for role, _, _ in PROJECT_DOCUMENTS
@@ -85,6 +107,8 @@ class ProjectTaskService:
             task_type=task_type,
             project=project,
             linked_papers=linked_papers,
+            linked_knowledge=linked_knowledge,
+            linked_datasets=linked_datasets,
             documents=documents,
             recent_jobs=recent_jobs,
             task_input=task_input,
@@ -125,3 +149,17 @@ class ProjectTaskService:
             return linked_papers
         allowed = set(included_paper_ids)
         return [paper for paper in linked_papers if paper.paper_id in allowed]
+
+    def _filter_linked_resources(
+        self,
+        linked_resources: list[ResourceLinkRecord],
+        included_resource_ids: tuple[int, ...],
+    ) -> list[ResourceLinkRecord]:
+        if not included_resource_ids:
+            return linked_resources
+        allowed = set(included_resource_ids)
+        return [
+            resource
+            for resource in linked_resources
+            if resource.resource_id in allowed
+        ]

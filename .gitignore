@@ -35,6 +35,7 @@ build/
 .dmypy.json
 .ruff_cache/
 .pytest_cache/
+.pytest-temp/
 reports/
 skill-lab/
 backend/.pytest-basetemp/

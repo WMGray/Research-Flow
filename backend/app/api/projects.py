@@ -7,6 +7,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.papers import envelope
+from app.api.resources import resource_link_payload
 from app.schemas.papers import APIEnvelope, JobResponse
 from app.schemas.projects import (
     ProjectCreateRequest,
@@ -17,6 +18,11 @@ from app.schemas.projects import (
     ProjectStatus,
     ProjectTaskRequest,
     ProjectUpdateRequest,
+)
+from app.schemas.resources import (
+    ProjectDatasetLinkRequest,
+    ProjectKnowledgeLinkRequest,
+    ProjectPresentationLinkRequest,
 )
 from core.services.projects import (
     LinkedPaperNotFoundError,
@@ -30,6 +36,7 @@ from core.services.projects import (
     record_to_dict,
     records_to_dicts,
 )
+from core.services.resources import ResourceNotFoundError, ResourceRepository
 
 
 router = APIRouter(prefix="/api/v1", tags=["projects"])
@@ -43,12 +50,17 @@ def get_project_task_service() -> ProjectTaskService:
     return ProjectTaskService()
 
 
+def get_resource_repository() -> ResourceRepository:
+    return ResourceRepository()
+
+
 def to_task_input(request: ProjectTaskRequest | None) -> ProjectTaskInput:
     payload = request or ProjectTaskRequest()
     return ProjectTaskInput(
         focus_instructions=payload.focus_instructions,
         included_paper_ids=tuple(payload.included_paper_ids),
         included_knowledge_ids=tuple(payload.included_knowledge_ids),
+        included_dataset_ids=tuple(payload.included_dataset_ids),
         skip_locked_blocks=payload.skip_locked_blocks,
     )
 
@@ -67,6 +79,11 @@ def raise_http_error(exc: Exception) -> None:
         exc,
         (ProjectNotFoundError, ProjectDocumentNotFoundError, LinkedPaperNotFoundError),
     ):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": exc.code, "message": str(exc)},
+        )
+    if isinstance(exc, ResourceNotFoundError):
         raise HTTPException(
             status_code=404,
             detail={"code": exc.code, "message": str(exc)},
@@ -187,6 +204,168 @@ def list_project_papers(
 ) -> APIEnvelope:
     try:
         return envelope(records_to_dicts(repository.list_linked_papers(project_id)))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post("/projects/{project_id}/knowledge:link", response_model=APIEnvelope)
+def link_project_knowledge(
+    project_id: int,
+    request: ProjectKnowledgeLinkRequest,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        records = repository.link_asset(
+            source_id=project_id,
+            target_id=request.knowledge_id,
+            target_type="Knowledge",
+            relation_type=request.relation_type,
+        )
+        return envelope(resource_link_payload(records))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.get("/projects/{project_id}/knowledge", response_model=APIEnvelope)
+def list_project_knowledge(
+    project_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            resource_link_payload(
+                repository.list_links(source_id=project_id, target_type="Knowledge")
+            )
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.delete("/projects/{project_id}/knowledge/{knowledge_id}", response_model=APIEnvelope)
+def unlink_project_knowledge(
+    project_id: int,
+    knowledge_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        repository.unlink_asset(
+            source_id=project_id,
+            target_id=knowledge_id,
+            target_type="Knowledge",
+        )
+        return envelope({"project_id": project_id, "knowledge_id": knowledge_id})
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post("/projects/{project_id}/datasets:link", response_model=APIEnvelope)
+def link_project_dataset(
+    project_id: int,
+    request: ProjectDatasetLinkRequest,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        records = repository.link_asset(
+            source_id=project_id,
+            target_id=request.dataset_id,
+            target_type="Dataset",
+            relation_type=request.relation_type,
+        )
+        return envelope(resource_link_payload(records))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.get("/projects/{project_id}/datasets", response_model=APIEnvelope)
+def list_project_datasets(
+    project_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            resource_link_payload(
+                repository.list_links(source_id=project_id, target_type="Dataset")
+            )
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.delete("/projects/{project_id}/datasets/{dataset_id}", response_model=APIEnvelope)
+def unlink_project_dataset(
+    project_id: int,
+    dataset_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        repository.unlink_asset(
+            source_id=project_id,
+            target_id=dataset_id,
+            target_type="Dataset",
+        )
+        return envelope({"project_id": project_id, "dataset_id": dataset_id})
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post("/projects/{project_id}/presentations:link", response_model=APIEnvelope)
+def link_project_presentation(
+    project_id: int,
+    request: ProjectPresentationLinkRequest,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        records = repository.link_asset(
+            source_id=project_id,
+            target_id=request.presentation_id,
+            target_type="Presentation",
+            relation_type=request.relation_type,
+        )
+        return envelope(resource_link_payload(records))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.get("/projects/{project_id}/presentations", response_model=APIEnvelope)
+def list_project_presentations(
+    project_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        return envelope(
+            resource_link_payload(
+                repository.list_links(source_id=project_id, target_type="Presentation")
+            )
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.delete(
+    "/projects/{project_id}/presentations/{presentation_id}",
+    response_model=APIEnvelope,
+)
+def unlink_project_presentation(
+    project_id: int,
+    presentation_id: int,
+    repository: ResourceRepository = Depends(get_resource_repository),
+) -> APIEnvelope:
+    try:
+        repository.unlink_asset(
+            source_id=project_id,
+            target_id=presentation_id,
+            target_type="Presentation",
+        )
+        return envelope({"project_id": project_id, "presentation_id": presentation_id})
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

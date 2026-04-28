@@ -54,6 +54,7 @@ from core.services.papers.note import (
 from core.services.papers.parse import PDFParserService
 from core.services.papers.parse.models import PDFParserError
 from core.services.papers.parse.postprocess import process_mineru_markdown_artifacts
+from core.services.resources import ResourceRepository
 from core.storage import configured_data_root, configured_db_path
 
 
@@ -1029,12 +1030,47 @@ class PaperRepository:
         )
 
     def run_extract_knowledge(self, paper_id: int) -> JobRecord:
+        paper = self.get_paper(paper_id)
         note = self.get_document(paper_id, "note").content
+        resource_repository = ResourceRepository(
+            db_path=self.db_path,
+            data_root=self.data_root,
+        )
+        existing = resource_repository.list_knowledge_for_paper(paper_id)
+        if existing:
+            items = [
+                {
+                    "knowledge_id": record.resource_id,
+                    "title": record.display_name,
+                    "relation_type": record.relation_type,
+                }
+                for record in existing
+            ]
+        else:
+            record = resource_repository.create_knowledge(
+                {
+                    "knowledge_type": "view",
+                    "title": f"{paper.title} - placeholder finding",
+                    "summary_zh": "Placeholder knowledge item pending skill/LLM extraction.",
+                    "source_paper_asset_id": paper_id,
+                    "source_section": "note",
+                    "evidence_text": note[:500],
+                    "confidence_score": 0.0,
+                    "review_status": "pending_review",
+                }
+            )
+            items = [
+                {
+                    "knowledge_id": record.knowledge_id,
+                    "title": record.title,
+                    "relation_type": "EXTRACTED_FROM",
+                }
+            ]
         output_path = self._paper_dir(paper_id) / "extracted" / "knowledge.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "paper_id": paper_id,
-            "items": [],
+            "items": items,
             "summary": note[:200],
         }
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1059,16 +1095,56 @@ class PaperRepository:
             status="succeeded",
             progress=1.0,
             message="Generated local knowledge extraction placeholder.",
-            result={"output_path": str(output_path), "item_count": 0},
+            result={"output_path": str(output_path), "item_count": len(items)},
         )
 
     def run_extract_datasets(self, paper_id: int) -> JobRecord:
+        paper = self.get_paper(paper_id)
         sections = self.list_sections(paper_id)
+        resource_repository = ResourceRepository(
+            db_path=self.db_path,
+            data_root=self.data_root,
+        )
+        existing = resource_repository.list_links_from_source(
+            source_id=paper_id,
+            target_type="Dataset",
+        )
+        if existing:
+            items = [
+                {
+                    "dataset_id": record.resource_id,
+                    "name": record.display_name,
+                    "relation_type": record.relation_type,
+                }
+                for record in existing
+            ]
+        else:
+            dataset = resource_repository.create_dataset(
+                {
+                    "name": f"{paper.title} - placeholder dataset",
+                    "source": "paper_extract_datasets_placeholder",
+                    "description": "Placeholder dataset item pending skill/LLM extraction.",
+                    "benchmark_summary": (
+                        f"Detected from {len(sections)} canonical paper sections."
+                    ),
+                }
+            )
+            resource_repository.link_dataset_to_paper(
+                paper_id=paper_id,
+                dataset_id=dataset.dataset_id,
+            )
+            items = [
+                {
+                    "dataset_id": dataset.dataset_id,
+                    "name": dataset.name,
+                    "relation_type": "MENTIONS_DATASET",
+                }
+            ]
         output_path = self._paper_dir(paper_id) / "extracted" / "datasets.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "paper_id": paper_id,
-            "items": [],
+            "items": items,
             "section_count": len(sections),
         }
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1093,7 +1169,7 @@ class PaperRepository:
             status="succeeded",
             progress=1.0,
             message="Generated local dataset extraction placeholder.",
-            result={"output_path": str(output_path), "item_count": 0},
+            result={"output_path": str(output_path), "item_count": len(items)},
         )
 
     def get_parsed_content(self, paper_id: int) -> dict[str, Any]:

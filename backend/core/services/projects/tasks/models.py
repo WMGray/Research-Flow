@@ -10,6 +10,7 @@ class ProjectTaskInput:
     focus_instructions: str = ""
     included_paper_ids: tuple[int, ...] = field(default_factory=tuple)
     included_knowledge_ids: tuple[int, ...] = field(default_factory=tuple)
+    included_dataset_ids: tuple[int, ...] = field(default_factory=tuple)
     skip_locked_blocks: bool = True
 
 

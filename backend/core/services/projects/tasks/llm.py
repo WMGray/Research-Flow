@@ -13,6 +13,7 @@ from core.services.papers.refine.parsing import extract_json_object
 from core.services.projects.jobs import ProjectJobRecord
 from core.services.projects.models import LinkedPaperRecord, ProjectRecord
 from core.services.projects.tasks.models import ProjectTaskInput
+from core.services.resources.models import ResourceLinkRecord
 
 
 class LLMGenerateClient(Protocol):
@@ -51,6 +52,8 @@ async def generate_project_task_blocks(
     feature: str,
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -60,6 +63,8 @@ async def generate_project_task_blocks(
     prompt = _render_project_prompt(
         project=project,
         linked_papers=linked_papers,
+        linked_knowledge=linked_knowledge,
+        linked_datasets=linked_datasets,
         documents=documents,
         recent_jobs=recent_jobs,
         task_input=task_input,
@@ -93,6 +98,8 @@ def _render_project_prompt(
     *,
     project: ProjectRecord,
     linked_papers: list[LinkedPaperRecord],
+    linked_knowledge: list[ResourceLinkRecord],
+    linked_datasets: list[ResourceLinkRecord],
     documents: dict[str, str],
     recent_jobs: list[ProjectJobRecord],
     task_input: ProjectTaskInput,
@@ -120,6 +127,10 @@ def _render_project_prompt(
             task_input.focus_instructions.strip() or "No extra focus instructions.",
             "# Linked Papers",
             _linked_paper_context(linked_papers),
+            "# Linked Knowledge",
+            _resource_context(linked_knowledge, "No linked Knowledge."),
+            "# Linked Datasets",
+            _resource_context(linked_datasets, "No linked datasets."),
             "# Existing Project Modules",
             _document_context(documents),
             "# Recent Project Jobs",
@@ -147,6 +158,19 @@ def _linked_paper_context(linked_papers: list[LinkedPaperRecord]) -> str:
         f"- paper_id={paper.paper_id}; relation={paper.relation_type}; "
         f"status={paper.status}; title={paper.title}"
         for paper in linked_papers
+    )
+
+
+def _resource_context(
+    linked_resources: list[ResourceLinkRecord],
+    fallback: str,
+) -> str:
+    if not linked_resources:
+        return fallback
+    return "\n".join(
+        f"- asset_id={resource.asset_id}; type={resource.resource_type}; "
+        f"relation={resource.relation_type}; name={resource.display_name}"
+        for resource in linked_resources
     )
 
 

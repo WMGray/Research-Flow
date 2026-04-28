@@ -104,6 +104,7 @@ class ProjectTaskRequest(BaseModel):
     focus_instructions: str = ""
     included_paper_ids: list[int] = Field(default_factory=list)
     included_knowledge_ids: list[int] = Field(default_factory=list)
+    included_dataset_ids: list[int] = Field(default_factory=list)
     skip_locked_blocks: bool = True
 
 
