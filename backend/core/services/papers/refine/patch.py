@@ -24,6 +24,11 @@ FLOAT_CAPTION_RE = re.compile(
     re.IGNORECASE,
 )
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
+INSTITUTION_HINT_RE = re.compile(
+    r"\b(?:University|Institute|College|Corporation|Inc\.?|Ltd\.?|Department|Laboratory|Lab)\b",
+    re.IGNORECASE,
+)
+METADATA_PATCH_WINDOW_LINES = 40
 
 
 def _sha256_text(text: str) -> str:
@@ -171,13 +176,30 @@ def _patch_rejection_reason(
 
 
 def _patch_content_rejection_reason(patch: RefinePatch, source_lines: list[str]) -> str | None:
-    if patch.op != "replace_span" or not FLOAT_CAPTION_RE.match(patch.replacement):
+    if patch.op != "replace_span":
         return None
-    source_numbers = Counter(NUMBER_RE.findall("\n".join(source_lines)))
-    replacement_numbers = Counter(NUMBER_RE.findall(patch.replacement))
-    if source_numbers - replacement_numbers:
-        return "caption_replacement_drops_numbers"
+    source_text = "\n".join(source_lines)
+    source_images = set(IMAGE_RE.findall(source_text))
+    replacement_images = set(IMAGE_RE.findall(patch.replacement))
+    if source_images and not source_images.issubset(replacement_images):
+        return "replacement_drops_image_links"
+    if _is_front_matter_metadata_patch(patch, source_text):
+        return "metadata_replacement_missing_front_matter_labels"
+    if FLOAT_CAPTION_RE.match(patch.replacement):
+        source_numbers = Counter(NUMBER_RE.findall(source_text))
+        replacement_numbers = Counter(NUMBER_RE.findall(patch.replacement))
+        if source_numbers - replacement_numbers:
+            return "caption_replacement_drops_numbers"
     return None
+
+
+def _is_front_matter_metadata_patch(patch: RefinePatch, source_text: str) -> bool:
+    if patch.start_line > METADATA_PATCH_WINDOW_LINES:
+        return False
+    if not (EMAIL_RE.search(source_text) or INSTITUTION_HINT_RE.search(source_text)):
+        return False
+    replacement = patch.replacement.lower()
+    return "authors:" not in replacement or "institutions:" not in replacement
 
 
 def _count_check(

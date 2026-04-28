@@ -524,6 +524,79 @@ def test_patch_engine_rejects_caption_replacements_that_drop_numbers() -> None:
     assert report.rejected_patches[0]["reason"] == "caption_replacement_drops_numbers"
 
 
+def test_patch_engine_rejects_image_replacements_that_drop_links() -> None:
+    raw_text = "![](figures/figure_1.png)\n>[!Caution]\n"
+    patches = [
+        RefinePatch(
+            patch_id="patch_001",
+            issue_id="issue_001",
+            op="replace_span",
+            start_line=1,
+            end_line=2,
+            replacement=">[!warning]\n> Caption needs review.",
+            confidence=0.9,
+        )
+    ]
+
+    refined, report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="hash",
+        patches=patches,
+    )
+
+    assert refined == raw_text
+    assert report.rejected_patches[0]["reason"] == "replacement_drops_image_links"
+
+
+def test_patch_engine_allows_caption_insert_after_image() -> None:
+    raw_text = "![](figures/figure_1.png)\n"
+    patches = [
+        RefinePatch(
+            patch_id="patch_001",
+            issue_id="issue_001",
+            op="insert_after",
+            start_line=1,
+            end_line=1,
+            replacement="> Figure 1: Overview.",
+            confidence=0.9,
+        )
+    ]
+
+    refined, report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="hash",
+        patches=patches,
+    )
+
+    assert refined == "![](figures/figure_1.png)\n> Figure 1: Overview.\n"
+    assert report.applied_patch_ids == ["patch_001"]
+    assert report.rejected_patches == []
+
+
+def test_patch_engine_rejects_unlabeled_front_matter_replacements() -> None:
+    raw_text = "A. Author\nDemo University\nauthor@example.com\n"
+    patches = [
+        RefinePatch(
+            patch_id="patch_001",
+            issue_id="issue_001",
+            op="replace_span",
+            start_line=1,
+            end_line=3,
+            replacement="A. Author\nDemo University",
+            confidence=0.9,
+        )
+    ]
+
+    refined, report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="hash",
+        patches=patches,
+    )
+
+    assert refined == raw_text
+    assert report.rejected_patches[0]["reason"] == "metadata_replacement_missing_front_matter_labels"
+
+
 def test_local_verify_allows_omitted_email_numbers() -> None:
     raw_text = "Authors: A\nh.wang3@uva.nl\nNumber 42 is preserved.\n"
     refined_text = "Authors: A\nNumber 42 is preserved.\n"
