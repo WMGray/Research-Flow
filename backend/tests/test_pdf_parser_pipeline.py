@@ -164,7 +164,7 @@ def test_process_mineru_markdown_artifacts_merges_extracted_images(tmp_path: Pat
     image_dir.mkdir()
     content_list_path = tmp_path / "content_list_v2.json"
     output_markdown_path = tmp_path / "note.md"
-    output_figure_dir = tmp_path / "figures"
+    output_figure_dir = tmp_path / "images"
 
     Image.new("RGB", (120, 100), (255, 0, 0)).save(image_dir / "left.jpg")
     Image.new("RGB", (120, 100), (0, 0, 255)).save(image_dir / "right.jpg")
@@ -224,8 +224,9 @@ def test_process_mineru_markdown_artifacts_merges_extracted_images(tmp_path: Pat
     assert result.raw_image_ref_count == 2
     assert result.grouped_image_ref_count == 1
     markdown_text = output_markdown_path.read_text(encoding="utf-8")
-    assert "images/" not in markdown_text
-    assert "![](figures/figure_1.png)" in markdown_text
+    assert "![](images/left.jpg)" not in markdown_text
+    assert "![](images/right.jpg)" not in markdown_text
+    assert "![](images/figure_1.png)" in markdown_text
     assert "> **图注**：legend text Figure 1. Demo figure." in markdown_text
     assert "\nFigure 1. Demo figure." not in markdown_text
 

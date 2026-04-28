@@ -23,12 +23,16 @@ venv/
 env/
 ENV/
 
+
 # 包构建产物
 *.egg-info/
 dist/
 build/
 *.egg
 *.whl
+.uv-cache/
+.uv/
+
 
 # 类型检查 / 测试
 .mypy_cache/

@@ -320,13 +320,13 @@ def main() -> int:
                 "raw_markdown_registered": "raw_markdown" in artifact_keys,
                 "raw_markdown_size_gt_1000": int(raw_markdown.get("file_size") or 0)
                 > 1_000,
-                "raw_markdown_uses_postprocessed_figures": "(figures/" in raw_text,
-                "raw_markdown_does_not_embed_raw_images": "![](images/" not in raw_text,
+                "raw_markdown_uses_postprocessed_figures": "(images/" in raw_text,
+                "raw_markdown_does_not_embed_raw_images": "![](mineru/images/" not in raw_text,
                 "refine_job_succeeded": refine_job["status"] == "succeeded",
                 "refined_markdown_registered": "refined_markdown" in artifact_keys,
                 "refined_markdown_size_gt_1000": int(refined_markdown.get("file_size") or 0)
                 > 1_000,
-                "refined_markdown_uses_postprocessed_figures": "(figures/" in refined_text,
+                "refined_markdown_uses_postprocessed_figures": "(images/" in refined_text,
                 "refined_markdown_uses_blockquoted_captions": "> **图注**：" in refined_text,
                 "refine_deterministic_artifact_registered": (
                     "refine_deterministic_normalization" in artifact_keys
@@ -359,8 +359,8 @@ def main() -> int:
                         ),
                         "note_markdown_size_gt_20kb": int(note_markdown.get("file_size") or 0)
                         > 20_000,
-                        "note_embeds_postprocessed_figures": "(parsed/figures/" in note_text
-                        or "(figures/" in note_text,
+                        "note_embeds_postprocessed_figures": "(parsed/images/" in note_text
+                        or "(images/" in note_text,
                         "note_uses_blockquoted_captions": "> **图注**：" in note_text,
                         "note_method_starts_with_overview": (
                             "## 本文方法" in note_text

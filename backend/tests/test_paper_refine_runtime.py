@@ -378,6 +378,7 @@ def test_normalization_restores_known_technical_term_case() -> None:
             "# Demo",
             "Fine-tuning and Low-Rank Adaptation stay as written.",
             "LoRA is used throughout the paper.",
+            "The mAP metric must not rewrite a feature map.",
             "",
             "### 4.2 Applying Lora to Transformer",
         ]
@@ -387,6 +388,8 @@ def test_normalization_restores_known_technical_term_case() -> None:
 
     assert "### 4.2 Applying LoRA to Transformer" in normalized
     assert "Fine-tuning and Low-Rank Adaptation stay as written." in normalized
+    assert "feature map" in normalized
+    assert "feature mAP" not in normalized
     assert any(
         operation.operation_type.endswith("restore_term_case")
         for operation in report.operations
@@ -428,6 +431,29 @@ def test_normalization_formats_captions_and_marks_missing_caption() -> None:
     )
     assert any(
         operation.operation_type == "mark_image_caption_needs_review"
+        for operation in report.operations
+    )
+
+
+def test_normalization_converts_mineru_formula_wrappers() -> None:
+    content = "\n".join(
+        [
+            "# Demo",
+            "",
+            "> **图注**：Figure 1: We train equation_inline A text and equation_inline B text.",
+            "> **图注**：Figure 2: Input equation_inline I_{t} text uses equation_inline \\Phi_{\\mathrm{ENC}} text.",
+            "> **图注**：Figure 3: Baseline equation_inline ( r = 0 text ) and equation_inline 30 \\% text.",
+        ]
+    )
+
+    normalized, report = normalize_markdown_structure(content, source_hash="hash")
+
+    assert "equation_inline" not in normalized
+    assert "> Figure 1: We train $A$ and $B$." in normalized
+    assert "> Figure 2: Input $I_{t}$ uses $\\Phi_{\\mathrm{ENC}}$." in normalized
+    assert "> Figure 3: Baseline $( r = 0 )$ and $30 \\%$." in normalized
+    assert any(
+        "normalize_formula_wrapper" in operation.operation_type
         for operation in report.operations
     )
 
@@ -972,19 +998,19 @@ def test_section_markdown_rewrites_figure_paths_for_sections() -> None:
     markdown = "\n".join(
         [
             "## Method",
-            "![Overview](figures/figure_1.png)",
+            "![Overview](images/figure_1.png)",
             "![External](https://example.com/figure.png)",
         ]
     )
 
     rewritten = _rewrite_section_image_links(markdown)
 
-    assert "![Overview](../figures/figure_1.png)" in rewritten
+    assert "![Overview](../images/figure_1.png)" in rewritten
     assert "![External](https://example.com/figure.png)" in rewritten
 
 
 def test_note_generation_embeds_resolved_figure_evidence(tmp_path: Path) -> None:
-    figure_dir = tmp_path / "parsed" / "figures"
+    figure_dir = tmp_path / "parsed" / "images"
     figure_dir.mkdir(parents=True)
     (figure_dir / "figure_1.png").write_bytes(b"fake-image")
     note_path = tmp_path / "note.md"
@@ -1033,7 +1059,7 @@ def test_note_generation_embeds_resolved_figure_evidence(tmp_path: Path) -> None
             "content": "\n".join(
                 [
                     "## Method",
-                    "![](figures/figure_1.png)",
+                    "![](images/figure_1.png)",
                     "Figure 1: Overview of the proposed method.",
                 ]
             ),
@@ -1053,11 +1079,11 @@ def test_note_generation_embeds_resolved_figure_evidence(tmp_path: Path) -> None
         image_base_dirs=[figure_dir],
     )
 
-    assert figures[0].image_path == "parsed/figures/figure_1.png"
+    assert figures[0].image_path == "parsed/images/figure_1.png"
     assert figures[0].role_hint == "method"
     assert result.figure_count == 1
     assert "### 方法总览" in result.content
-    assert "![Figure 1](parsed/figures/figure_1.png)" in result.content
+    assert "![Figure 1](parsed/images/figure_1.png)" in result.content
     assert "> **图注**：Figure 1: Overview of the proposed method." in result.content
     assert "> **阅读角色**：方法主线/架构图" in result.content
     assert "Figure 1 shows the method pipeline." in result.content
@@ -1065,7 +1091,7 @@ def test_note_generation_embeds_resolved_figure_evidence(tmp_path: Path) -> None
 
 
 def test_note_generation_marks_missing_caption_for_review(tmp_path: Path) -> None:
-    figure_dir = tmp_path / "parsed" / "figures"
+    figure_dir = tmp_path / "parsed" / "images"
     figure_dir.mkdir(parents=True)
     (figure_dir / "figure_1.png").write_bytes(b"fake-image")
     note_path = tmp_path / "note.md"
@@ -1073,7 +1099,7 @@ def test_note_generation_marks_missing_caption_for_review(tmp_path: Path) -> Non
         {
             "title": "Method",
             "section_key": "method",
-            "content": "\n".join(["## Method", "![](figures/figure_1.png)"]),
+            "content": "\n".join(["## Method", "![](images/figure_1.png)"]),
         }
     ]
 

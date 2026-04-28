@@ -34,9 +34,11 @@ Patch policy:
 - Patches are local repairs, not paper rewrites.
 - One patch should address one diagnosis issue.
 - Replacement text must preserve all visible scientific content in the target span.
-- Use `mark_needs_review` when the correction needs PDF visual context, missing hidden lines, or ambiguous reading order.
+- Use `mark_needs_review` when the correction needs unavailable source context, missing hidden lines, or ambiguous reading order.
 - For `mark_needs_review`, `replacement` may be an empty string.
 - Parent/child heading hierarchy follows section numbering before Markdown level.
+- Formula delimiter patches may remove MinerU wrapper tokens `equation_inline` and `text` only when the visible payload is preserved and wrapped as Markdown math, for example `equation_inline \Delta W _ { q } text` -> `$\Delta W _ { q }$`.
+- If a caption line also contains formula placeholders, use one combined replacement for that line; do not emit overlapping caption and formula patches.
 
 ```json
 {

@@ -20,6 +20,7 @@ CAPTION_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 NUMBERED_HEADING_RE = re.compile(r"^(?P<num>\d+(?:\.\d+)*)(?:[\.\)]|\s)+(?:\s*)(?P<title>.+)$")
+MARKDOWN_IMAGE_DIR = "images"
 
 
 def load_pillow_image() -> Any:
@@ -344,7 +345,7 @@ def rewrite_markdown(
         if group is not None:
             if active_group == group.output_name:
                 continue
-            rewritten.append(f"![](figures/{group.output_name})")
+            rewritten.append(f"![]({MARKDOWN_IMAGE_DIR}/{group.output_name})")
             if group.caption:
                 rewritten.append(f"> **图注**：{group.caption}")
                 skip_caption_labels.add(group.label)
@@ -360,7 +361,7 @@ def rewrite_markdown(
         target_path = figure_dir / target_name
         if source_path.exists() and not target_path.exists():
             shutil.copy2(source_path, target_path)
-        rewritten.append(f"![](figures/{target_name})")
+        rewritten.append(f"![]({MARKDOWN_IMAGE_DIR}/{target_name})")
         active_group = target_name
         referenced_figure_names.add(target_name)
 

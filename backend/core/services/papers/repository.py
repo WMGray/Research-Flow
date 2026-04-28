@@ -1476,17 +1476,20 @@ class PaperRepository:
         paper_dir = self._paper_dir(paper_id)
         return [
             paper_dir,
+            paper_dir / "images",
             paper_dir / "figures",
             paper_dir / "parsed",
             paper_dir / "parsed" / "sections",
-            paper_dir / "parsed" / "figures",
             paper_dir / "parsed" / "images",
+            paper_dir / "parsed" / "figures",
             paper_dir / "parsed" / "mineru",
             paper_dir / "parsed" / "mineru" / "images",
         ]
 
     def _postprocessed_figure_dir(self, parsed_artifacts: dict[str, str]) -> Path | None:
-        value = parsed_artifacts.get("postprocessed_figure_dir")
+        value = parsed_artifacts.get("postprocessed_image_dir") or parsed_artifacts.get(
+            "postprocessed_figure_dir"
+        )
         if not value:
             return None
         path = Path(value)
@@ -1680,7 +1683,7 @@ class PaperRepository:
 
         parsed_dir = self._paper_dir(paper_id) / "parsed"
         output_markdown_path = parsed_dir / "postprocessed.md"
-        output_figure_dir = parsed_dir / "figures"
+        output_figure_dir = parsed_dir / "images"
         try:
             processed = process_mineru_markdown_artifacts(
                 raw_markdown_path=markdown_path,
@@ -1699,6 +1702,7 @@ class PaperRepository:
         artifacts = {
             **base_artifacts,
             "postprocessed_markdown_path": str(processed.markdown_path),
+            "postprocessed_image_dir": str(processed.figure_dir),
             "postprocessed_figure_dir": str(processed.figure_dir),
             "postprocessed_figure_count": str(processed.figure_count),
             "postprocessed_raw_image_ref_count": str(processed.raw_image_ref_count),
@@ -2090,7 +2094,7 @@ def _rewrite_section_image_links(markdown_text: str) -> str:
     def replace(match: re.Match[str]) -> str:
         alt = match.group("alt")
         target = match.group("target").strip()
-        if target.startswith("figures/"):
+        if target.startswith(("images/", "figures/")):
             target = f"../{target}"
         return f"![{alt}]({target})"
 

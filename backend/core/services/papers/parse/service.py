@@ -302,7 +302,7 @@ class PDFParserService:
                 source_image_dir=bundle.image_dir,
                 content_list_path=bundle.content_list_path,
                 output_markdown_path=pdf_path.parent / "note.md",
-                output_figure_dir=pdf_path.parent / "figures",
+                output_figure_dir=pdf_path.parent / "images",
             )
         except Exception:
             return None

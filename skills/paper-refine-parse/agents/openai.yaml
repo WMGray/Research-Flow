@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Refine Parse"
   short_description: "MinerU full.md refinement and figure/table-aware repair"
-  default_prompt: "Use $paper-refine-parse to improve MinerU full.md refinement and verification without rewriting the full paper."
+  default_prompt: "Use $paper-refine-parse to maintain MinerU full.md local patch refinement and verification."

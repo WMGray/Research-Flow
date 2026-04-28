@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 import hashlib
 import re
 
+from .formula_wrappers import normalize_formula_wrappers
 from .image_annotations import normalize_image_annotations
 from .parsing import (
     DeterministicNormalizationOperation,
@@ -26,6 +27,7 @@ BULLET_RE = re.compile(r"^(?P<indent>\s*)[\u2022\u25cf\u25aa]\s+")
 SENTENCE_END_RE = re.compile(r"[.!?。！？]\s*$")
 SPACED_LETTER_RUN_RE = re.compile(r"(?<![A-Za-z])(?:[A-Za-z]\s+){2,}[A-Za-z](?![A-Za-z])")
 TERM_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9-]{1,}\b")
+CASE_RESTORE_STOPWORDS = {"map"}
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
 EMAIL_FRAGMENT_RE = re.compile(r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b", re.IGNORECASE)
 AUTHOR_HEADER_RE = re.compile(r"^\s*Authors?\s*:", re.IGNORECASE)
@@ -108,6 +110,14 @@ def _normalize_lines(
         if after != entry.text:
             operation_types.append("trim_trailing_whitespace")
             rationales.append("Remove trailing whitespace without changing content.")
+
+        formula_line = normalize_formula_wrappers(after)
+        if formula_line != after:
+            after = formula_line
+            operation_types.append("normalize_formula_wrapper")
+            rationales.append(
+                "Convert MinerU inline formula wrappers to Markdown math delimiters."
+            )
 
         metadata_line = _normalize_metadata_line(after, entry.line_no)
         if metadata_line != after:
@@ -475,6 +485,8 @@ def _restore_known_term_case(line: str, term_case_map: dict[str, str]) -> str:
 
     def replace(match: re.Match[str]) -> str:
         token = match.group(0)
+        if token.lower() in CASE_RESTORE_STOPWORDS:
+            return token
         return term_case_map.get(token.lower(), token)
 
     return TERM_RE.sub(replace, line)

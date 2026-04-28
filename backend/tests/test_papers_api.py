@@ -509,9 +509,9 @@ def test_parse_uses_postprocessed_figures_for_refined_markdown(
     assert parse_response.status_code == 202
     assert parse_response.json()["data"]["status"] == "succeeded"
     parse_job = parse_response.json()["data"]
-    assert (paper_dir / "parsed" / "figures" / "figure_1.png").exists()
+    assert (paper_dir / "parsed" / "images" / "figure_1.png").exists()
     assert parse_job["result"]["artifacts"]["postprocessed_figure_count"] == "1"
-    assert "![](figures/figure_1.png)" in (
+    assert "![](images/figure_1.png)" in (
         paper_dir / "parsed" / "raw.md"
     ).read_text(encoding="utf-8")
 
@@ -549,7 +549,7 @@ def test_parse_uses_postprocessed_figures_for_refined_markdown(
                 "# Refined",
                 "",
                 "## Method",
-                "![](figures/figure_1.png)",
+                "![](images/figure_1.png)",
                 "Figure 1: Method overview.",
                 "",
                 "## Experiment",
@@ -565,8 +565,8 @@ def test_parse_uses_postprocessed_figures_for_refined_markdown(
     assert refine_response.status_code == 202
     assert refine_response.json()["data"]["status"] == "succeeded"
     refined_text = (paper_dir / "parsed" / "refined.md").read_text(encoding="utf-8")
-    assert "![](figures/figure_1.png)" in refined_text
-    assert (paper_dir / "parsed" / "figures" / "figure_1.png").exists()
+    assert "![](images/figure_1.png)" in refined_text
+    assert (paper_dir / "parsed" / "images" / "figure_1.png").exists()
 
 
 def test_review_and_note_generation_flow(
