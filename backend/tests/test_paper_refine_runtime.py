@@ -473,6 +473,57 @@ def test_normalization_repairs_front_matter_and_moves_interrupted_figure() -> No
     )
 
 
+def test_normalization_removes_split_email_fragments_from_front_matter() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "A. Author B. Writer",
+            "",
+            "Demo University",
+            "",
+            "{author, writer,",
+            "",
+            "writer}@demo.edu",
+            "",
+            "## Abstract",
+            "",
+            "Body.",
+        ]
+    )
+
+    normalized, _ = normalize_markdown_structure(content, source_hash="hash")
+
+    assert "Authors: A. Author, B. Writer" in normalized
+    assert "Institutions: Demo University" in normalized
+    front_matter = normalized.split("## Abstract", maxsplit=1)[0]
+    assert "{" not in front_matter
+    assert "@" not in front_matter
+    assert "demo.edu" not in normalized
+
+
+def test_normalization_preserves_author_when_email_is_inline() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "A. Author author@example.com",
+            "",
+            "Demo University",
+            "",
+            "## Abstract",
+            "",
+            "Body.",
+        ]
+    )
+
+    normalized, _ = normalize_markdown_structure(content, source_hash="hash")
+
+    assert "Authors: A. Author" in normalized
+    assert "Institutions: Demo University" in normalized
+    assert "author@example.com" not in normalized
+
+
 def test_patch_engine_rejects_truncated_evidence_replacements() -> None:
     raw_text = "Table 1: Metrics.\n<table><tr><td>1</td></tr></table>\n"
     patches = [

@@ -27,6 +27,7 @@ SENTENCE_END_RE = re.compile(r"[.!?。！？]\s*$")
 SPACED_LETTER_RUN_RE = re.compile(r"(?<![A-Za-z])(?:[A-Za-z]\s+){2,}[A-Za-z](?![A-Za-z])")
 TERM_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9-]{1,}\b")
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
+EMAIL_FRAGMENT_RE = re.compile(r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b", re.IGNORECASE)
 AUTHOR_HEADER_RE = re.compile(r"^\s*Authors?\s*:", re.IGNORECASE)
 INSTITUTION_START_RE = re.compile(
     r"\b("
@@ -241,9 +242,9 @@ def _extract_front_matter(entries: list[_LineEntry]) -> tuple[list[str], list[st
         line = entry.text.strip()
         if not line:
             continue
-        if EMAIL_RE.fullmatch(line):
+        if EMAIL_RE.fullmatch(line) or _looks_like_email_fragment(line):
             continue
-        line_without_email = EMAIL_RE.sub("", line).strip(" ,;")
+        line_without_email = EMAIL_RE.sub("", line).strip(" ,;<>")
         if not line_without_email:
             continue
         if line_without_email.startswith("(") and line_without_email.endswith(")"):
@@ -258,6 +259,22 @@ def _extract_front_matter(entries: list[_LineEntry]) -> tuple[list[str], list[st
         if institution_text:
             institutions.append(_clean_metadata_value(institution_text))
     return _dedupe(authors), _dedupe(institutions), _dedupe(extras)
+
+
+def _looks_like_email_fragment(line: str) -> bool:
+    stripped = line.strip(" ,;")
+    if not stripped:
+        return False
+    if "{" in stripped or "}" in stripped:
+        letters = [char for char in stripped if char.isalpha()]
+        return bool(letters) and not any(char.isupper() for char in letters)
+    if "@" in stripped:
+        remaining = EMAIL_RE.sub("", stripped)
+        return not any(char.isupper() for char in remaining if char.isalpha())
+    return (
+        EMAIL_FRAGMENT_RE.fullmatch(stripped) is not None
+        and not any(char.isupper() for char in stripped if char.isalpha())
+    )
 
 
 def _split_author_institution_line(line: str) -> tuple[str, str]:
