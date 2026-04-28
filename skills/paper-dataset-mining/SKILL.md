@@ -30,3 +30,7 @@ This is a P1 Paper skill under `paper-pipeline`. It consumes outputs from:
 ## Runtime Reference
 
 The backend runtime instruction for `paper_dataset_mining.default` is `references/runtime-instructions.md`.
+
+## Standalone Demo
+
+Read `references/io-contract.md` for the standalone input/output contract. Use `assets/examples/sample-input.json` and `assets/examples/sample-output.json` as examples only.

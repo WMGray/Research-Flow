@@ -66,3 +66,7 @@ python -m pytest tests\test_paper_refine_runtime.py tests\test_papers_api.py -q
 ```
 
 Review generated `note.md` and confirm that image links are relative to the note file and render in Markdown.
+
+## Standalone Demo
+
+Read `references/io-contract.md` for the standalone input/output contract. Use `assets/examples/sample-input.json`, `assets/examples/sample-output.json`, and `assets/examples/sample-output.md` as examples only.

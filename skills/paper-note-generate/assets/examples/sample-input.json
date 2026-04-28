@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "title": "Demo Paper",
+    "authors": ["A. Author"],
+    "year": 2026,
+    "venue": "DemoConf",
+    "doi": "10.0000/demo"
+  },
+  "sections": [
+    {
+      "section_key": "related_work",
+      "title": "Introduction",
+      "content": "The paper studies a demo problem."
+    },
+    {
+      "section_key": "method",
+      "title": "Method",
+      "content": "The method has a demo module and a demo objective."
+    },
+    {
+      "section_key": "experiment",
+      "title": "Experiments",
+      "content": "The experiment evaluates DemoData with DemoMetric."
+    }
+  ],
+  "figures": [
+    {
+      "figure_id": "figure_1",
+      "image_path": "parsed/figures/figure_1.png",
+      "caption": "Figure 1: Demo framework.",
+      "role_hint": "method"
+    }
+  ]
+}

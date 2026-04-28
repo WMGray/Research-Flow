@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "title": "Demo Paper",
+    "authors": ["A. Author"],
+    "year": 2026,
+    "venue": "DemoConf"
+  },
+  "source_hash": "demo-source-hash",
+  "markdown": "# Demo Paper\n\n1 Introduction\nThis paper uses DemoData [3].\n\nFigure 1: System overview.\n"
+}

@@ -77,3 +77,7 @@ Review outputs before accepting a change:
 
 Read `references/patch-contract.md` before changing patch schemas or JSON examples.
 Read `references/paper-reading-patterns.md` before changing refine/split/note strategy.
+
+## Standalone Demo
+
+Read `references/io-contract.md` for the standalone input/output contract. Use `assets/examples/sample-input.json` and `assets/examples/sample-output.json` as examples only.
