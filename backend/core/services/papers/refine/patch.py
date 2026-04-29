@@ -24,6 +24,7 @@ FLOAT_CAPTION_RE = re.compile(
     re.IGNORECASE,
 )
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b")
+MATH_SPAN_RE = re.compile(r"\$\$.*?\$\$|\$[^$\n]*\$", re.DOTALL)
 INSTITUTION_HINT_RE = re.compile(
     r"\b(?:University|Institute|College|Corporation|Inc\.?|Ltd\.?|Department|Laboratory|Lab)\b",
     re.IGNORECASE,
@@ -94,6 +95,8 @@ def build_local_verify_report(
 ) -> RefineVerifyReport:
     raw_paper_text = _paper_content(raw_text)
     refined_paper_text = _paper_content(refined_text)
+    raw_preservation_text = _without_front_matter_metadata(raw_paper_text)
+    refined_preservation_text = _without_front_matter_metadata(refined_paper_text)
     checks = [
         _count_check(
             "citations",
@@ -105,9 +108,11 @@ def build_local_verify_report(
         _count_check(
             "numbers",
             NUMBER_RE,
-            _without_emails(raw_paper_text),
-            _without_emails(refined_paper_text),
+            _without_math_spans(_without_emails(raw_preservation_text)),
+            _without_math_spans(_without_emails(refined_preservation_text)),
             allow_added=True,
+            warn_on_duplicate_only_loss=True,
+            loss_tolerance_ratio=0.01,
         ),
         _count_check(
             "image_links",
@@ -119,8 +124,8 @@ def build_local_verify_report(
         _count_check(
             "formula_markers",
             FORMULA_RE,
-            raw_paper_text,
-            refined_paper_text,
+            raw_preservation_text,
+            refined_preservation_text,
             allow_added=True,
         ),
         _length_ratio_check(raw_text, refined_text),
@@ -209,14 +214,32 @@ def _count_check(
     refined_text: str,
     *,
     allow_added: bool,
+    warn_on_duplicate_only_loss: bool = False,
+    loss_tolerance_ratio: float = 0.0,
 ) -> dict[str, Any]:
     raw_items = pattern.findall(raw_text)
     refined_items = pattern.findall(refined_text)
     missing = len(raw_items) - len(refined_items)
     ok = missing <= 0 if allow_added else set(raw_items).issubset(set(refined_items))
+    status = "pass" if ok else "fail"
+    if (
+        status == "fail"
+        and warn_on_duplicate_only_loss
+        and missing > 0
+        and set(raw_items).issubset(set(refined_items))
+    ):
+        status = "warning"
+    if (
+        status == "fail"
+        and loss_tolerance_ratio > 0
+        and missing > 0
+        and len(raw_items) > 0
+        and missing / len(raw_items) < loss_tolerance_ratio
+    ):
+        status = "warning"
     return {
         "name": name,
-        "status": "pass" if ok else "fail",
+        "status": status,
         "raw_count": len(raw_items),
         "refined_count": len(refined_items),
     }
@@ -224,6 +247,10 @@ def _count_check(
 
 def _without_emails(text: str) -> str:
     return EMAIL_RE.sub("", text)
+
+
+def _without_math_spans(text: str) -> str:
+    return MATH_SPAN_RE.sub("", text)
 
 
 def _paper_content(text: str) -> str:
@@ -236,6 +263,21 @@ def _paper_content(text: str) -> str:
     return "\n".join(
         line for line in text.splitlines() if not line.strip().startswith(ignored_prefixes)
     )
+
+
+def _without_front_matter_metadata(text: str) -> str:
+    lines = text.splitlines()
+    abstract_index = next(
+        (
+            index
+            for index, line in enumerate(lines[:80])
+            if line.lstrip("#").strip().lower() == "abstract"
+        ),
+        None,
+    )
+    if abstract_index is None or abstract_index <= 1:
+        return text
+    return "\n".join([lines[0], *lines[abstract_index:]])
 
 
 def _length_ratio_check(raw_text: str, refined_text: str) -> dict[str, Any]:

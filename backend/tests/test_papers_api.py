@@ -411,7 +411,8 @@ def test_download_parse_and_sections_flow(
 
     sections_response = client.get(f"/api/v1/papers/{paper_id}/parsed/sections")
     assert sections_response.status_code == 200
-    section_keys = [item["section_key"] for item in sections_response.json()["data"]]
+    sections = sections_response.json()["data"]
+    section_keys = [item["section_key"] for item in sections]
     assert section_keys == [
         "introduction",
         "related_work",
@@ -420,6 +421,11 @@ def test_download_parse_and_sections_flow(
         "conclusion",
         "appendix",
     ]
+    section_map = {item["section_key"]: item for item in sections}
+    assert section_map["related_work"]["generated"] is True
+    assert section_map["appendix"]["content"] == ""
+    assert section_map["appendix"]["generated"] is False
+    assert "Pending extraction" not in "\n".join(item["content"] for item in sections)
 
     with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
         artifact_keys = {

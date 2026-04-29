@@ -106,7 +106,11 @@ def build_section_outline(content: str, *, max_headings: int = 140) -> str:
     rendered = [
         "# Section Split Evidence",
         f"line_count: {len(lines)}",
-        "Ranges refer to full refined.md line numbers. Cover all non-reference paper content; the backend removes References/Bibliography and parser metadata from accepted ranges.",
+        (
+            "Ranges refer to full refined.md line numbers. Cover all non-reference paper "
+            "content; the backend removes References/Bibliography and parser metadata "
+            "from accepted ranges."
+        ),
         "",
         "## Metadata Window",
     ]

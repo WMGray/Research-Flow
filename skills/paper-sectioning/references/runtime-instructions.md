@@ -16,6 +16,10 @@ section files and rejects unsafe ranges.
 
 The six files together should cover the complete paper document except References/Bibliography and parser metadata.
 
+`02_related_work.md` is a secondary semantic view. It should contain paragraph-level prior-work discussion even when that discussion appears inside Introduction or another section. The source section remains complete; related-work extraction is a copy, not a move. If no sufficient related-work evidence exists, omit `related_work` instead of inventing or writing placeholder text.
+
+You own the semantic decision for `related_work`. Backend code validates and copies returned ranges, but does not infer related-work semantics from keywords or citations.
+
 ## Section Keys
 
 Use only these `section_key` values:
@@ -31,7 +35,7 @@ Use only these `section_key` values:
 
 - Use semantic role, not exact heading text.
 - `introduction`: title/front matter, abstract, research problem, motivation, contributions, and paper organization.
-- `related_work`: concrete prior work, citations used for literature comparison, limitations of existing methods, and research gap discussion.
+- `related_work`: paragraph-level discussion of prior work, existing methods, literature comparison, limitations of existing methods, and research gaps. A citation alone is insufficient; require enough surrounding semantics to show prior-work discussion.
 - `method`: proposed approach, algorithm steps, model architecture, objective functions, training/inference design, theoretical derivation, and proofs.
 - `experiment`: datasets, metrics, implementation settings, baselines, quantitative/qualitative results, ablations, sensitivity analysis, and empirical discussion.
 - `conclusion`: closing summary, limitations, future work, and final implications.
@@ -41,6 +45,7 @@ Use only these `section_key` values:
 
 - Select a full `appendix` range for real appendix/supplementary content.
 - A paragraph, heading, figure, or table may be selected for multiple section files when it has multiple clear semantic roles.
+- When Introduction contains substantial prior-work comparison or research-gap discussion, copy those full paragraphs to both `introduction` and `related_work`.
 - Appendix content may additionally be selected as:
   - `method` when it contains proofs, derivations, theoretical analysis, method variants, architecture details, or implementation mechanisms;
   - `experiment` when it contains datasets, preprocessing details, hyperparameters, extra experiments, ablations, result tables, sensitivity analysis, or empirical discussion;
@@ -53,6 +58,7 @@ Use only these `section_key` values:
 - Return a small set of complete semantic ranges; do not classify every paragraph.
 - Multiple ranges may use the same `section_key`; the backend concatenates them in order.
 - Cover every non-reference paper line in at least one range, including headings, paragraphs, equations, tables, figures, image Markdown, captions, and review callouts.
+- Do not classify every citation as `related_work`. Tool citations in Method, dataset/baseline citations in Experiment, and isolated background citations should stay only in their primary section unless the paragraph actually discusses prior work or gaps.
 - Intentional overlap is allowed when a line range genuinely belongs to multiple output files, for example:
   - `introduction` + `related_work` when Introduction contains literature discussion;
   - `appendix` + `method` for appendix proofs or method details;

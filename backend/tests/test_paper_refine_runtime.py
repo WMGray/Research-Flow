@@ -198,9 +198,90 @@ def test_refine_runtime_blocks_patch_that_drops_citation(tmp_path: Path) -> None
 
     assert result.refined is False
     assert result.verify_status == "fail"
-    assert not output_path.exists()
+    assert output_path.exists()
+    annotated = output_path.read_text(encoding="utf-8")
+    assert 'refine_review_status: "fail"' in annotated
+    assert "refine_review_checks" in annotated
     verify_payload = json.loads((tmp_path / "refine" / "verify.json").read_text(encoding="utf-8"))
     assert any(check["name"] == "citations" and check["status"] == "fail" for check in verify_payload["checks"])
+
+
+def test_refine_verify_ignores_front_matter_metadata_artifacts() -> None:
+    raw_text = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            r"Ning Wang \dag ^ {1}",
+            "School of AI, Wuxi 214121",
+            "",
+            "## Abstract",
+            r"The method improves accuracy by 95% [1] with $Z ^ {0}$.",
+        ]
+    )
+    patch = RefinePatch(
+        patch_id="patch_001",
+        issue_id="issue_001",
+        op="replace_span",
+        start_line=3,
+        end_line=4,
+        replacement="Authors: Ning Wang\nInstitutions: School of AI",
+        confidence=0.95,
+    )
+    refined_text, apply_report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="demo",
+        patches=[patch],
+    )
+
+    report = build_local_verify_report(
+        raw_text=raw_text,
+        refined_text=refined_text,
+        source_hash="demo",
+        apply_report=apply_report,
+        llm_verdict={"status": "pass"},
+    )
+
+    assert report.status == "pass"
+    assert {check["name"]: check["status"] for check in report.checks}["numbers"] == "pass"
+    assert {check["name"]: check["status"] for check in report.checks}["formula_markers"] == "pass"
+
+
+def test_refine_verify_warns_on_duplicate_number_cleanup() -> None:
+    raw_text = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "## Abstract",
+            "The method improves accuracy by 95% [1].",
+            "Figure 1. Overview.",
+            "Figure 1. Overview.",
+        ]
+    )
+    patch = RefinePatch(
+        patch_id="patch_001",
+        issue_id="issue_001",
+        op="delete_span",
+        start_line=6,
+        end_line=6,
+        replacement="",
+        confidence=0.95,
+    )
+    refined_text, apply_report = apply_refine_patches(
+        markdown_text=raw_text,
+        source_hash="demo",
+        patches=[patch],
+    )
+
+    report = build_local_verify_report(
+        raw_text=raw_text,
+        refined_text=refined_text,
+        source_hash="demo",
+        apply_report=apply_report,
+        llm_verdict={"status": "pass"},
+    )
+
+    assert report.status == "warning"
+    assert {check["name"]: check["status"] for check in report.checks}["numbers"] == "warning"
 
 
 def test_refine_runtime_uses_structural_evidence_for_large_markdown(tmp_path: Path) -> None:
@@ -340,6 +421,34 @@ def test_deterministic_split_keeps_numbered_child_heading_under_parent() -> None
         "conclusion",
     }
     assert "Demo Paper" in blocks["introduction"]
+
+
+def test_deterministic_split_does_not_infer_related_view_from_introduction() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "## 1 Introduction",
+            "We study robust adaptation.",
+            "",
+            (
+                "Existing methods [1, 2] usually update all parameters. However, these "
+                "prior works fail to support efficient deployment."
+            ),
+            "",
+            "Our method addresses this gap.",
+            "",
+            "## 2 Method",
+            "The proposed adapter freezes the backbone.",
+        ]
+    )
+
+    blocks, report = split_sections_deterministically(content)
+
+    assert "Existing methods [1, 2]" in blocks["introduction"]
+    assert "related_work" not in blocks
+    assert "The proposed adapter" in blocks["method"]
+    assert "secondary_related_range_count" not in report
 
 
 def test_normalization_keeps_appendix_child_heading_under_letter_parent() -> None:
@@ -842,6 +951,63 @@ def test_llm_section_split_fills_uncovered_non_reference_lines_and_images() -> N
     assert result.report["llm"]["coverage"]["initial_uncovered_line_count"] > 0
     assert result.report["llm"]["coverage"]["filled_range_count"] > 0
     assert result.report["llm"]["coverage"]["final_uncovered_line_count"] == 0
+
+
+def test_llm_section_split_uses_related_view_from_intro_when_llm_selects_it() -> None:
+    content = "\n".join(
+        [
+            "# Demo Paper",
+            "",
+            "## 1 Introduction",
+            "We study efficient adaptation for large models.",
+            "",
+            (
+                "Existing approaches [1, 2] fine-tune all parameters. However, these "
+                "previous methods require extensive storage and lack deployment efficiency."
+            ),
+            "",
+            "## 2 Method",
+            "Our method trains a compact adapter.",
+        ]
+    )
+    fake_llm = SequenceLLM(
+        [
+            {
+                "sections": [
+                    {
+                        "section_key": "introduction",
+                        "start_line": 1,
+                        "end_line": 6,
+                        "confidence": 0.9,
+                        "rationale": "The LLM selected Introduction as the primary section.",
+                    },
+                    {
+                        "section_key": "related_work",
+                        "start_line": 6,
+                        "end_line": 6,
+                        "confidence": 0.9,
+                        "rationale": "The LLM selected the intro paragraph as prior-work discussion.",
+                    },
+                    {
+                        "section_key": "method",
+                        "start_line": 8,
+                        "end_line": 9,
+                        "confidence": 0.9,
+                        "rationale": "Method section.",
+                    },
+                ]
+            }
+        ]
+    )
+
+    result = split_canonical_sections(content, llm_client=fake_llm)
+
+    assert "Existing approaches [1, 2]" in result.blocks["introduction"]
+    assert "Existing approaches [1, 2]" in result.blocks["related_work"]
+    assert any(
+        record["section_key"] == "related_work" and record["source"] == "llm"
+        for record in result.report["llm"]["accepted"]
+    )
 
 
 def test_llm_section_split_merges_background_excludes_references_and_keeps_appendix() -> None:

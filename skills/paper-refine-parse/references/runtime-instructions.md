@@ -110,11 +110,16 @@ Line-numbered structural evidence:
 <!-- /stage -->
 
 <!-- stage:verify -->
-You are verifying a MinerU Markdown refinement. Do not rewrite the paper.
+You are verifying a MinerU Markdown refinement. This verification is an annotation step for human follow-up, not a gatekeeper. The refined file will be generated with review flags even when minor issues remain, so that the downstream pipeline can continue and a human can correct surface-level problems later.
 
 Check preservation of citations, numbers, formulas, tables, image links, captions, references, title, authors, institutions, model names, and dataset names. Verify that figure/table blocks are not inside running sentences, captions use `> Figure ...` / `> Table ...`, unresolved callouts use `>[!warning]`, and formula delimiter repairs only add `$` or `$$` around existing TeX/math payloads. MinerU `equation_inline ... text` wrappers may be removed only when converted to math. Treat `$A$ text`, `$B$ text`, or remaining `equation_inline ... text` in accepted replacement lines as unresolved formula-wrapper defects.
 
-Treat local preservation checks as authoritative. Return `warning` for unresolved visual-context items and `fail` only for likely content loss, invented metadata, destructive table/caption/reference changes, or hierarchy regression.
+Status thresholds — prefer `warning` over `fail` whenever a human can reasonably correct the issue:
+- `pass`: no preservation issues detected; output is clean.
+- `warning`: issues exist but are surface-level and human-correctable — unresolved formula-wrapper remnants, caption-format inconsistencies, heading-level ambiguity, isolated OCR noise, minor float-placement questions. These will be annotated in the output and a human can fix them. Use `warning` as the default for any issue that does not destroy paper substance.
+- `fail`: reserve ONLY for unambiguous, severe content destruction that would actively mislead a reader — whole sections deleted without trace, reference list removed, all image links stripped, metadata invented wholesale, or the majority of paper content lost. Even when substantial issues exist, if the paper's core claims, evidence, and structure remain recoverable by a human reader, return `warning` with specific review_items rather than `fail`.
+
+Treat local preservation checks as authoritative, but let the `warning` path carry most real-world refinement issues forward.
 
 Additional operator instruction:
 {{instruction}}

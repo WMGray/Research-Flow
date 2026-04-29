@@ -185,6 +185,7 @@ class SectionDocumentResponse(BaseModel):
     title: str
     content: str
     char_count: int
+    generated: bool = False
 
 
 class JobResponse(BaseModel):

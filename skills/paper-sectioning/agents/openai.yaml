@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Sectioning"
-  short_description: "Plan six canonical paper section files with audited line ranges"
-  default_prompt: "Use $paper-sectioning when changing six-file paper section splitting, classification rules, multi-section matching, or section-range LLM contracts."
+  short_description: "Split parsed/refined.md into six canonical section files (introduction, related_work, method, experiment, conclusion, appendix) using LLM-classified semantic line ranges"
+  default_prompt: "Use $paper-sectioning to classify semantic line ranges from refined.md and split the paper into six canonical section files with audited multi-section matching."

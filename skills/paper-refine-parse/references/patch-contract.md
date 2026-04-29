@@ -69,7 +69,12 @@ Patch policy:
 }
 ```
 
-The backend still runs local preservation checks. LLM `pass` cannot override missing citations, numbers, formulas, image links, or destructive length changes.
+Status thresholds:
+- `pass`: no preservation issues detected; output is clean.
+- `warning`: surface-level issues exist that a human can correct — unresolved formula wrappers, caption inconsistencies, heading ambiguity, isolated OCR noise. The file is written with inline review annotations and the pipeline continues. This is the expected status for most real-world refinement runs.
+- `fail`: reserved for unambiguous, severe content destruction — sections deleted, reference list removed, all image links stripped, metadata invented wholesale. Even on `fail` the backend writes an annotated candidate file, but the pipeline job is marked failed for operator attention.
+
+The backend runs local preservation checks (citations, numbers, formulas, image links, length ratio) and merges them with the LLM verdict. A local-check `fail` overrides an LLM `pass`.
 
 ## Deterministic Normalization Artifact
 

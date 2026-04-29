@@ -858,6 +858,7 @@ class PaperRepository:
                     metadata={
                         "title": str(record["title"]),
                         "char_count": int(record["char_count"]),
+                        "generated": bool(record.get("generated")),
                     },
                     now=now,
                 )
@@ -1211,6 +1212,7 @@ class PaperRepository:
                     "title": title,
                     "content": content,
                     "char_count": len(content),
+                    "generated": bool(content.strip()),
                 }
             )
         return records
@@ -2040,16 +2042,19 @@ class PaperRepository:
         )
         records: list[dict[str, Any]] = []
         for section_key, title in CANONICAL_SECTION_ORDER:
-            section_content = blocks.get(section_key) or f"## {title}\n\nPending extraction.\n"
-            section_content = _rewrite_section_image_links(section_content)
+            section_content = _rewrite_section_image_links(blocks.get(section_key, ""))
             path = section_dir / section_filename(section_key)
-            path.write_text(section_content.rstrip() + "\n", encoding="utf-8")
+            rendered_content = section_content.rstrip()
+            if rendered_content:
+                rendered_content += "\n"
+            path.write_text(rendered_content, encoding="utf-8")
             records.append(
                 {
                     "section_key": section_key,
                     "title": title,
-                    "content": section_content.rstrip() + "\n",
-                    "char_count": len(section_content),
+                    "content": rendered_content,
+                    "char_count": len(rendered_content),
+                    "generated": bool(rendered_content.strip()),
                 }
             )
         return records, split_result.report

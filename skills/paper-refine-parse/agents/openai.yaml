@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Refine Parse"
-  short_description: "MinerU full.md refinement and figure/table-aware repair"
-  default_prompt: "Use $paper-refine-parse to maintain MinerU full.md local patch refinement and verification."
+  short_description: "Diagnose and repair MinerU full.md parse artifacts (headings, floats, captions, formulas) via LLM patches and deterministic normalization"
+  default_prompt: "Use $paper-refine-parse to diagnose MinerU parse issues in full.md, emit local line-based patches, apply deterministic normalization, and verify refined.md output."

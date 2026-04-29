@@ -1,0 +1,12 @@
+interface:
+  display_name: "Code Context (Exa)"
+  short_description: "Find real code snippets and docs with Exa code context search"
+  default_prompt: "Use Code Context (Exa) for programming examples, API syntax, library docs, and debugging snippets."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "exa"
+      description: "Exa MCP server restricted to get_code_context_exa"
+      transport: "streamable_http"
+      url: "https://mcp.exa.ai/mcp?tools=get_code_context_exa"

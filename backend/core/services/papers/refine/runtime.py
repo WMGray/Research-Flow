@@ -19,6 +19,7 @@ from .parsing import (
     DeterministicNormalizationReport,
     PatchApplyReport,
     RefinePatch,
+    RefineVerifyReport,
     build_line_index,
     build_line_numbered_markdown,
     build_structural_evidence_markdown,
@@ -283,6 +284,16 @@ async def _refine_markdown_async(
         llm_verdict=verify_payload,
     )
     _write_json(artifacts["verify"], asdict(verify_report))
+
+    needs_annotation = verify_report.status in ("warning", "fail")
+    output_text = (
+        _annotate_refine_warnings(refined_text, apply_report, verify_report)
+        if needs_annotation
+        else refined_text
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output_text, encoding="utf-8")
+
     if verify_report.status == "fail":
         return _execution_result(
             output_path=output_path,
@@ -290,14 +301,12 @@ async def _refine_markdown_async(
             artifact_dir=artifact_dir,
             artifacts=artifacts,
             refined=False,
-            error="refine verification failed",
+            error="refine verification failed; annotated candidate written for review",
             verify_status=verify_report.status,
             apply_report=apply_report,
             normalization_report=normalization_report,
         )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(refined_text, encoding="utf-8")
     return _execution_result(
         output_path=output_path,
         binding=binding,
@@ -309,6 +318,84 @@ async def _refine_markdown_async(
         apply_report=apply_report,
         normalization_report=normalization_report,
     )
+
+
+def _annotate_refine_warnings(
+    refined_text: str,
+    apply_report: PatchApplyReport,
+    verify_report: RefineVerifyReport,
+) -> str:
+    """Inject refine review fields into the paper's YAML frontmatter.
+
+    Uses the existing ``---`` / ``---`` block when present; otherwise creates one.
+    Injected fields use a ``refine_review_`` prefix so they stay namespaced and
+    do not collide with paper metadata.
+    """
+    review_fields: list[str] = []
+    review_fields.append(f'refine_review_status: "{verify_report.status}"')
+
+    parts: list[str] = []
+
+    check_warnings = [
+        c for c in verify_report.checks if c.get("status") != "pass"
+    ]
+    for c in check_warnings:
+        name = c.get("name", "?")
+        raw = c.get("raw_count")
+        ref = c.get("refined_count")
+        if name == "length_ratio":
+            parts.append(f'{name}={c.get("ratio", "?")}')
+        elif isinstance(raw, int) and isinstance(ref, int):
+            parts.append(f'{name}({ref - raw:+d})')
+        else:
+            parts.append(f'{name}:{c.get("status", "?")}')
+    if parts:
+        review_fields.append(f'refine_review_checks: "{"; ".join(parts)}"')
+
+    rejected = apply_report.rejected_patches
+    if rejected:
+        rj_parts = []
+        for item in rejected:
+            patch = item.get("patch", {})
+            reason = item.get("reason", "?")
+            start = patch.get("start_line", "?")
+            end = patch.get("end_line", "?")
+            issue_id = patch.get("issue_id", "?")
+            rj_parts.append(f'{reason} @{start}-{end} ({issue_id})')
+        review_fields.append(f'refine_review_rejected: "{"; ".join(rj_parts)}"')
+
+    review_items = apply_report.review_items
+    if review_items:
+        ri_parts = []
+        for item in review_items:
+            start = item.get("start_line", "?")
+            end = item.get("end_line", "?")
+            issue_id = item.get("issue_id", "?")
+            ri_parts.append(f'{issue_id} @{start}-{end}')
+        review_fields.append(f'refine_review_items: "{"; ".join(ri_parts)}"')
+
+    review_fields.append(f'refine_review_artifact: "refine/verify.json"')
+
+    lines = refined_text.splitlines()
+    if len(lines) >= 2 and lines[0].strip() == "---":
+        end_index = next(
+            (
+                index
+                for index, line in enumerate(lines[1:], start=1)
+                if line.strip() == "---"
+            ),
+            None,
+        )
+        if end_index is not None:
+            existing = [
+                line
+                for line in lines[1:end_index]
+                if not line.startswith("refine_review_")
+            ]
+            annotated = [lines[0], *existing, *review_fields, *lines[end_index:]]
+            return "\n".join(annotated).rstrip() + "\n"
+
+    return "\n".join(["---", *review_fields, "---", "", refined_text.rstrip()]) + "\n"
 
 
 def _artifact_paths(artifact_dir: Path) -> dict[str, Path]:
