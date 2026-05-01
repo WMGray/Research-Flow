@@ -271,10 +271,47 @@ def extract_json_object(text: str) -> dict[str, Any]:
         end = stripped.rfind("}")
         if start >= 0 and end > start:
             stripped = stripped[start : end + 1]
-    payload = json.loads(stripped)
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        payload = json.loads(_escape_invalid_json_backslashes(stripped))
     if not isinstance(payload, dict):
         raise ValueError("LLM response must be a JSON object")
     return payload
+
+
+def _escape_invalid_json_backslashes(text: str) -> str:
+    """Escape raw LaTeX/Windows backslashes that LLMs often emit inside JSON strings."""
+
+    valid_simple_escapes = {'"', "\\", "/", "b", "f", "n", "r", "t"}
+    repaired: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char != "\\":
+            repaired.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(text):
+            repaired.append("\\\\")
+            index += 1
+            continue
+        next_char = text[index + 1]
+        if next_char in valid_simple_escapes:
+            repaired.append(text[index : index + 2])
+            index += 2
+            continue
+        if (
+            next_char == "u"
+            and index + 5 < len(text)
+            and re.fullmatch(r"u[0-9a-fA-F]{4}", text[index + 1 : index + 6])
+        ):
+            repaired.append(text[index : index + 6])
+            index += 6
+            continue
+        repaired.append("\\\\")
+        index += 1
+    return "".join(repaired)
 
 
 def diagnosis_from_payload(

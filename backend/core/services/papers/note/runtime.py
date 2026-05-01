@@ -30,7 +30,7 @@ DEFAULT_NOTE_INSTRUCTION_KEY = "paper_note_generate.default"
 DEFAULT_NOTE_FEATURE = "paper_note_generate_default"
 DEFAULT_NOTE_BLOCK_INSTRUCTION_KEY = "paper_note_generate.block"
 DEFAULT_NOTE_BLOCK_FEATURE = "paper_note_generate_block"
-DEPRECATED_NOTE_BLOCK_IDS = {"visual_evidence", "limitations"}
+DEPRECATED_NOTE_BLOCK_IDS = {"visual_evidence", "limitations", "experimental_setup"}
 MANAGED_BLOCK_RE = re.compile(
     r'<!-- RF:BLOCK_START id="(?P<id>[^"]+)" managed="true" version="[^"]+" -->'
     r".*?"

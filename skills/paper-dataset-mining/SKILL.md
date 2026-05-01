@@ -15,7 +15,8 @@ This is a P1 Paper skill under `paper-pipeline`. It consumes outputs from:
 
 - `paper-refine-parse`
 - `paper-sectioning`
-- `paper-note-generate`
+
+It runs in parallel with `paper-note-generate` after sectioning; it does not depend on `note.md`.
 
 ## Workflow
 
@@ -27,6 +28,15 @@ This is a P1 Paper skill under `paper-pipeline`. It consumes outputs from:
 6. Use `confidence_score < 0.6` for uncertain or weak mentions.
 7. Return JSON only.
 
+## Section Selection
+
+This skill consumes canonical sections produced by `paper-sectioning`. Only three of six sections carry dataset signal; the selection contract and per-section budget allocation are documented in `references/section-scope.md`.
+
 ## Runtime Reference
 
-The backend runtime instruction for `paper_dataset_mining.default` is `references/runtime-instructions.md`.
+The backend runtime instruction for `paper_dataset_mining.default` is `references/runtime-instructions.md`. The runtime must apply section selection and truncation per `references/section-scope.md` before rendering `{{section_context}}` into the prompt template.
+
+## References
+
+- `references/runtime-instructions.md` — LLM prompt template with JSON output schema
+- `references/section-scope.md` — section selection strategy, budget allocation, and backend implementation contract

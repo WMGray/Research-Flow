@@ -44,6 +44,15 @@ Use two levels:
 6. Use `confidence_score < 0.6` for low-evidence items so they are filtered or routed to review.
 7. Return JSON only.
 
+## Section Selection
+
+This skill consumes canonical sections produced by `paper-sectioning` and note content from `paper-note-generate`. Four of six sections carry knowledge signal; the selection contract, category-to-section coverage matrix, and per-section budget allocation are documented in `references/section-scope.md`.
+
 ## Runtime Reference
 
-The backend runtime instruction for `paper_knowledge_mining.default` is `references/runtime-instructions.md`.
+The backend runtime instruction for `paper_knowledge_mining.default` is `references/runtime-instructions.md`. The runtime must apply section selection and truncation per `references/section-scope.md` before rendering `{{section_context}}` into the prompt template.
+
+## References
+
+- `references/runtime-instructions.md` — LLM prompt template with JSON output schema
+- `references/section-scope.md` — section selection strategy, category coverage matrix, budget allocation, and backend implementation contract

@@ -13,6 +13,7 @@ from core.services.papers.refine.parsing import (
     RefinePatch,
     build_line_index,
     build_line_numbered_markdown,
+    extract_json_object,
 )
 from core.services.papers.split import (
     split_canonical_sections,
@@ -53,6 +54,22 @@ class BadJsonLLM:
             model="fake-model",
             message=LLMMessage(role="assistant", content='{"source_hash": "unterminated'),
         )
+
+
+def test_extract_json_object_repairs_latex_backslashes() -> None:
+    bad_json = (
+        '{"content": "公式 $'
+        + "\\"
+        + 'lambda_T=0.5$，路径 C:'
+        + "\\"
+        + "Users"
+        + "\\"
+        + 'demo。"}'
+    )
+
+    payload = extract_json_object(bad_json)
+
+    assert payload["content"] == "公式 $\\lambda_T=0.5$，路径 C:\\Users\\demo。"
 
 
 def test_refine_runtime_applies_structured_patch_and_writes_artifacts(tmp_path: Path) -> None:
@@ -1163,8 +1180,8 @@ def test_note_generation_deduplicates_renderer_owned_headings() -> None:
         [
             {
                 "blocks": {
-                    "paper_overview": "## 文章摘要\n\n### 文章摘要\nOverview body.",
-                    "method": "## 本文方法\n\n## Module\nMethod body.",
+                    "paper_overview": "## 摘要信息\n\n### 摘要信息\nOverview body.",
+                    "method": "## 方法\n\n## Module\nMethod body.",
                 }
             }
         ]
@@ -1200,8 +1217,8 @@ def test_note_generation_deduplicates_renderer_owned_headings() -> None:
         llm_client=fake_llm,
     )
 
-    assert result.content.count("## 文章摘要") == 1
-    assert result.content.count("## 本文方法") == 1
+    assert result.content.count("\n## 摘要信息\n") == 1
+    assert result.content.count("\n## 方法\n") == 1
     assert "### 方法总览" in result.content
     assert "### Module" in result.content
     assert "\n## Module" not in result.content
@@ -1215,7 +1232,6 @@ def test_note_generation_enforces_method_overview_scaffold() -> None:
                     "paper_overview": "Overview.",
                     "terminology_guide": "Terms.",
                     "background_motivation": "Background.",
-                    "experimental_setup": "Setup.",
                     "method": (
                         "### Encoder\n"
                         "The encoder builds contextual token representations.\n\n"
@@ -1223,6 +1239,7 @@ def test_note_generation_enforces_method_overview_scaffold() -> None:
                         "The decoder generates output tokens autoregressively."
                     ),
                     "experimental_results": "Results.",
+                    "conclusion_limitations": "Conclusion.",
                 }
             }
         ]
@@ -1257,7 +1274,7 @@ def test_note_generation_enforces_method_overview_scaffold() -> None:
         sections=[{"title": "Method", "section_key": "method", "content": "Method evidence."}],
         llm_client=fake_llm,
     )
-    method_block = result.content.split("## 本文方法", 1)[1].split("## 实验结果", 1)[0]
+    method_block = result.content.split("\n## 方法\n", 1)[1].split("\n## 实验/结果\n", 1)[0]
 
     assert method_block.lstrip().startswith("### 方法总览")
     assert "Encoder、Decoder" in method_block
@@ -1293,9 +1310,9 @@ def test_note_generation_embeds_resolved_figure_evidence(tmp_path: Path) -> None
                     "paper_overview": "Overview.",
                     "terminology_guide": "Not stated in the parsed paper.",
                     "background_motivation": "Background.",
-                    "experimental_setup": "Setup.",
                     "method": "Method.\n\n### 图表解读\nFigure 1 shows the method pipeline.",
                     "experimental_results": "Results.",
+                    "conclusion_limitations": "Conclusion.",
                 }
             }
         ]

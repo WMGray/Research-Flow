@@ -141,21 +141,7 @@ def install_fake_refiner(
                 }
             )
         elif request.feature == "paper_note_generate_block":
-            prompt = request.messages[0].content
-            if "当前只生成 note.md" in prompt:
-                content = json.dumps({"content": "What problem the paper addresses."})
-            else:
-                content = json.dumps(
-                    {
-                        "blocks": {
-                            "research_question": "What problem the paper addresses.",
-                            "core_method": "The core method described by the parsed sections.",
-                            "main_contributions": "The paper contributions.",
-                            "experiment_summary": "The experiment summary.",
-                            "limitations": "The limitations.",
-                        }
-                    }
-                )
+            content = json.dumps({"content": "What problem the paper addresses."})
         else:
             content = json.dumps(
                 {

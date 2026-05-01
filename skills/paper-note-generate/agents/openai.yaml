@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Note Generate"
-  short_description: "Generate deep paper notes with resolved figure/table evidence"
-  default_prompt: "Use $paper-note-generate when improving Research-Flow paper note generation, managed note blocks, or image-backed note rendering."
+  short_description: "Generate Chinese paper-style deep-reading notes from canonical sections and figure evidence"
+  default_prompt: "Use $paper-note-generate when changing note generation rules, managed block schemas, figure evidence handling, method block writing standards, or the six-part paper walkthrough: overview, terms, motivation, method, experiments/results, and conclusion/limitations."

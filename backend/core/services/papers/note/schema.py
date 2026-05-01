@@ -16,72 +16,94 @@ class NoteBlockSpec:
 NOTE_BLOCK_SPECS: tuple[NoteBlockSpec, ...] = (
     NoteBlockSpec(
         block_id="paper_overview",
-        title="文章摘要",
+        title="摘要信息",
         min_chars=600,
         max_tokens=3500,
-        section_keys=frozenset({"related_work", "method", "experiment", "conclusion"}),
+        section_keys=frozenset({"introduction", "related_work", "conclusion"}),
         instruction=(
-            "覆盖文章摘要、题名、作者、年份、会议/期刊全称与缩写、领域定位。"
-            "领域定位使用“大领域 > 细分领域”格式；无法确认时保守说明。"
+            "This is the abstract-information block: start with paper identity, then rewrite "
+            "the abstract in Chinese. Include title, authors, year, venue/journal full name "
+            "and abbreviation, DOI, and domain positioning. Use the format "
+            "`大领域 > 细分领域` for domain positioning. The abstract rewrite should cover "
+            "research problem, core method, experimental conclusion, and main contribution, "
+            "while staying under 80% of the original abstract length."
         ),
     ),
     NoteBlockSpec(
         block_id="terminology_guide",
-        title="缩写与术语解释",
+        title="术语",
         min_chars=1200,
         max_tokens=4500,
-        section_keys=frozenset({"related_work", "method", "experiment"}),
+        section_keys=frozenset({"introduction", "related_work", "method", "experiment"}),
         instruction=(
-            "按任务定义类、模型与架构类、特征表征类、评价指标类组织术语。"
-            "每个术语不少于 50 字，只解释原文明确出现或通用且必要的术语。"
+            "Organize terms into task definitions, model/architecture terms, feature "
+            "representations, and evaluation metrics. Each term explanation must be at "
+            "least 50 Chinese characters. Explain only terms explicitly used by the paper "
+            "or general concepts needed for reading. List terms in first-appearance order "
+            "to prepare later background, method, and experiment discussion."
         ),
     ),
     NoteBlockSpec(
         block_id="background_motivation",
-        title="深度背景与动机分析",
+        title="背景动机",
         min_chars=1600,
         max_tokens=5000,
-        section_keys=frozenset({"related_work", "conclusion"}),
+        section_keys=frozenset({"introduction", "related_work"}),
         instruction=(
-            "结合 Introduction、Background、Related Work 梳理研究现状，"
-            "再用表格给出痛点、本文切入点、实现技术与实现效果的映射。"
-        ),
-    ),
-    NoteBlockSpec(
-        block_id="experimental_setup",
-        title="实验设置",
-        min_chars=900,
-        max_tokens=3500,
-        section_keys=frozenset({"experiment", "appendix"}),
-        instruction=(
-            "提取数据集、输入特征、训练设置、超参数、硬件与实现细节。"
-            "Appendix 中的超参数和额外设置应整合到本节小标题中。"
+            "Use Introduction, Background, and Related Work to explain research status, "
+            "representative prior routes, their limitations, and the paper's motivation. "
+            "Then provide a Markdown table mapping pain points to the paper's entry point, "
+            "implementation technique, and achieved effect."
         ),
     ),
     NoteBlockSpec(
         block_id="method",
-        title="本文方法",
+        title="方法",
         min_chars=2600,
         max_tokens=6500,
         section_keys=frozenset({"method", "appendix"}),
         instruction=(
-            "必须以 `### 方法总览` 开头，先用总-分结构概括本文方法包含哪些模块、"
-            "模块之间的数据流/逻辑关系、每个模块的作用，以及关键 Figure 如何帮助理解整体框架。"
-            "随后按模块展开，模块名必须和总览一致；每个模块包含背景、原理内容、公式解析和作用。"
-            "原理内容要解释背景、核心思想、流程和步骤关系，不能只围绕公式。"
-            "若 Appendix 中有方法补充、证明或实现细节，也作为本节小标题纳入。"
+            "Start with `### 方法总览`: one paragraph listing all module names, data-flow "
+            "relationships, module roles, and key method figure IDs. Place the architecture "
+            "overview `<!-- figure -->` marker after the overview. Organize each module as "
+            "`#### N. 中文名（English Name）`, then `##### 0. 背景` -> `##### 1. 原理内容`. "
+            "For each sub-component, use four elements: Chinese narrative "
+            "(what/input/output/concrete numbers) -> verbatim formula (`$$...$$`) -> "
+            "symbol-by-symbol variable explanation (meaning/dimension/physical significance) "
+            "-> linkage to the next step. Analyze each method/problem figure with the "
+            "three-part rule: what it shows -> how to read it -> why it matters. Include "
+            "appendix method supplements, proofs, and implementation details under the "
+            "corresponding method headings."
         ),
     ),
     NoteBlockSpec(
         block_id="experimental_results",
-        title="实验结果",
+        title="实验/结果",
         min_chars=2200,
-        max_tokens=5000,
+        max_tokens=5500,
+        section_keys=frozenset({"experiment", "appendix"}),
+        instruction=(
+            "Follow the paper's original experiment section order. Cover experiment setup, "
+            "main results, ablations, and appendix experiments. The setup must include "
+            "datasets, input features, training settings, hyperparameters, hardware, and "
+            "implementation details. Result analysis must cite accurate Table/Figure IDs "
+            "and exact metric changes. Integrate appendix hyperparameters, extra settings, "
+            "and supplementary experiments under matching internal headings; do not promote "
+            "appendix subsections to top-level note blocks."
+        ),
+    ),
+    NoteBlockSpec(
+        block_id="conclusion_limitations",
+        title="结论局限",
+        min_chars=1000,
+        max_tokens=3500,
         section_keys=frozenset({"experiment", "appendix", "conclusion"}),
         instruction=(
-            "严格遵循原文实验章节、子章节标题、术语与顺序。"
-            "主实验、消融实验、附录实验、局限性和未来工作都放在本节内部小标题中，"
-            "不得把 Appendix 子节提升为顶层 note 章节。"
+            "Synthesize the paper's Conclusion, Discussion, Limitations, Future Work, and "
+            "experiment-backed final findings. Output core findings, contribution boundary, "
+            "explicit limitations, failure modes, applicable conditions, and future work. "
+            "Conclusions must be grounded in paper evidence; when direct evidence is absent, "
+            "write `解析内容未提供直接证据。`."
         ),
     ),
 )
@@ -93,7 +115,7 @@ LEGACY_BLOCK_MAP: dict[str, str] = {
     "method": "core_method",
     "background_motivation": "main_contributions",
     "experimental_results": "experiment_summary",
-    "limitations": "limitations",
+    "conclusion_limitations": "limitations",
 }
 _SPEC_BY_ID = {spec.block_id: spec for spec in NOTE_BLOCK_SPECS}
 

@@ -364,18 +364,18 @@ def main() -> int:
                         or "(images/" in note_text,
                         "note_uses_blockquoted_captions": "> **图注**：" in note_text,
                         "note_method_starts_with_overview": (
-                            "## 本文方法" in note_text
-                            and "### 方法总览" in note_text.split("## 本文方法", 1)[1]
+                            "\n## 方法\n" in note_text
+                            and "### 方法总览" in note_text.split("\n## 方法\n", 1)[1]
                         ),
                         "note_uses_prompt_defined_sections": all(
                             heading in note_text
                             for heading in (
-                                "## 文章摘要",
-                                "## 缩写与术语解释",
-                                "## 深度背景与动机分析",
-                                "## 实验设置",
-                                "## 本文方法",
-                                "## 实验结果",
+                                "## 摘要信息",
+                                "## 术语",
+                                "## 背景动机",
+                                "## 方法",
+                                "## 实验/结果",
+                                "## 结论局限",
                             )
                         )
                         and "## 关键图表与视觉证据" not in note_text

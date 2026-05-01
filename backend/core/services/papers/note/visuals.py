@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+FIGURE_MARKER_RE = re.compile(r"<!--\s*figure\s*-->")
 
 IMAGE_LINK_RE = re.compile(r"!\[(?P<alt>[^\]]*)]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FLOAT_NUMBER_PATTERN = r"(?:[A-Za-z]\.\d+(?:\.\d+)*|[A-Za-z]?\d+(?:\.\d+)*)"
@@ -131,7 +132,7 @@ def attach_figures_to_note_blocks(
     blocks: dict[str, str],
     figures: list[FigureEvidence],
 ) -> dict[str, str]:
-    """Attach deterministic figure Markdown inside the skill-defined note sections."""
+    """Embed figure Markdown inline at <!-- figure --> markers, falling back to block-end append."""
 
     if not figures:
         return blocks
@@ -142,15 +143,9 @@ def attach_figures_to_note_blocks(
         if figure.figure_id not in {item.figure_id for item in method_figures}
     ]
     updated = dict(blocks)
-    updated["method"] = _append_block_figures(
-        updated.get("method", ""),
-        method_figures,
-        "关键方法图表",
-    )
-    updated["experimental_results"] = _append_block_figures(
-        updated.get("experimental_results", ""),
-        result_figures,
-        "实验与附录图表证据",
+    updated["method"] = _embed_figures_inline(updated.get("method", ""), method_figures)
+    updated["experimental_results"] = _embed_figures_inline(
+        updated.get("experimental_results", ""), result_figures
     )
     return updated
 
@@ -177,36 +172,45 @@ def _figures_for_method(figures: list[FigureEvidence]) -> list[FigureEvidence]:
     return figures[:1]
 
 
-def _append_block_figures(
-    block_text: str,
-    figures: list[FigureEvidence],
-    heading: str,
-) -> str:
+def _embed_figures_inline(block_text: str, figures: list[FigureEvidence]) -> str:
     cleaned = block_text.strip()
     if not figures:
         return cleaned
-    rendered = _render_figures(figures, heading)
-    return f"{cleaned}\n\n{rendered}".strip() if cleaned else rendered
+    if not FIGURE_MARKER_RE.search(cleaned):
+        return _append_figures_at_end(cleaned, figures)
+    remaining = list(figures)
+    parts: list[str] = []
+    last_end = 0
+    for match in FIGURE_MARKER_RE.finditer(cleaned):
+        parts.append(cleaned[last_end : match.start()])
+        if remaining:
+            parts.append(_render_figure_inline(remaining.pop(0)))
+        last_end = match.end()
+    parts.append(cleaned[last_end:])
+    if remaining:
+        parts.extend(_render_figure_inline(f) for f in remaining)
+    return "".join(parts).strip()
 
 
-def _render_figures(figures: list[FigureEvidence], heading: str) -> str:
-    rendered_figures: list[str] = [f"### {heading}"]
-    for figure in figures:
-        rendered_figures.extend(
-            [
-                "",
-                f"#### {figure.figure_id}",
-                f"![{figure.alt_text}]({figure.image_path})",
-                "",
-                f"> **图注**：{figure.caption}",
-                f"> **来源章节**：{figure.section_title}",
-                f"> **阅读角色**：{_role_label(figure.role_hint)}",
-            ]
-        )
-        if figure.review_notes:
-            rendered_figures.extend(["", ">[!Caution]"])
-            rendered_figures.extend(f"> {note}" for note in figure.review_notes)
-    return "\n".join(rendered_figures)
+def _render_figure_inline(figure: FigureEvidence) -> str:
+    lines = [
+        "",
+        f"![{figure.alt_text}]({figure.image_path})",
+        "",
+        f"> **图注**：{figure.caption}",
+        f"> **来源章节**：{figure.section_title}",
+        f"> **阅读角色**：{_role_label(figure.role_hint)}",
+    ]
+    if figure.review_notes:
+        lines.append(">")
+        lines.append(">[!Caution]")
+        lines.extend(f"> {note}" for note in figure.review_notes)
+    return "\n".join(lines) + "\n"
+
+
+def _append_figures_at_end(block_text: str, figures: list[FigureEvidence]) -> str:
+    rendered = "\n".join(_render_figure_inline(f) for f in figures)
+    return f"{block_text}\n{rendered}".strip()
 
 
 def _clean_caption_line(line: str) -> str:
@@ -340,5 +344,4 @@ __all__ = [
     "attach_figures_to_note_blocks",
     "collect_figure_evidence",
     "render_figure_context",
-    "render_visual_evidence_block",
 ]

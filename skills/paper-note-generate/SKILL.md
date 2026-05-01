@@ -1,68 +1,89 @@
 ---
 name: paper-note-generate
-description: Maintain Research-Flow's paper `note.md` generation workflow, managed note blocks, figure/table evidence rendering, and tests. Use when changing structured paper summaries, visual evidence in notes, paper note schemas, or deep academic paper reading rules.
+description: "Generate structured Chinese paper deep-reading notes (note.md) from paper-sectioning canonical sections, metadata, and figure/table evidence. Use when Codex needs to generate note.md, improve note generation rules, revise managed note blocks, tune figure evidence handling, or update the paper-style reading architecture: 摘要信息, 术语, 背景动机, 方法, 实验/结果, 结论局限."
 ---
 
 # Paper Note Generate
 
-## Core Rule
+## Goal
 
-Generate `note.md` from audited canonical sections and figure/table evidence. Do not summarize from the whole raw PDF parse directly, and do not invent unsupported paper facts.
+Generate `note.md` from paper metadata, six canonical section files, and figure/table evidence. The output is a Chinese deep-reading note organized like a paper walkthrough:
+
+```
+摘要信息 -> 术语 -> 背景动机 -> 方法 -> 实验/结果 -> 结论局限
+```
+
+Use this structure to explain the paper progressively: identify the paper and abstract first, define terms before they are used, explain the research gap, unpack the method, verify it through experiments/results, then close with conclusions and limitations.
+
+## Skill Design
+
+Follow the official skill shape:
+
+- Keep `SKILL.md` concise: routing, workflow, block contract, and reference map only.
+- Put long prompt text, quality rules, section budgets, method rules, and figure rules in `references/`.
+- Load references only when needed for the current edit or generation path.
+- Keep frontmatter limited to `name` and `description`; all trigger context belongs in `description`.
+
+## Boundary
+
+This skill uses only supplied metadata, `paper-sectioning` outputs, and figure/table evidence. Do not invent paper facts, authors, venues, datasets, metrics, numbers, or conclusions. When evidence is insufficient, write the gap explicitly instead of guessing.
+
+## Pipeline Position
+
+```
+refine-parse -> sectioning --> note-generate --> knowledge-mining
+                            \-> dataset-mining (parallel with note)
+```
+
+`note.md` is consumed by `paper-knowledge-mining` through `{{note_context}}`. `paper-dataset-mining` shares the same sectioning input but does not depend on `note.md`.
+
+## Managed Blocks
+
+| Order | Block ID | Title | Primary Evidence |
+|-------|----------|-------|------------------|
+| 1 | `paper_overview` | 摘要信息 | metadata, abstract, introduction |
+| 2 | `terminology_guide` | 术语 | introduction, related work, method, experiment |
+| 3 | `background_motivation` | 背景动机 | introduction, related work |
+| 4 | `method` | 方法 | method, appendix method/proofs |
+| 5 | `experimental_results` | 实验/结果 | experiment, appendix experiments |
+| 6 | `conclusion_limitations` | 结论局限 | conclusion, discussion, limitations, future work |
+
+Do not create extra top-level note blocks. Appendix, supplementary experiments, proofs, implementation details, discussion, limitations, and future work must be routed into the six blocks above.
 
 ## Workflow
 
-1. Read canonical section files under `parsed/sections/`.
-2. Collect image links from section content and resolve them relative to `note.md`.
-3. Pass section text plus compact figure/table evidence to the note-generation runtime.
-4. Require JSON-only blocks from the LLM.
-5. Render managed note blocks deterministically.
-6. Always inject available image Markdown into schema-defined note sections: method/problem figures go under `method`, result/appendix figures go under `experimental_results`; do not create a separate top-level visual block.
-7. Consume captions and review callouts from `parsed/refined.md` / section files; these should already use Markdown blockquotes (`> **图注**：...`) and `>[!Caution]` callouts before note generation.
-8. Preserve user-authored note text by replacing only RF managed blocks.
-9. Mark missing or parser-uncertain content explicitly instead of filling gaps.
-10. For visual analysis, choose and interpret figures by role, prioritize method figures, and explain what the figure shows, how to read it, and why it matters.
+1. Read the six canonical section files under `parsed/sections/`.
+2. Collect image links from section content. The backend resolves paths relative to `note.md`, classifies each figure role, and creates compact `Figure/Table Evidence`.
+3. Build either the full-note prompt from `references/runtime-instructions.md` or per-block prompt from `references/block-runtime-instructions.md`.
+4. Require the LLM to return JSON only. Full-note mode returns `{"blocks": {...}}`; block mode returns `{"content": "..."}`.
+5. Let the LLM place `<!-- figure -->` markers where figures should appear. The backend replaces markers with rendered Markdown and appends unused figures at block end.
+6. Render managed blocks into `note.md` while preserving user-authored content outside managed blocks.
 
-## Note Schema
+## Progressive Disclosure Map
 
-Managed blocks:
+Load only the file needed for the task:
 
-- `paper_overview`: title, authors, year, venue, domain positioning.
-- `terminology_guide`: task definitions, model/architecture terms, feature representations, metrics.
-- `background_motivation`: research status, related methods, pain-point to contribution mapping.
-- `experimental_setup`: datasets, features, training and implementation settings.
-- `method`: starts with `### 方法总览`, then gives module-level method explanation, principles, formulas, and effects.
-- `experimental_results`: main results, ablations, appendix evidence, table/figure-grounded analysis, and stated limitations/future work as subsections.
-
-## Note Generation Rules
-
-- Use only supplied metadata, canonical sections, and figure/table evidence.
-- Top-level note headings must follow the six managed blocks above. Do not add separate top-level `visual_evidence`, `limitations`, or `appendix` sections.
-- Renderer-owned block headings must not be repeated inside LLM content; inner headings start at `###`.
-- The `method` block must begin with `### 方法总览`; use it to summarize modules, module relationships/data flow, each module's role, and how key method figures support the framework before detailed subsections.
-- Preserve technical names in English.
-- Keep Table/Figure citations exact and local to the relevant section.
-- Do not promote Appendix child headings such as `F.1` into top-level experiment sections.
-- If a figure path exists but the caption is missing, state the missing caption rather than guessing.
-- Prioritize method figures such as overview, pipeline, framework, architecture, model, module, and workflow figures; use result figures only when they materially support conclusions.
-- Explain key figures in Chinese using the three-part logic: what it shows, how to read it, and why it matters.
-- Use `>[!Caution]` for caption-missing, unresolved-image, figure/text mismatch, or parser-order uncertainty.
-- Generated notes must be detailed deep-reading notes, not short summaries. Follow the runtime contract's minimum length requirements unless supplied section evidence is genuinely missing.
-- If evidence is insufficient for a requested subsection, write `Not stated in the parsed paper.`
+- `references/runtime-instructions.md` — full-note LLM prompt template and the six-block paper walkthrough.
+- `references/block-runtime-instructions.md` — per-block LLM prompt template.
+- `references/section-scope.md` — section selection, per-block evidence routing, and context budgets.
+- `references/method-block-spec.md` — method block hierarchy, formula rules, and figure analysis rules.
+- `references/figure-handling.md` — figure collection, role classification, and inline embedding conventions.
+- `references/quality-standards.md` — minimum content, required items, and forbidden patterns.
 
 ## Backend Touchpoints
 
-- Note runtime: `backend/core/services/papers/note/runtime.py`
-- Paper orchestration: `backend/core/services/papers/repository.py`
-- Full-note runtime instructions: `skills/paper-note-generate/references/runtime-instructions.md`
-- Per-block runtime instructions: `skills/paper-note-generate/references/block-runtime-instructions.md`
-- Tests: `backend/tests/test_paper_refine_runtime.py`, `backend/tests/test_papers_api.py`
+- `backend/core/services/papers/note/schema.py` — block definitions, order, section keys, and per-block instructions.
+- `backend/core/services/papers/note/context.py` — per-block context compaction.
+- `backend/core/services/papers/note/visuals.py` — figure collection, role classification, and inline embedding.
+- `backend/core/services/papers/note/blocks.py` — block assembly, fallback text, and finalization.
+- `backend/core/services/papers/repository.py` — pipeline integration through `run_generate_note`.
 
 ## Validation
 
-Run focused checks:
+Run focused tests after note-generation changes:
 
 ```powershell
-python -m pytest tests\test_paper_refine_runtime.py tests\test_papers_api.py -q
+python -m pytest backend\tests\test_paper_refine_runtime.py backend\tests\test_papers_api.py -q
 ```
 
-Review generated `note.md` and confirm that image links are relative to the note file and render in Markdown.
+Review generated `note.md` manually when prompt behavior changes. Confirm the six headings, evidence grounding, relative image links, inline figures, and preserved user-authored content.

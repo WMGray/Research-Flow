@@ -41,17 +41,32 @@ def fallback_note_blocks(
         for section in sections
     }
     blocks = {
-        "paper_overview": section_map.get("related_work", "Not stated in the parsed paper."),
+        "paper_overview": section_map.get("introduction", "Not stated in the parsed paper."),
         "terminology_guide": "Not stated in the parsed paper.",
-        "background_motivation": section_map.get("related_work", "Not stated in the parsed paper."),
-        "experimental_setup": section_map.get("experiment", "Not stated in the parsed paper."),
+        "background_motivation": "\n\n".join(
+            part
+            for part in [
+                section_map.get("introduction", ""),
+                section_map.get("related_work", ""),
+            ]
+            if part.strip()
+        )
+        or "Not stated in the parsed paper.",
         "method": section_map.get("method", "Not stated in the parsed paper."),
         "experimental_results": "\n\n".join(
             part
             for part in [
                 section_map.get("experiment", ""),
                 section_map.get("appendix", ""),
+            ]
+            if part.strip()
+        )
+        or "Not stated in the parsed paper.",
+        "conclusion_limitations": "\n\n".join(
+            part
+            for part in [
                 section_map.get("conclusion", ""),
+                section_map.get("appendix", ""),
             ]
             if part.strip()
         )
