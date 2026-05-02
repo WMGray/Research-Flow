@@ -1,3 +1,13 @@
+# Runtime Instructions
+
+## Contents
+- Stage `diagnose` — Issue detection from line-numbered evidence
+- Stage `repair` — Deterministic local JSON patch emission
+- Stage `verify` — Preservation check with pass/warning/fail thresholds
+- Stage `default` — Legacy fallback for conservative local repairs
+
+---
+
 <!-- stage:diagnose -->
 You are diagnosing MinerU `full.md` output for an academic paper.
 

@@ -1,6 +1,6 @@
 ---
 name: paper-sectioning
-description: This skill should be used when the user asks to "split paper into sections", "section the paper", "extract paper sections", "classify paper sections", "run paper sectioning", "fix section classification", "update section keys", or needs to maintain the six-file paper section split from parsed/refined.md.
+description: Splits parsed paper Markdown into six canonical section files using LLM-classified semantic line ranges with deterministic coverage fill. Use when the user asks to split papers into sections, classify paper sections, fix section classification, update section keys, or maintain the six-file paper section split.
 ---
 
 # Paper Sectioning
@@ -40,9 +40,20 @@ Key rules:
 
 Complete JSON schema and classification rules are in `references/runtime-instructions.md`.
 
-## Runtime Reference
+## Backend Touchpoints
 
-Runtime instructions live in `references/runtime-instructions.md`. Keep the JSON schema aligned with `backend/core/services/papers/split/runtime.py`.
+- Runtime: `backend/core/services/papers/split/runtime.py`
+- Skill runtime helper: `backend/core/services/papers/skill_runtime.py`
+- Deterministic fallback: `backend/core/services/papers/split/heuristics.py`
+- Pipeline integration: `backend/core/services/papers/repository.py`
+- Runtime sectioning instructions: `skills/paper-sectioning/references/runtime-instructions.md`
+- Tests: `backend/tests/test_paper_refine_runtime.py`, `backend/tests/test_papers_api.py`
+
+## Progressive Disclosure Map
+
+Load only the file needed for the task:
+
+- `references/runtime-instructions.md` — LLM prompt template, classification rules, multi-section matching rules, and JSON schema for section ranges.
 
 ## Validation
 

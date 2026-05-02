@@ -1,6 +1,6 @@
 ---
 name: paper-refine-parse
-description: This skill should be used when the user asks to "refine paper parse", "fix MinerU output", "repair full.md", "run paper refinement", "diagnose parse issues", "verify refined paper", "fix formula delimiters", "normalize paper headings", or needs to maintain the MinerU full.md to parsed/refined.md pipeline.
+description: Repairs MinerU parse artifacts in paper Markdown via LLM-diagnosed local patches and deterministic normalization. Use when the user asks to refine paper parse, fix MinerU output, repair full.md, diagnose parse issues, verify refined paper, fix formula delimiters, normalize paper headings, or maintain the full.md to refined.md pipeline.
 ---
 
 # Paper Refine Parse
@@ -22,6 +22,24 @@ This skill diagnoses and repairs visible MinerU parse artifacts. It does not rew
 Verification is an annotation step for human follow-up, not a gatekeeper. The pipeline favors generating output with review flags over blocking on surface-level issues. Reserve `fail` only for unambiguous content destruction; most refinement issues should carry `warning` so the file is written, the pipeline continues, and a human corrects the remaining annotations later.
 
 ## Workflow
+
+Copy this checklist and check off items as you progress:
+
+```
+Refine Progress:
+- [ ] Step 1: Read source (full.md)
+- [ ] Step 2: Build line index with source hash
+- [ ] Step 3: Build structural evidence windows
+- [ ] Step 4: Diagnose — produce issue JSON
+- [ ] Step 5: Repair — produce patch JSON
+- [ ] Step 6: Apply patches with rejection guards
+- [ ] Step 7: Deterministic normalization
+- [ ] Step 8: Formula wrapper normalization
+- [ ] Step 9: Verify — local preservation checks
+- [ ] Step 10: Write refined.md with review annotations
+- [ ] Step 11: Handle invalid LLM JSON (fallback)
+- [ ] Step 12: Route uncertain items to review artifacts
+```
 
 1. Read `parsed/raw.md` or the test fixture representing MinerU `full.md`.
 2. Build `parsed/refine/line_index.json` with stable line numbers and source hash.
@@ -75,3 +93,18 @@ Review outputs before accepting a change:
 
 - `references/runtime-instructions.md` — LLM prompt templates for diagnose, repair, verify, and default stages
 - `references/patch-contract.md` — JSON schemas for diagnosis, patch, verification, and deterministic normalization artifacts; formula repair rules
+
+## Anti-Patterns
+
+These patterns cause silent failures or content damage. Avoid them explicitly:
+
+| Anti-Pattern | Why It Breaks | Correct Approach |
+|---|---|---|
+| Applying patches without source hash check | Hash mismatch means lines shifted; patches hit wrong content | Always verify `source_hash` before patching |
+| Skipping deterministic normalization after LLM patches | LLM patches alone miss structural fixes (heading hierarchy, float placement) | Always run steps 7-8 after step 6 |
+| Silently dropping uncertain items | Hidden ambiguity accumulates, corrupting downstream sections | Route to review artifacts (step 12) |
+| Rewriting formula content instead of wrapping delimiters | Changes paper math semantics silently | Only add `$`/`$$` around visible payloads; never modify symbols |
+| Treating verification as a gatekeeper | `fail` on surface issues blocks the pipeline for human-fixable problems | Default to `warning`; reserve `fail` for content destruction |
+| Inventing metadata when source is ambiguous | Fake authors/affiliations/institutions contaminate paper identity | Use `mark_needs_review` and leave gap explicit |
+| Applying overlapping patches | Two patches claiming the same line range corrupt each other | Reject overlaps at patch-application time |
+| Assuming `equation_inline` placeholders are always repairable | Bare placeholder with no visible payload has nothing to wrap | Skip without penalty when no recoverable formula exists |

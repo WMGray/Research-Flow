@@ -1,6 +1,6 @@
 ---
 name: paper-note-generate
-description: "Generate structured Chinese paper deep-reading notes (note.md) from paper-sectioning canonical sections, metadata, and figure/table evidence. Use when Codex needs to generate note.md, improve note generation rules, revise managed note blocks, tune figure evidence handling, or update the paper-style reading architecture: 摘要信息, 术语, 背景动机, 方法, 实验/结果, 结论局限."
+description: Generates structured Chinese deep-reading notes from paper sections, metadata, and figure/table evidence. Use when generating note.md, improving note generation rules, revising managed note blocks, tuning figure evidence handling, or updating the six-block reading architecture: 摘要信息, 术语, 背景动机, 方法, 实验/结果, 结论局限.
 ---
 
 # Paper Note Generate
