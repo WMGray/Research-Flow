@@ -43,7 +43,7 @@ Return only JSON with this schema:
       "original_text_en": "source English sentence or null",
       "citation_marker": "[32] or null",
       "research_field": "NLP/CV/RL/etc.",
-      "source_section": "related_work|method|experiment|appendix|conclusion",
+      "source_section": "introduction|related_work|method|experiment|conclusion",
       "source_locator": "line range, heading, or paragraph locator",
       "evidence_text": "verbatim evidence from input",
       "confidence_score": 0.85

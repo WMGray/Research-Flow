@@ -1,91 +1,90 @@
 # Section Scope — Knowledge Mining
 
-`paper-knowledge-mining` consumes the six canonical section files produced by `paper-sectioning` and the `note.md` produced by `paper-note-generate`. This document defines the runtime section selection rules and context budget allocation.
+`paper-knowledge-mining` consumes selected canonical section files produced by `paper-sectioning` and the `note.md` produced by `paper-note-generate`. This document defines runtime section selection, category coverage, and context budget allocation.
 
 ## Upstream Contract
 
-This skill depends on two upstream skills:
-
 | Upstream Skill | Output | Usage |
 |---------------|--------|-------|
-| `paper-sectioning` | `01_introduction.md` – `06_appendix.md` | Injected as `{{section_context}}` |
+| `paper-sectioning` | `01_introduction.md` – `06_appendix.md` | Selected files injected as `{{section_context}}` |
 | `paper-note-generate` | `note.md` | Injected as `{{note_context}}` |
 
-The semantic definitions of the six canonical sections follow `paper-sectioning`'s runtime Classification Rules and are not repeated here.
+The semantic definitions of the canonical sections follow `paper-sectioning` runtime classification rules.
 
 ## Section Selection Strategy
 
-### Included (4/6)
+### Included (5/6)
 
-| Priority | Section Key | Rationale |
-|----------|-------------|-----------|
-| **P0** | `method` | Carries 4 knowledge types (feature_semantics, feature_extraction, task_definition, concept_term) — the richest source of technical definitions and feature semantics. |
-| **P0** | `introduction` | Carries 5 knowledge types (field_status, method_critique, core_insight, key_conclusion, concept_term, task_definition) — the primary source of field-level views and core insights. |
-| **P1** | `experiment` | Carries evaluation_metric and data_annotation_rule definitions, plus method-validation views. |
-| **P2** | `conclusion` | Reinforces key_conclusion and core_insight, often restating introduction claims in more concise form, sometimes with added nuance. |
+| Priority | Section Key | Source File | Rationale |
+|----------|-------------|-------------|-----------|
+| **P0** | `introduction` | `01_introduction.md` | Primary source for field status, research gaps, motivation, core claims, task definitions, and contribution framing. |
+| **P0** | `method` | `03_method.md` | Richest source for technical definitions, feature semantics, feature extraction, formulas, architecture, and method-specific terms. |
+| **P1** | `experiment` | `04_experiment.md` | Source for evaluation metrics, annotation rules, evaluation protocol, and evidence-backed key conclusions. |
+| **P1** | `related_work` | `02_related_work.md` | Source for prior-method critique, field context, literature comparison, and research gaps not repeated in the introduction. |
+| **P2** | `conclusion` | `05_conclusion.md` | Reinforces key conclusions, limitations, future work, and open questions. |
 
-### Excluded (2/6)
+### Excluded (1/6)
 
 | Section Key | Reason |
 |-------------|--------|
-| `related_work` | method_critique appears here, but introduction typically summarizes the key critiques. The risk of exclusion: when authors bury method critiques solely in related_work without summarizing them in the introduction, method_critique recall will drop. This is a recall trade-off to monitor. |
-| `appendix` | Technical definition lines in the appendix are already copied to `method` or `experiment` by `paper-sectioning`'s multi-section matching rules. Including appendix separately produces redundancy. |
+| `appendix` | Appendix method, proof, implementation, and experiment evidence should be copied into `method` or `experiment` by `paper-sectioning` multi-section matching. Injecting appendix directly usually duplicates content and dilutes the budget. |
+
+## note.md Usage
+
+`note.md` is required, but it is not the final evidence source.
+
+- Use `note.md` to discover candidate Knowledge items and understand the paper structure.
+- Use section text for `evidence_text`, `original_text_en`, citation markers, and source locators.
+- Do not cite a `note.md` paraphrase as evidence when the corresponding section text is absent.
 
 ## Knowledge Type Coverage Matrix
 
-All 10 category labels are covered by the 4 selected sections:
-
-| Category Label | knowledge_type | Covered By |
-|---------------|---------------|-------------|
-| `field_status` | view | introduction |
-| `method_critique` | view | introduction (summary), method (method choices) |
-| `core_insight` | view | introduction, conclusion |
-| `key_conclusion` | view | introduction, conclusion |
-| `concept_term` | definition | introduction, method |
+| Category Label | knowledge_type | Primary Sources |
+|---------------|----------------|-----------------|
+| `field_status` | view | introduction, related_work, conclusion |
+| `method_critique` | view | related_work, introduction, method |
+| `core_insight` | view | introduction, method, conclusion |
+| `key_conclusion` | view | experiment, conclusion, introduction |
+| `concept_term` | definition | introduction, method, related_work |
 | `task_definition` | definition | introduction, method |
 | `feature_semantics` | definition | method |
 | `feature_extraction` | definition | method |
 | `evaluation_metric` | definition | experiment, method |
 | `data_annotation_rule` | definition | experiment |
 
-No category depends solely on `related_work` or `appendix`.
-
 ## Context Budget Allocation
 
-Total budget: **8000 characters**, weighted by knowledge type carrying capacity:
+Total section budget: **10000 characters**, weighted by Knowledge density:
 
 | Section Key | Budget | Share | Justification |
 |-------------|--------|-------|---------------|
-| `method` | 2800 chars | 35% | Carries 4 knowledge types; typically the longest section with the highest content density |
-| `introduction` | 2400 chars | 30% | Carries 5 knowledge types; core source of views and definitions |
-| `experiment` | 1600 chars | 20% | Only evaluation_metric and data_annotation_rule; shorter budget suffices |
-| `conclusion` | 1200 chars | 15% | Reinforces introduction content with signal redundancy; lower budget acceptable |
+| `method` | 2800 chars | 28% | Carries technical definitions, feature semantics, formulas, and extraction procedures |
+| `introduction` | 2400 chars | 24% | Carries field views, task definitions, gaps, and core claims |
+| `experiment` | 1800 chars | 18% | Carries metrics, annotation rules, and key empirical conclusions |
+| `related_work` | 1800 chars | 18% | Carries critique and field context that may not appear elsewhere |
+| `conclusion` | 1200 chars | 12% | Carries final claims, limitations, and future-work signals |
 
-When a section exceeds its budget, truncation occurs at line boundaries (preserving complete paragraphs). Sentence-level truncation is not used.
+When a section exceeds its budget, truncate at line boundaries while preserving complete paragraphs where possible. Sentence-level truncation is not used.
+
+Suggested `note.md` budget: **4000-6000 characters**. Prefer managed block headings and compact high-signal lines over raw full-note injection when the note is long.
 
 ## Runtime Behavior
 
 ### Backend Implementation Contract
 
 1. Read all six section files from the `parsed/sections/` directory produced by `paper-sectioning`.
-2. Select only `method`, `introduction`, `experiment`, and `conclusion`.
-3. Truncate each section to its budget, then concatenate into `{{section_context}}` for injection into the `runtime-instructions.md` template.
-4. Read `note.md` from `paper-note-generate` output and inject as `{{note_context}}`.
-5. `{{metadata_json}}` is built from Paper metadata independently of section selection.
+2. Select `introduction`, `related_work`, `method`, `experiment`, and `conclusion`.
+3. Do not select `appendix` directly.
+4. Truncate each selected section to its budget, then concatenate into `{{section_context}}`.
+5. Read `note.md` from `paper-note-generate`, compact it, and inject it as `{{note_context}}`.
+6. Build `{{metadata_json}}` from Paper metadata independently of section selection.
 
-### Excluded Sections
+### Excluded Inputs
 
-`related_work` and `appendix` are not injected.
+- `refined.md` is not injected. Use it only for debugging upstream split quality.
+- `note.md` does not replace section evidence.
+- `appendix` is not injected directly unless a future recall audit proves that `paper-sectioning` is failing to copy appendix evidence into method or experiment sections.
 
 ## Design Rationale
 
-Allocating 35% + 30% of the budget to method and introduction ensures these two high-density sections receive sufficient context depth. The 15% for conclusion is cost-effective: it provides a refined version of introduction claims in very little space.
-
-### method_critique Recall Risk and Mitigation
-
-**Known risk of excluding `related_work`**: method_critique is the only covered category whose sole non-covered section is related_work. When authors place critiques of prior methods only in related_work without summarizing them in the introduction, the current section selection will miss them.
-
-**Mitigation strategy:**
-- Monitor method_critique recall in production.
-- If recall is insufficient, re-add `related_work` at P2 priority (budget: 800 chars).
-- No changes to the prompt logic in runtime-instructions are needed — only the backend section selection and budget allocation need adjustment.
+Knowledge extraction optimizes for reusable research memory, not for short paper summarization. The prompt needs both structured understanding (`note.md`) and traceable source evidence (sections). Including `related_work` improves `method_critique` recall, while excluding direct appendix injection keeps the context focused and avoids duplicate evidence.

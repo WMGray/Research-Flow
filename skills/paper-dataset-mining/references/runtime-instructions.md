@@ -39,7 +39,7 @@ Return only JSON with this schema:
       "license": "license or null",
       "description_zh": "中文描述",
       "citation_marker": "[32] or null",
-      "source_section": "related_work|method|experiment|appendix|conclusion",
+      "source_section": "introduction|related_work|experiment",
       "source_locator": "line range, heading, or paragraph locator",
       "evidence_text": "verbatim evidence from input",
       "confidence_score": 0.85
