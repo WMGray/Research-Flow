@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 
 from app.api.paper_download import get_paper_download_service
 from app.schemas.paper_download import PaperResolveRequest, PaperResolveResponse
@@ -47,6 +49,11 @@ from core.services.papers.models import (
     PaperPipelineRunRecord,
     PaperRecord,
     ParsedContentRecord,
+)
+from core.services.papers.metadata import (
+    authors_from_resolution,
+    infer_ccf_rank,
+    infer_sci_quartile,
 )
 from core.services.papers.service import PaperService
 from core.services.resources import ResourceNotFoundError, ResourceRepository
@@ -125,6 +132,20 @@ def to_resource_link_responses(records: list[object]) -> list[ResourceLinkRespon
     return [ResourceLinkResponse.model_validate(asdict(record)) for record in records]
 
 
+def to_paper_resolve_response(record: object) -> PaperResolveResponse:
+    payload = asdict(record)
+    payload["authors"] = authors_from_resolution(record)
+    venue = str(payload.get("venue") or "")
+    payload["ccf_rank"] = infer_ccf_rank(venue)
+    payload["sci_quartile"] = infer_sci_quartile(venue)
+    return PaperResolveResponse.model_validate(payload)
+
+
+def inline_file_response(path: Path, *, media_type: str, filename: str) -> FileResponse:
+    headers = {"Content-Disposition": f'inline; filename="{filename}"'}
+    return FileResponse(path, media_type=media_type, filename=filename, headers=headers)
+
+
 def raise_http_error(exc: Exception) -> None:
     if isinstance(exc, DuplicatePaperError):
         raise HTTPException(
@@ -155,7 +176,7 @@ def resolve_paper(
     service: PaperDownloadService = Depends(get_paper_download_service),
 ) -> APIEnvelope:
     row = service.resolve(request)
-    return envelope(PaperResolveResponse.model_validate(asdict(row)))
+    return envelope(to_paper_resolve_response(row))
 
 
 @router.post("/papers", status_code=status.HTTP_201_CREATED, response_model=APIEnvelope)
@@ -301,6 +322,25 @@ def get_note(
         raise
 
 
+@router.get("/papers/{paper_id}/note/raw")
+def get_note_raw(
+    paper_id: int,
+    service: PaperService = Depends(get_paper_service),
+) -> FileResponse:
+    try:
+        document = service.get_document(paper_id, "note")
+        if not document.path.exists():
+            raise DocumentNotFoundError(f"Document file not found: {paper_id}/note")
+        return inline_file_response(
+            document.path,
+            media_type="text/markdown; charset=utf-8",
+            filename=document.path.name,
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
 @router.put("/papers/{paper_id}/note", response_model=APIEnvelope)
 def update_note(
     paper_id: int,
@@ -322,6 +362,25 @@ def update_note(
         raise
 
 
+@router.get("/papers/{paper_id}/pdf")
+def get_pdf_file(
+    paper_id: int,
+    service: PaperService = Depends(get_paper_service),
+) -> FileResponse:
+    try:
+        path = service.get_pdf_file_path(paper_id)
+        if not path.exists():
+            raise DocumentNotFoundError(f"PDF file not found: {paper_id}")
+        return inline_file_response(
+            path,
+            media_type="application/pdf",
+            filename=path.name,
+        )
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
 @router.get("/papers/{paper_id}/parsed/refined", response_model=APIEnvelope)
 def get_refined_document(
     paper_id: int,
@@ -329,6 +388,25 @@ def get_refined_document(
 ) -> APIEnvelope:
     try:
         return envelope(to_document_response(service.get_document(paper_id, "refined")))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.get("/papers/{paper_id}/parsed/refined/raw")
+def get_refined_document_raw(
+    paper_id: int,
+    service: PaperService = Depends(get_paper_service),
+) -> FileResponse:
+    try:
+        document = service.get_document(paper_id, "refined")
+        if not document.path.exists():
+            raise DocumentNotFoundError(f"Document file not found: {paper_id}/refined")
+        return inline_file_response(
+            document.path,
+            media_type="text/markdown; charset=utf-8",
+            filename=document.path.name,
+        )
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

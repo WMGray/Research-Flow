@@ -60,6 +60,17 @@ class PaperRecord:
     updated_at: str
     download_job_id: str | None = None
     parse_job_id: str | None = None
+    paper_slug: str = ""
+    abstract: str = ""
+    source_kind: str = "manual"
+    ccf_rank: str = ""
+    sci_quartile: str = ""
+    latest_job_id: str | None = None
+    latest_job_type: str = ""
+    latest_job_status: str = ""
+    latest_job_message: str = ""
+    source_pdf_size: int = 0
+    source_pdf_is_real: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,13 +143,17 @@ class PaperPipelineRunRecord:
 @dataclass(frozen=True, slots=True)
 class PaperCreateInput:
     title: str
+    abstract: str = ""
     authors: list[str] = field(default_factory=list)
     year: int | None = None
     venue: str = ""
     venue_short: str = ""
+    ccf_rank: str = ""
+    sci_quartile: str = ""
     doi: str = ""
     source_url: str = ""
     pdf_url: str = ""
+    source_kind: str = "manual"
     category_id: int | None = None
     tags: list[str] = field(default_factory=list)
     download_pdf: bool = False
@@ -224,13 +239,18 @@ def paper_record_from_row(row: Any, assets: dict[str, int]) -> PaperRecord:
         paper_id=asset_id,
         asset_id=asset_id,
         title=str(row["title"]),
+        paper_slug=str(row["paper_slug"] or f"paper-{asset_id}"),
         authors=json.loads(row["authors"] or "[]"),
+        abstract=str(row["abstract"] or ""),
         year=row["pub_year"],
         venue=str(row["venue"]),
         venue_short=str(row["venue_short"]),
+        ccf_rank=str(row["ccf_rank"] or ""),
+        sci_quartile=str(row["sci_quartile"] or ""),
         doi=str(row["doi"]),
         source_url=str(row["source_url"]),
         pdf_url=str(row["pdf_url"]),
+        source_kind=str(row["source_kind"] or "manual"),
         category_id=row["category_id"],
         tags=json.loads(row["tags"] or "[]"),
         paper_stage=str(row["paper_stage"]),

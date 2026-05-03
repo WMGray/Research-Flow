@@ -21,6 +21,7 @@ PaperStage = Literal[
 PipelineStatus = Literal["pending", "queued", "running", "succeeded", "failed"]
 ReviewStatus = Literal["pending", "waiting_review", "confirmed"]
 NoteStatus = Literal["empty", "clean_generated", "user_modified", "merged", "conflict_pending"]
+PaperSourceKind = Literal["manual", "search", "feed", "zotero"]
 DocumentRole = Literal["note", "refined"]
 JobStatus = Literal[
     "queued",
@@ -49,13 +50,17 @@ class PaperCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
+    abstract: str = ""
     authors: list[str] = Field(default_factory=list)
     year: int | None = None
     venue: str = ""
     venue_short: str = ""
+    ccf_rank: str = ""
+    sci_quartile: str = ""
     doi: str = ""
     source_url: str = ""
     pdf_url: str = ""
+    source_kind: PaperSourceKind = "manual"
     category_id: int | None = None
     tags: list[str] = Field(default_factory=list)
     download_pdf: bool = False
@@ -66,13 +71,17 @@ class PaperUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, min_length=1)
+    abstract: str | None = None
     authors: list[str] | None = None
     year: int | None = None
     venue: str | None = None
     venue_short: str | None = None
+    ccf_rank: str | None = None
+    sci_quartile: str | None = None
     doi: str | None = None
     source_url: str | None = None
     pdf_url: str | None = None
+    source_kind: PaperSourceKind | None = None
     category_id: int | None = None
     tags: list[str] | None = None
 
@@ -87,13 +96,18 @@ class PaperResponse(BaseModel):
     paper_id: int
     asset_id: int
     title: str
+    paper_slug: str
+    abstract: str = ""
     authors: list[str] = Field(default_factory=list)
     year: int | None = None
     venue: str = ""
     venue_short: str = ""
+    ccf_rank: str = ""
+    sci_quartile: str = ""
     doi: str = ""
     source_url: str = ""
     pdf_url: str = ""
+    source_kind: PaperSourceKind = "manual"
     category_id: int | None = None
     tags: list[str] = Field(default_factory=list)
     paper_stage: PaperStage
@@ -107,6 +121,12 @@ class PaperResponse(BaseModel):
     updated_at: str
     download_job_id: str | None = None
     parse_job_id: str | None = None
+    latest_job_id: str | None = None
+    latest_job_type: str = ""
+    latest_job_status: str = ""
+    latest_job_message: str = ""
+    source_pdf_size: int = 0
+    source_pdf_is_real: bool = False
 
 
 class PaperListQuery(BaseModel):

@@ -47,8 +47,11 @@ class PaperDownloadRequest(PaperResolveRequest):
 class PaperResolveResponse(BaseModel):
     raw_input: str
     title: str
+    authors: list[str] = Field(default_factory=list)
     year: str
     venue: str
+    ccf_rank: str = ""
+    sci_quartile: str = ""
     doi: str
     resolve_method: str
     source: str

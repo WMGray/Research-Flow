@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from pathlib import Path
 
 from core.services.papers.models import (
     DocumentRecord,
@@ -85,6 +86,9 @@ class PaperService:
         """读取 Paper 指定角色文档。"""
 
         return self.repository.get_document(paper_id, doc_role)
+
+    def get_pdf_file_path(self, paper_id: int) -> Path:
+        return self.repository.get_pdf_file_path(paper_id)
 
     def update_document(
         self,

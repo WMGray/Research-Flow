@@ -36,6 +36,7 @@ class FakeResolveRow:
     index: int
     raw_input: str
     title: str
+    authors: list[str]
     year: str
     venue: str
     doi: str
@@ -63,6 +64,7 @@ class FakePaperDownloadService:
             index=1,
             raw_input="test",
             title="Test Paper",
+            authors=["Ada Lovelace", "Grace Hopper"],
             year="2024",
             venue="CVPR",
             doi="10.1234/test",
@@ -192,13 +194,59 @@ def create_sample_paper(client: TestClient, **overrides: object) -> dict:
     return response.json()["data"]
 
 
-def test_paper_crud_flow(client: TestClient) -> None:
+def prepare_paper_sections_for_note(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> int:
+    paper = create_sample_paper(client)
+    paper_id = int(paper["paper_id"])
+    client.post(f"/api/v1/papers/{paper_id}/parse", json={})
+    install_fake_refiner(
+        monkeypatch,
+        response_content="\n".join(
+            [
+                "# Refined",
+                "",
+                "## Related Work",
+                "Related work section.",
+                "",
+                "## Method",
+                "Method section.",
+                "",
+                "## Experiment",
+                "Experiment section.",
+                "",
+                "## Conclusion",
+                "Conclusion section.",
+            ]
+        ),
+    )
+    refine_response = client.post(f"/api/v1/papers/{paper_id}/refine-parse", json={})
+    assert refine_response.status_code == 202
+    assert refine_response.json()["data"]["status"] == "succeeded"
+    split_response = client.post(f"/api/v1/papers/{paper_id}/split-sections")
+    assert split_response.status_code == 202
+    assert split_response.json()["data"]["status"] == "succeeded"
+    return paper_id
+
+
+def test_paper_crud_flow(client: TestClient, tmp_path: Path) -> None:
     paper = create_sample_paper(client)
     paper_id = paper["paper_id"]
 
+    assert paper["paper_slug"]
+    assert paper["abstract"] == ""
+    assert paper["source_kind"] == "manual"
     assert paper["paper_stage"] == "metadata_ready"
     assert paper["note_status"] == "empty"
     assert paper["source_url"] == "https://arxiv.org/abs/2106.09685"
+
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        paper_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(biz_paper)").fetchall()
+        }
+    assert {"paper_slug", "abstract", "source_kind"} <= paper_columns
 
     detail_response = client.get(f"/api/v1/papers/{paper_id}")
     assert detail_response.status_code == 200
@@ -705,6 +753,105 @@ def test_generate_note_preserves_user_modified_note(
     assert paper_response.json()["data"]["note_status"] == "merged"
 
 
+def test_note_state_tracks_generation_and_safe_user_edit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paper_id = prepare_paper_sections_for_note(client, monkeypatch)
+
+    note_response = client.post(f"/api/v1/papers/{paper_id}/generate-note")
+
+    assert note_response.status_code == 202
+    assert note_response.json()["data"]["status"] == "succeeded"
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        conn.row_factory = sqlite3.Row
+        generated_state = conn.execute(
+            "SELECT * FROM biz_note_state WHERE paper_id = ?",
+            (paper_id,),
+        ).fetchone()
+    generated_hashes = json.loads(generated_state["managed_block_hash_json"])
+    assert generated_state["note_status"] == "clean_generated"
+    assert generated_state["document_hash"]
+    assert generated_state["last_generated_at"]
+    assert generated_state["last_merge_policy"] == "overwrite"
+    assert "paper_overview" in generated_hashes
+
+    note = client.get(f"/api/v1/papers/{paper_id}/note").json()["data"]
+    update_response = client.put(
+        f"/api/v1/papers/{paper_id}/note",
+        json={
+            "content": note["content"].rstrip() + "\n\nManual insight stays.\n",
+            "base_version": note["version"],
+        },
+    )
+
+    assert update_response.status_code == 200
+    paper_response = client.get(f"/api/v1/papers/{paper_id}")
+    assert paper_response.json()["data"]["note_status"] == "user_modified"
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        conn.row_factory = sqlite3.Row
+        edited_state = conn.execute(
+            "SELECT * FROM biz_note_state WHERE paper_id = ?",
+            (paper_id,),
+        ).fetchone()
+    assert edited_state["note_status"] == "user_modified"
+    assert edited_state["last_user_modified_at"]
+    assert json.loads(edited_state["managed_block_hash_json"]) == generated_hashes
+
+
+def test_note_state_blocks_regeneration_after_managed_block_edit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    paper_id = prepare_paper_sections_for_note(client, monkeypatch)
+    generate_response = client.post(f"/api/v1/papers/{paper_id}/generate-note")
+    assert generate_response.status_code == 202
+    assert generate_response.json()["data"]["status"] == "succeeded"
+
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        conn.row_factory = sqlite3.Row
+        generated_state = conn.execute(
+            "SELECT * FROM biz_note_state WHERE paper_id = ?",
+            (paper_id,),
+        ).fetchone()
+    generated_hashes = json.loads(generated_state["managed_block_hash_json"])
+
+    note = client.get(f"/api/v1/papers/{paper_id}/note").json()["data"]
+    update_response = client.put(
+        f"/api/v1/papers/{paper_id}/note",
+        json={
+            "content": note["content"].replace(
+                "What problem the paper addresses.",
+                "User edited a managed block.",
+                1,
+            ),
+            "base_version": note["version"],
+        },
+    )
+
+    assert update_response.status_code == 200
+    paper_response = client.get(f"/api/v1/papers/{paper_id}")
+    assert paper_response.json()["data"]["note_status"] == "conflict_pending"
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        conn.row_factory = sqlite3.Row
+        conflict_state = conn.execute(
+            "SELECT * FROM biz_note_state WHERE paper_id = ?",
+            (paper_id,),
+        ).fetchone()
+    assert conflict_state["note_status"] == "conflict_pending"
+    assert conflict_state["conflict_reason"]
+    assert json.loads(conflict_state["managed_block_hash_json"]) == generated_hashes
+
+    blocked_response = client.post(f"/api/v1/papers/{paper_id}/generate-note")
+
+    assert blocked_response.status_code == 202
+    blocked_job = blocked_response.json()["data"]
+    assert blocked_job["status"] == "failed"
+    assert blocked_job["error"]["code"] == "PAPER_NOTE_CONFLICT_PENDING"
+
+
 def test_extract_actions_write_final_jobs(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -784,8 +931,79 @@ def test_create_paper_can_download_after_import(client: TestClient) -> None:
     assert paper["paper_stage"] == "downloaded"
     assert paper["download_status"] == "succeeded"
     assert paper["parse_status"] == "pending"
+    assert paper["source_pdf_is_real"] is False
     assert paper["download_job_id"].startswith("job_")
     assert paper["parse_job_id"] is None
+
+
+def test_download_updates_resolved_metadata_and_exposes_files(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import core.services.papers.repository as repository_module
+
+    pdf_path = tmp_path / "resolved.pdf"
+    pdf_path.write_bytes(
+        b"%PDF-1.4\n% Research Flow test PDF\n"
+        + (b"0" * 5000)
+        + b"\n%%EOF\n"
+    )
+
+    class FakeDownloadService:
+        def download(self, request):
+            del request
+            return FakeResolveRow(
+                index=1,
+                raw_input="https://example.com/paper",
+                title="Resolved Paper Title",
+                authors=["Ada Lovelace", "Grace Hopper"],
+                year="2024",
+                venue="CVPR",
+                doi="10.1234/resolved",
+                resolve_method="direct",
+                source="semantic_scholar",
+                status="ready_download",
+                pdf_url="https://example.com/paper.pdf",
+                landing_url="https://example.com/landing",
+                final_url="https://example.com/final.pdf",
+                http_status="200",
+                content_type="application/pdf",
+                detail="",
+                error_code="",
+                metadata_source="semantic_scholar_doi",
+                metadata_confidence="high",
+                suggested_filename="Resolved Paper Title__2024.pdf",
+                target_path=str(pdf_path),
+                probe_trace=["step-1"],
+            ), {"status": "downloaded", "file_path": str(pdf_path), "detail": ""}
+
+    monkeypatch.setenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "1")
+    monkeypatch.setattr(repository_module, "PaperDownloadService", FakeDownloadService)
+
+    response = client.post(
+        "/api/v1/papers",
+        json={"title": "https://example.com/paper", "download_pdf": True},
+    )
+
+    assert response.status_code == 201
+    paper = response.json()["data"]
+    assert paper["title"] == "Resolved Paper Title"
+    assert paper["authors"] == ["Ada Lovelace", "Grace Hopper"]
+    assert paper["year"] == 2024
+    assert paper["venue"] == "CVPR"
+    assert paper["ccf_rank"] == "CCF-A"
+    assert paper["pdf_url"] == "https://example.com/paper.pdf"
+    assert paper["source_pdf_is_real"] is True
+    assert paper["source_pdf_size"] > 4096
+
+    pdf_response = client.get(f"/api/v1/papers/{paper['paper_id']}/pdf")
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"] == "application/pdf"
+
+    note_response = client.get(f"/api/v1/papers/{paper['paper_id']}/note/raw")
+    assert note_response.status_code == 200
+    assert note_response.text.startswith("# https://example.com/paper")
 
 
 def test_run_paper_pipeline_reaches_note_and_exposes_audit_records(

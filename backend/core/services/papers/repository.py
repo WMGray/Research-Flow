@@ -12,7 +12,7 @@ import os
 import re
 import sqlite3
 import shutil
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -20,6 +20,7 @@ from uuid import uuid4
 from core.assets import (
     create_asset,
     create_asset_link,
+    hash_text,
     path_hash,
     path_size,
     update_asset_from_path,
@@ -45,6 +46,11 @@ from core.services.papers.models import (
     paper_sort_column,
     utc_now,
 )
+from core.services.papers.metadata import (
+    authors_from_resolution,
+    infer_ccf_rank,
+    infer_sci_quartile,
+)
 from core.services.papers.refine import refine_markdown
 from core.services.papers.split import (
     CANONICAL_SECTION_ORDER,
@@ -52,9 +58,11 @@ from core.services.papers.split import (
     section_filename,
 )
 from core.services.papers.note import (
+    extract_managed_blocks,
     generate_paper_note,
     merge_managed_note_blocks,
 )
+from core.services.papers.knowledge import extract_knowledge
 from core.services.papers.parse import PDFParserService
 from core.services.papers.parse.models import PDFParserError
 from core.services.papers.parse.postprocess import process_mineru_markdown_artifacts
@@ -64,6 +72,21 @@ from core.storage import configured_data_root, configured_db_path
 
 SCHEMA_SQL = PAPER_SCHEMA_SQL
 FINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
+KNOWN_DATASET_PATTERN = re.compile(
+    r"\b("
+    r"MMLU|ImageNet|COCO|CIFAR-10|CIFAR-100|GLUE|SuperGLUE|SQuAD|WMT|"
+    r"WikiText|HumanEval|GSM8K|EPIC-KITCHENS-100|ScanNet|SUN RGB-D|S3DIS|"
+    r"nuScenes|KITTI|ADE20K"
+    r")\b",
+    re.I,
+)
+GENERIC_DATASET_PATTERN = re.compile(
+    r"\b([A-Z][A-Za-z0-9+\-]*(?:\s+[A-Z][A-Za-z0-9+\-]*){0,4}\s+"
+    r"(?:dataset|benchmark|corpus|suite))\b",
+    re.I,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class RepositoryPaperDownloadRequest:
     source_url: str | None
@@ -73,6 +96,15 @@ class RepositoryPaperDownloadRequest:
     venue: str
     output_dir: str | None
     overwrite: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetMention:
+    name: str
+    task_type: str
+    data_domain: str
+    evidence_text: str
+    source_section: str
 
 
 class PaperRepository:
@@ -95,6 +127,8 @@ class PaperRepository:
         self.paper_root.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate_schema(conn)
+            conn.commit()
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -113,8 +147,19 @@ class PaperRepository:
             raise DuplicatePaperError(f"Paper with DOI already exists: {doi}")
 
         now = utc_now()
+        venue = str(values.get("venue", "") or "")
+        venue_short = str(values.get("venue_short", "") or "")
+        ccf_rank = str(values.get("ccf_rank", "") or "") or infer_ccf_rank(
+            venue_short,
+            venue,
+        )
+        sci_quartile = str(values.get("sci_quartile", "") or "") or infer_sci_quartile(
+            venue_short,
+            venue,
+        )
         with self.connect() as conn:
-            paper_dir = self.paper_root / f"paper_{uuid4().hex}"
+            paper_slug = self._unique_paper_slug(conn, str(values["title"]))
+            paper_dir = self.paper_root / paper_slug
             paper_dir.mkdir(parents=True, exist_ok=True)
             asset_id = create_asset(
                 conn,
@@ -126,20 +171,25 @@ class PaperRepository:
             conn.execute(
                 """
                 INSERT INTO biz_paper (
-                    asset_id, title, authors, pub_year, venue, venue_short, doi,
-                    zotero_id, paper_stage, download_status, parse_status,
-                    refine_status, review_status, note_status, category_id,
-                    source_url, pdf_url, tags
+                    asset_id, title, paper_slug, authors, abstract, pub_year,
+                    venue, venue_short, ccf_rank, sci_quartile, doi, zotero_id, paper_stage,
+                    download_status, parse_status, refine_status, review_status,
+                    note_status, category_id, source_url, pdf_url, source_kind,
+                    tags
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset_id,
                     values["title"],
+                    paper_slug,
                     json.dumps(values.get("authors", []), ensure_ascii=False),
+                    values.get("abstract", ""),
                     values.get("year"),
-                    values.get("venue", ""),
-                    values.get("venue_short", ""),
+                    venue,
+                    venue_short,
+                    ccf_rank,
+                    sci_quartile,
                     doi,
                     values.get("zotero_id", ""),
                     "metadata_ready",
@@ -151,6 +201,7 @@ class PaperRepository:
                     values.get("category_id"),
                     values.get("source_url", ""),
                     values.get("pdf_url", ""),
+                    values.get("source_kind", "manual"),
                     json.dumps(values.get("tags", []), ensure_ascii=False),
                 ),
             )
@@ -247,13 +298,28 @@ class PaperRepository:
         return [self._paper_from_row(row) for row in rows], total
 
     def update_paper(self, paper_id: int, values: dict[str, Any]) -> PaperRecord:
-        self.get_paper(paper_id)
+        paper = self.get_paper(paper_id)
         if "doi" in values and values["doi"]:
             existing = self.find_by_doi(values["doi"])
             if existing is not None and existing.paper_id != paper_id:
                 raise DuplicatePaperError(
                     f"Paper with DOI already exists: {values['doi']}"
                 )
+
+        if ("venue" in values or "venue_short" in values) and "ccf_rank" not in values:
+            inferred = infer_ccf_rank(
+                str(values.get("venue_short", paper.venue_short) or ""),
+                str(values.get("venue", paper.venue) or ""),
+            )
+            if inferred and not paper.ccf_rank:
+                values["ccf_rank"] = inferred
+        if ("venue" in values or "venue_short" in values) and "sci_quartile" not in values:
+            inferred = infer_sci_quartile(
+                str(values.get("venue_short", paper.venue_short) or ""),
+                str(values.get("venue", paper.venue) or ""),
+            )
+            if inferred and not paper.sci_quartile:
+                values["sci_quartile"] = inferred
 
         mapped_values = map_paper_update_values(values)
         columns = [f"{key} = ?" for key in mapped_values]
@@ -322,6 +388,10 @@ class PaperRepository:
             updated_at=str(row["updated_at"]),
         )
 
+    def get_pdf_file_path(self, paper_id: int) -> Path:
+        self.get_paper(paper_id)
+        return self._pdf_path(paper_id)
+
     def update_document(
         self,
         paper_id: int,
@@ -357,13 +427,41 @@ class PaperRepository:
                 (now, paper_id),
             )
             if doc_role == "note":
+                previous_managed_hashes = self._stored_managed_block_hashes(
+                    conn,
+                    paper_id,
+                )
+                note_status = self._note_status_after_user_edit(
+                    conn=conn,
+                    paper_id=paper_id,
+                    content=normalized_content,
+                )
                 conn.execute(
                     """
                     UPDATE biz_paper
                     SET note_status = ?
                     WHERE asset_id = ?
                     """,
-                    ("user_modified", paper_id),
+                    (note_status, paper_id),
+                )
+                self._upsert_note_state(
+                    conn=conn,
+                    paper_id=paper_id,
+                    note_doc_id=document.doc_id,
+                    note_status=note_status,
+                    content=normalized_content,
+                    now=now,
+                    last_user_modified_at=now,
+                    managed_block_hashes=(
+                        previous_managed_hashes
+                        if note_status == "conflict_pending"
+                        else None
+                    ),
+                    conflict_reason=(
+                        "Managed note blocks changed; resolve conflicts before regeneration."
+                        if note_status == "conflict_pending"
+                        else ""
+                    ),
                 )
             conn.commit()
         return self.get_document(paper_id, doc_role)
@@ -378,6 +476,7 @@ class PaperRepository:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         download_mode = "existing_file" if pdf_path.exists() else "metadata_stub"
         download_payload: dict[str, Any] = {}
+        metadata_updates: dict[str, Any] = {}
         warning: str | None = None
 
         local_pdf = self._resolve_local_pdf_reference(paper)
@@ -394,6 +493,7 @@ class PaperRepository:
                     "resolution": self._jsonable_record(row),
                     "download": dict(result),
                 }
+                metadata_updates = self._metadata_updates_from_resolution(paper, row)
                 file_path = str(result.get("file_path") or "")
                 source_path = Path(file_path)
                 if (
@@ -413,6 +513,7 @@ class PaperRepository:
                 warning = "Network paper download is disabled; using metadata fallback PDF."
             self._write_metadata_pdf_stub(paper, pdf_path)
 
+        pdf_integrity = self._pdf_integrity_metadata(pdf_path)
         now = utc_now()
         with self.connect() as conn:
             self._upsert_paper_artifact(
@@ -425,6 +526,7 @@ class PaperRepository:
                 metadata={
                     "mode": download_mode,
                     "warning": warning or "",
+                    **pdf_integrity,
                 },
                 now=now,
             )
@@ -436,6 +538,17 @@ class PaperRepository:
                 """,
                 ("downloaded", "succeeded", paper_id),
             )
+            if metadata_updates:
+                columns = [f"{key} = ?" for key in metadata_updates]
+                conn.execute(
+                    f"UPDATE biz_paper SET {', '.join(columns)} WHERE asset_id = ?",
+                    [*metadata_updates.values(), paper_id],
+                )
+                if "title" in metadata_updates:
+                    conn.execute(
+                        "UPDATE asset_registry SET display_name = ? WHERE asset_id = ?",
+                        (metadata_updates["title"], paper_id),
+                    )
             conn.execute(
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
@@ -451,13 +564,96 @@ class PaperRepository:
                 "pdf_path": str(pdf_path),
                 "download_mode": download_mode,
                 "warning": warning,
+                **pdf_integrity,
                 **download_payload,
             },
             stage="download",
             input_artifacts=[],
             output_artifacts=["source_pdf"],
-            metrics={"file_size": path_size(pdf_path)},
+            metrics={
+                "file_size": path_size(pdf_path),
+                "is_real_pdf": pdf_integrity["is_real_pdf"],
+            },
         )
+
+    def _metadata_updates_from_resolution(
+        self,
+        paper: PaperRecord,
+        resolution: object,
+    ) -> dict[str, Any]:
+        updates: dict[str, Any] = {}
+
+        resolved_title = self._resolution_text(resolution, "title")
+        if resolved_title and self._should_replace_title(paper.title, resolved_title):
+            updates["title"] = resolved_title
+
+        resolved_year = self._resolution_year(resolution)
+        if resolved_year is not None and paper.year is None:
+            updates["pub_year"] = resolved_year
+
+        resolved_venue = self._resolution_text(resolution, "venue")
+        if resolved_venue and not paper.venue:
+            updates["venue"] = resolved_venue
+        if resolved_venue and not paper.venue_short:
+            updates["venue_short"] = resolved_venue
+
+        if not paper.ccf_rank:
+            ccf_rank = infer_ccf_rank(
+                resolved_venue,
+                paper.venue_short,
+                paper.venue,
+            )
+            if ccf_rank:
+                updates["ccf_rank"] = ccf_rank
+        if not paper.sci_quartile:
+            sci_quartile = infer_sci_quartile(
+                resolved_venue,
+                paper.venue_short,
+                paper.venue,
+            )
+            if sci_quartile:
+                updates["sci_quartile"] = sci_quartile
+
+        resolved_authors = authors_from_resolution(resolution)
+        if resolved_authors and not paper.authors:
+            updates["authors"] = json.dumps(resolved_authors, ensure_ascii=False)
+
+        resolved_doi = self._resolution_text(resolution, "doi")
+        if resolved_doi and not paper.doi:
+            updates["doi"] = resolved_doi
+
+        resolved_landing_url = self._resolution_text(resolution, "landing_url")
+        if resolved_landing_url and not paper.source_url:
+            updates["source_url"] = resolved_landing_url
+
+        resolved_pdf_url = (
+            self._resolution_text(resolution, "pdf_url")
+            or self._resolution_text(resolution, "final_url")
+        )
+        if resolved_pdf_url and not paper.pdf_url:
+            updates["pdf_url"] = resolved_pdf_url
+
+        return updates
+
+    def _resolution_text(self, resolution: object, field_name: str) -> str:
+        value = getattr(resolution, field_name, "")
+        return str(value or "").strip()
+
+    def _resolution_year(self, resolution: object) -> int | None:
+        raw_year = self._resolution_text(resolution, "year")
+        if not raw_year:
+            return None
+        try:
+            return int(raw_year)
+        except ValueError:
+            return None
+
+    def _should_replace_title(self, current_title: str, resolved_title: str) -> bool:
+        current = current_title.strip()
+        resolved = resolved_title.strip()
+        if not resolved or resolved == current:
+            return False
+        return not current or self._looks_like_url(current)
 
     def run_parse(
         self,
@@ -957,12 +1153,14 @@ class PaperRepository:
         )
         note_content = note_result.content
         next_note_status = "clean_generated"
+        merge_policy = "overwrite"
         if paper.note_status in {"user_modified", "merged"}:
             note_content = merge_managed_note_blocks(
                 existing=existing_note,
                 generated=note_result.content,
             )
             next_note_status = "merged"
+            merge_policy = "merged"
 
         self._replace_document(paper_id, "note", note_content)
         now = utc_now()
@@ -980,7 +1178,7 @@ class PaperRepository:
                     "summary_source": note_result.source,
                     "instruction_key": note_result.instruction_key,
                     "feature": note_result.feature,
-                    "merge_policy": next_note_status,
+                    "merge_policy": merge_policy,
                     "figure_count": note_result.figure_count,
                     "block_failures": list(note_result.block_failures),
                 },
@@ -998,6 +1196,17 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._upsert_note_state(
+                conn=conn,
+                paper_id=paper_id,
+                note_doc_id=note_doc.doc_id,
+                note_status=next_note_status,
+                content=note_content,
+                now=now,
+                last_generated_at=now,
+                last_merge_policy=merge_policy,
+                conflict_reason="",
+            )
             conn.commit()
         return self._create_pipeline_job(
             paper_id=paper_id,
@@ -1011,7 +1220,7 @@ class PaperRepository:
                 "instruction_key": note_result.instruction_key,
                 "feature": note_result.feature,
                 "llm_run_id": note_result.llm_run_id,
-                "merge_policy": next_note_status,
+                "merge_policy": merge_policy,
                 "figure_count": note_result.figure_count,
                 "block_failures": list(note_result.block_failures),
             },
@@ -1030,11 +1239,14 @@ class PaperRepository:
     def run_extract_knowledge(self, paper_id: int) -> JobRecord:
         paper = self.get_paper(paper_id)
         note = self.get_document(paper_id, "note").content
+        sections = self.list_sections(paper_id)
         resource_repository = ResourceRepository(
             db_path=self.db_path,
             data_root=self.data_root,
         )
         existing = resource_repository.list_knowledge_for_paper(paper_id)
+        extraction_source = "existing_resource_links"
+        skipped_reason = ""
         if existing:
             items = [
                 {
@@ -1045,33 +1257,56 @@ class PaperRepository:
                 for record in existing
             ]
         else:
-            record = resource_repository.create_knowledge(
-                {
-                    "knowledge_type": "view",
-                    "title": f"{paper.title} - placeholder finding",
-                    "summary_zh": "Placeholder knowledge item pending skill/LLM extraction.",
-                    "source_paper_asset_id": paper_id,
-                    "source_section": "note",
-                    "evidence_text": note[:500],
-                    "confidence_score": 0.0,
-                    "review_status": "pending_review",
-                }
+            extraction = extract_knowledge(
+                paper_title=paper.title,
+                note=note,
+                sections=sections,
             )
-            items = [
-                {
-                    "knowledge_id": record.knowledge_id,
-                    "title": record.title,
-                    "relation_type": "EXTRACTED_FROM",
-                }
-            ]
+            extraction_source = extraction.source
+            skipped_reason = extraction.skipped_reason
+            items = []
+            for item in extraction.items:
+                record = resource_repository.create_knowledge(
+                    {
+                        "knowledge_type": item.knowledge_type,
+                        "title": item.title,
+                        "summary_zh": item.summary_zh,
+                        "original_text_en": item.original_text_en,
+                        "category_label": item.category_label,
+                        "source_paper_asset_id": paper_id,
+                        "source_section": item.source_section,
+                        "source_locator": item.source_locator,
+                        "evidence_text": item.evidence_text,
+                        "confidence_score": item.confidence_score,
+                        "review_status": "pending_review",
+                        "llm_run_id": extraction.source,
+                    }
+                )
+                items.append(
+                    {
+                        "knowledge_id": record.knowledge_id,
+                        "title": record.title,
+                        "knowledge_type": record.knowledge_type,
+                        "category_label": record.category_label,
+                        "source_section": record.source_section,
+                        "confidence_score": record.confidence_score,
+                        "relation_type": "EXTRACTED_FROM",
+                    }
+                )
         output_path = self._paper_dir(paper_id) / "extracted" / "knowledge.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "paper_id": paper_id,
+            "source": extraction_source,
+            "skipped_reason": skipped_reason,
             "items": items,
             "summary": note[:200],
+            "section_count": len(sections),
         }
-        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
@@ -1092,12 +1327,22 @@ class PaperRepository:
             job_type="paper_extract_knowledge",
             status="succeeded",
             progress=1.0,
-            message="Generated local knowledge extraction placeholder.",
-            result={"output_path": str(output_path), "item_count": len(items)},
+            message=(
+                "Extracted evidence-grounded knowledge from local paper text."
+                if items
+                else "No evidence-grounded knowledge candidates were detected."
+            ),
+            result={
+                "output_path": str(output_path),
+                "item_count": len(items),
+                "source": extraction_source,
+                "skipped_reason": skipped_reason,
+            },
         )
 
     def run_extract_datasets(self, paper_id: int) -> JobRecord:
         paper = self.get_paper(paper_id)
+        note = self.get_document(paper_id, "note").content
         sections = self.list_sections(paper_id)
         resource_repository = ResourceRepository(
             db_path=self.db_path,
@@ -1117,35 +1362,52 @@ class PaperRepository:
                 for record in existing
             ]
         else:
-            dataset = resource_repository.create_dataset(
-                {
-                    "name": f"{paper.title} - placeholder dataset",
-                    "source": "paper_extract_datasets_placeholder",
-                    "description": "Placeholder dataset item pending skill/LLM extraction.",
-                    "benchmark_summary": (
-                        f"Detected from {len(sections)} canonical paper sections."
-                    ),
-                }
-            )
-            resource_repository.link_dataset_to_paper(
-                paper_id=paper_id,
-                dataset_id=dataset.dataset_id,
-            )
-            items = [
-                {
-                    "dataset_id": dataset.dataset_id,
-                    "name": dataset.name,
-                    "relation_type": "MENTIONS_DATASET",
-                }
-            ]
+            items = []
+            for mention in self._extract_dataset_mentions(note=note, sections=sections):
+                dataset = resource_repository.create_dataset(
+                    {
+                        "name": mention.name,
+                        "normalized_name": mention.name.lower(),
+                        "task_type": mention.task_type,
+                        "data_domain": mention.data_domain,
+                        "source": "paper_extract_datasets_local",
+                        "description": (
+                            f"Dataset or benchmark mention extracted from "
+                            f"{paper.title} ({mention.source_section})."
+                        ),
+                        "benchmark_summary": mention.evidence_text,
+                    }
+                )
+                resource_repository.link_dataset_to_paper(
+                    paper_id=paper_id,
+                    dataset_id=dataset.dataset_id,
+                )
+                items.append(
+                    {
+                        "dataset_id": dataset.dataset_id,
+                        "name": dataset.name,
+                        "task_type": dataset.task_type,
+                        "data_domain": dataset.data_domain,
+                        "source_section": mention.source_section,
+                        "evidence_text": mention.evidence_text,
+                        "relation_type": "MENTIONS_DATASET",
+                    }
+                )
         output_path = self._paper_dir(paper_id) / "extracted" / "datasets.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "paper_id": paper_id,
+            "source": "paper_extract_datasets_local",
+            "skipped_reason": (
+                "" if items else "No dataset or benchmark mentions were detected."
+            ),
             "items": items,
             "section_count": len(sections),
         }
-        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
@@ -1166,8 +1428,19 @@ class PaperRepository:
             job_type="paper_extract_datasets",
             status="succeeded",
             progress=1.0,
-            message="Generated local dataset extraction placeholder.",
-            result={"output_path": str(output_path), "item_count": len(items)},
+            message=(
+                "Extracted dataset mentions from local paper text."
+                if items
+                else "No dataset mentions were detected."
+            ),
+            result={
+                "output_path": str(output_path),
+                "item_count": len(items),
+                "source": "paper_extract_datasets_local",
+                "skipped_reason": (
+                    "" if items else "No dataset or benchmark mentions were detected."
+                ),
+            },
         )
 
     def get_parsed_content(self, paper_id: int) -> dict[str, Any]:
@@ -1216,6 +1489,110 @@ class PaperRepository:
                 }
             )
         return records
+
+    def _extract_dataset_mentions(
+        self,
+        *,
+        note: str,
+        sections: list[dict[str, Any]],
+        max_items: int = 5,
+    ) -> list[DatasetMention]:
+        sources: list[tuple[str, str]] = []
+        if note.strip():
+            sources.append(("note", note))
+        for section in sections:
+            content = str(section.get("content") or "")
+            if content.strip():
+                sources.append((str(section.get("section_key") or "section"), content))
+
+        mentions: list[DatasetMention] = []
+        seen: set[str] = set()
+        for source_section, text in sources:
+            for sentence in self._dataset_candidate_sentences(text):
+                for name in self._dataset_names_from_sentence(sentence):
+                    normalized = name.lower()
+                    if normalized in seen:
+                        continue
+                    seen.add(normalized)
+                    mentions.append(
+                        DatasetMention(
+                            name=name,
+                            task_type=self._infer_dataset_task(sentence),
+                            data_domain=self._infer_dataset_domain(sentence),
+                            evidence_text=sentence,
+                            source_section=source_section,
+                        )
+                    )
+                    if len(mentions) >= max_items:
+                        return mentions
+        return mentions
+
+    def _dataset_candidate_sentences(self, text: str) -> list[str]:
+        compact = re.sub(r"\s+", " ", self._strip_markdown_for_matching(text)).strip()
+        if not compact:
+            return []
+        return [
+            sentence.strip(" -")
+            for sentence in re.split(r"(?<=[.!?])\s+", compact)
+            if 40 <= len(sentence.strip()) <= 700
+        ]
+
+    def _dataset_names_from_sentence(self, sentence: str) -> list[str]:
+        names: list[str] = []
+        for match in KNOWN_DATASET_PATTERN.finditer(sentence):
+            names.append(match.group(1))
+        for match in GENERIC_DATASET_PATTERN.finditer(sentence):
+            candidate = re.sub(r"\s+", " ", match.group(1)).strip()
+            if candidate.lower() in {"the dataset", "our dataset", "this dataset"}:
+                continue
+            if any(name.lower() in candidate.lower() for name in names):
+                continue
+            names.append(candidate)
+        return self._dedupe_preserve_order(names)
+
+    def _infer_dataset_task(self, sentence: str) -> str:
+        lowered = sentence.lower()
+        if any(token in lowered for token in ("classification", "classify")):
+            return "classification"
+        if any(token in lowered for token in ("question answering", "qa")):
+            return "question_answering"
+        if any(token in lowered for token in ("translation", "wmt")):
+            return "machine_translation"
+        if any(token in lowered for token in ("segmentation", "detection")):
+            return "vision_benchmark"
+        if any(token in lowered for token in ("reasoning", "gsm8k", "mmlu")):
+            return "reasoning_benchmark"
+        if any(token in lowered for token in ("benchmark", "evaluate", "evaluation")):
+            return "benchmark"
+        return ""
+
+    def _infer_dataset_domain(self, sentence: str) -> str:
+        lowered = sentence.lower()
+        if any(token in lowered for token in ("image", "vision", "coco", "imagenet")):
+            return "computer_vision"
+        if any(token in lowered for token in ("language", "text", "qa", "translation")):
+            return "nlp"
+        if any(token in lowered for token in ("video", "instance segmentation")):
+            return "video_understanding"
+        if any(token in lowered for token in ("math", "reasoning", "gsm8k", "mmlu")):
+            return "reasoning"
+        return ""
+
+    def _strip_markdown_for_matching(self, text: str) -> str:
+        without_comments = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+        without_code = re.sub(r"```.*?```", " ", without_comments, flags=re.S)
+        return without_code.replace("#", " ")
+
+    def _dedupe_preserve_order(self, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            normalized = value.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(value)
+        return result
 
     # ============================================================
     # Job & Artifact Management
@@ -1321,6 +1698,232 @@ class PaperRepository:
     # Internal Helpers
     # ============================================================
 
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        columns = self._table_columns(conn, "biz_paper")
+        if "paper_slug" not in columns:
+            conn.execute(
+                "ALTER TABLE biz_paper ADD COLUMN paper_slug TEXT NOT NULL DEFAULT ''"
+            )
+        if "abstract" not in columns:
+            conn.execute(
+                "ALTER TABLE biz_paper ADD COLUMN abstract TEXT NOT NULL DEFAULT ''"
+            )
+        if "source_kind" not in columns:
+            conn.execute(
+                "ALTER TABLE biz_paper ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'manual'"
+            )
+        if "ccf_rank" not in columns:
+            conn.execute(
+                "ALTER TABLE biz_paper ADD COLUMN ccf_rank TEXT NOT NULL DEFAULT ''"
+            )
+        if "sci_quartile" not in columns:
+            conn.execute(
+                "ALTER TABLE biz_paper ADD COLUMN sci_quartile TEXT NOT NULL DEFAULT ''"
+            )
+        self._backfill_paper_ranks(conn)
+        self._backfill_paper_slugs(conn)
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_biz_paper_slug_unique ON biz_paper(paper_slug)"
+        )
+
+    def _table_columns(self, conn: sqlite3.Connection, table_name: str) -> set[str]:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {str(row["name"]) for row in rows}
+
+    def _backfill_paper_slugs(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT asset_id, title, paper_slug
+            FROM biz_paper
+            ORDER BY asset_id ASC
+            """
+        ).fetchall()
+        used = {
+            str(row["paper_slug"])
+            for row in rows
+            if str(row["paper_slug"] or "").strip()
+        }
+        for row in rows:
+            if str(row["paper_slug"] or "").strip():
+                continue
+            asset_id = int(row["asset_id"])
+            slug = self._dedupe_slug(
+                self._slugify_paper_title(str(row["title"]), f"paper-{asset_id}"),
+                used,
+            )
+            used.add(slug)
+            conn.execute(
+                "UPDATE biz_paper SET paper_slug = ? WHERE asset_id = ?",
+                (slug, asset_id),
+            )
+
+    def _backfill_paper_ranks(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT asset_id, venue, venue_short, ccf_rank, sci_quartile
+            FROM biz_paper
+            ORDER BY asset_id ASC
+            """
+        ).fetchall()
+        for row in rows:
+            updates: dict[str, str] = {}
+            venue = str(row["venue"] or "")
+            venue_short = str(row["venue_short"] or "")
+            if not str(row["ccf_rank"] or ""):
+                ccf_rank = infer_ccf_rank(venue_short, venue)
+                if ccf_rank:
+                    updates["ccf_rank"] = ccf_rank
+            if not str(row["sci_quartile"] or ""):
+                sci_quartile = infer_sci_quartile(venue_short, venue)
+                if sci_quartile:
+                    updates["sci_quartile"] = sci_quartile
+            if not updates:
+                continue
+            columns = [f"{key} = ?" for key in updates]
+            conn.execute(
+                f"UPDATE biz_paper SET {', '.join(columns)} WHERE asset_id = ?",
+                [*updates.values(), int(row["asset_id"])],
+            )
+
+    def _unique_paper_slug(self, conn: sqlite3.Connection, title: str) -> str:
+        rows = conn.execute(
+            """
+            SELECT paper_slug
+            FROM biz_paper
+            WHERE paper_slug != ''
+            """
+        ).fetchall()
+        used = {str(row["paper_slug"]) for row in rows}
+        base = self._slugify_paper_title(title, "paper")
+        slug = self._dedupe_slug(base, used)
+        if slug == base:
+            return f"{slug}-{uuid4().hex[:8]}"
+        return slug
+
+    def _slugify_paper_title(self, title: str, fallback: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+        return slug or fallback
+
+    def _dedupe_slug(self, base_slug: str, used: set[str]) -> str:
+        if base_slug not in used:
+            return base_slug
+        for index in range(2, 10_000):
+            candidate = f"{base_slug}-{index}"
+            if candidate not in used:
+                return candidate
+        return f"{base_slug}-{uuid4().hex[:8]}"
+
+    def _upsert_note_state(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        paper_id: int,
+        note_doc_id: int,
+        note_status: str,
+        content: str,
+        now: str,
+        last_generated_at: str | None = None,
+        last_user_modified_at: str | None = None,
+        last_merge_policy: str | None = None,
+        managed_block_hashes: dict[str, str] | None = None,
+        conflict_reason: str | None = None,
+    ) -> None:
+        current = conn.execute(
+            """
+            SELECT last_generated_at, last_user_modified_at, last_merge_policy,
+                conflict_reason
+            FROM biz_note_state
+            WHERE paper_id = ?
+            """,
+            (paper_id,),
+        ).fetchone()
+        managed_hashes = (
+            self._managed_block_hashes(content)
+            if managed_block_hashes is None
+            else managed_block_hashes
+        )
+        conn.execute(
+            """
+            INSERT INTO biz_note_state (
+                paper_id, note_doc_id, note_status, document_hash,
+                managed_block_hash_json, last_generated_at,
+                last_user_modified_at, last_merge_policy, conflict_reason,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(paper_id) DO UPDATE SET
+                note_doc_id = excluded.note_doc_id,
+                note_status = excluded.note_status,
+                document_hash = excluded.document_hash,
+                managed_block_hash_json = excluded.managed_block_hash_json,
+                last_generated_at = excluded.last_generated_at,
+                last_user_modified_at = excluded.last_user_modified_at,
+                last_merge_policy = excluded.last_merge_policy,
+                conflict_reason = excluded.conflict_reason,
+                updated_at = excluded.updated_at
+            """,
+            (
+                paper_id,
+                note_doc_id,
+                note_status,
+                hash_text(content),
+                json.dumps(managed_hashes, ensure_ascii=False),
+                last_generated_at
+                if last_generated_at is not None
+                else None if current is None else current["last_generated_at"],
+                last_user_modified_at
+                if last_user_modified_at is not None
+                else None if current is None else current["last_user_modified_at"],
+                last_merge_policy
+                if last_merge_policy is not None
+                else "" if current is None else current["last_merge_policy"],
+                conflict_reason
+                if conflict_reason is not None
+                else "" if current is None else current["conflict_reason"],
+                now,
+            ),
+        )
+
+    def _note_status_after_user_edit(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        paper_id: int,
+        content: str,
+    ) -> str:
+        previous_hashes = self._stored_managed_block_hashes(conn, paper_id)
+        if not previous_hashes:
+            return "user_modified"
+        current_hashes = self._managed_block_hashes(content)
+        for block_id, previous_hash in previous_hashes.items():
+            if current_hashes.get(block_id) != previous_hash:
+                return "conflict_pending"
+        return "user_modified"
+
+    def _stored_managed_block_hashes(
+        self,
+        conn: sqlite3.Connection,
+        paper_id: int,
+    ) -> dict[str, str]:
+        row = conn.execute(
+            """
+            SELECT managed_block_hash_json
+            FROM biz_note_state
+            WHERE paper_id = ?
+            """,
+            (paper_id,),
+        ).fetchone()
+        if row is None:
+            return {}
+        payload = json.loads(row["managed_block_hash_json"] or "{}")
+        return {str(key): str(value) for key, value in payload.items()}
+
+    def _managed_block_hashes(self, content: str) -> dict[str, str]:
+        return {
+            block_id: hash_text(block)
+            for block_id, block in extract_managed_blocks(content).items()
+        }
+
     def _create_default_documents(
         self,
         *,
@@ -1384,9 +1987,73 @@ class PaperRepository:
                 metadata={"doc_role": role},
                 now=now,
             )
+            if role == "note":
+                self._upsert_note_state(
+                    conn=conn,
+                    paper_id=paper_id,
+                    note_doc_id=doc_id,
+                    note_status="empty",
+                    content=content,
+                    now=now,
+                )
 
     def _paper_from_row(self, row: sqlite3.Row) -> PaperRecord:
-        return paper_record_from_row(row, self._asset_map(int(row["asset_id"])))
+        paper_id = int(row["asset_id"])
+        record = paper_record_from_row(row, self._asset_map(paper_id))
+        source_pdf = self._source_pdf_info(paper_id)
+        record = replace(
+            record,
+            source_pdf_size=source_pdf["file_size"],
+            source_pdf_is_real=source_pdf["is_real_pdf"],
+        )
+        latest_job = self._latest_job_for_paper(paper_id)
+        if latest_job is None:
+            return record
+        return replace(
+            record,
+            latest_job_id=latest_job.job_id,
+            latest_job_type=latest_job.type,
+            latest_job_status=latest_job.status,
+            latest_job_message=latest_job.message,
+        )
+
+    def _source_pdf_info(self, paper_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT file_size, metadata
+                FROM biz_paper_artifact
+                WHERE paper_id = ? AND artifact_key = 'source_pdf'
+                LIMIT 1
+                """,
+                (paper_id,),
+            ).fetchone()
+        if row is None:
+            return {"file_size": 0, "is_real_pdf": False}
+        metadata = json.loads(row["metadata"] or "{}")
+        if "is_real_pdf" in metadata:
+            return {
+                "file_size": int(row["file_size"]),
+                "is_real_pdf": bool(metadata["is_real_pdf"]),
+            }
+        return {
+            "file_size": int(row["file_size"]),
+            "is_real_pdf": int(row["file_size"]) >= get_settings().paper_download.min_pdf_size,
+        }
+
+    def _latest_job_for_paper(self, paper_id: int) -> JobRecord | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM jobs
+                WHERE resource_type = 'paper' AND resource_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (paper_id,),
+            ).fetchone()
+        return self._job_from_row(row) if row else None
 
     def _asset_map(self, paper_id: int) -> dict[str, int]:
         with self.connect() as conn:
@@ -1467,6 +2134,22 @@ class PaperRepository:
 
     def _pdf_path(self, paper_id: int) -> Path:
         return self._paper_dir(paper_id) / "paper.pdf"
+
+    def _pdf_integrity_metadata(self, path: Path) -> dict[str, Any]:
+        file_size = path_size(path)
+        header = ""
+        if path.exists() and path.is_file():
+            with path.open("rb") as handle:
+                header = handle.read(5).decode("latin1", errors="replace")
+        valid_pdf_header = header == "%PDF-"
+        min_pdf_size = get_settings().paper_download.min_pdf_size
+        return {
+            "file_size": file_size,
+            "pdf_header": header,
+            "valid_pdf_header": valid_pdf_header,
+            "min_pdf_size": min_pdf_size,
+            "is_real_pdf": valid_pdf_header and file_size >= min_pdf_size,
+        }
 
     def _sections_dir(self, paper_id: int) -> Path:
         return self._paper_dir(paper_id) / "parsed" / "sections"
@@ -1556,11 +2239,13 @@ class PaperRepository:
     def _download_request_for_paper(
         self, paper: PaperRecord
     ) -> RepositoryPaperDownloadRequest:
-        source_url = paper.pdf_url or paper.source_url or None
+        source_url = paper.pdf_url or paper.source_url
+        if not source_url and self._looks_like_url(paper.title):
+            source_url = paper.title
         return RepositoryPaperDownloadRequest(
-            source_url=source_url,
+            source_url=source_url or None,
             doi=paper.doi or None,
-            title=paper.title,
+            title="" if self._looks_like_url(paper.title) else paper.title,
             year="" if paper.year is None else str(paper.year),
             venue=paper.venue,
             output_dir=f"paper_api_{paper.paper_id}",
@@ -1568,13 +2253,21 @@ class PaperRepository:
         )
 
     def _network_download_enabled(self, paper: PaperRecord) -> bool:
-        if not (paper.pdf_url or paper.source_url or paper.doi):
+        if not (
+            paper.pdf_url
+            or paper.source_url
+            or paper.doi
+            or self._looks_like_url(paper.title)
+        ):
             return False
         return os.getenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "").lower() in {
             "1",
             "true",
             "yes",
         }
+
+    def _looks_like_url(self, value: str) -> bool:
+        return value.strip().lower().startswith(("http://", "https://"))
 
     def _resolve_local_pdf_reference(self, paper: PaperRecord) -> Path | None:
         for value in (paper.pdf_url, paper.source_url):

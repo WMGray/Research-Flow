@@ -252,9 +252,22 @@ def test_project_generation_filters_linked_resources(client: TestClient) -> None
     assert "| Linked datasets | 1 |" in content
 
 
-def test_paper_extract_placeholders_are_queryable(client: TestClient) -> None:
+def test_paper_extracts_evidence_grounded_resources(client: TestClient) -> None:
     paper = create_paper(client)
     paper_id = paper["paper_id"]
+    note_response = client.put(
+        f"/api/v1/papers/{paper_id}/note",
+        json={
+            "content": (
+                "# Resource Extraction Paper\n\n"
+                "We propose a low-rank adapter method that improves parameter "
+                "efficiency when evaluated on the MMLU benchmark dataset for "
+                "language reasoning tasks."
+            ),
+            "base_version": 1,
+        },
+    )
+    assert note_response.status_code == 200
 
     knowledge_response = client.post(f"/api/v1/papers/{paper_id}/extract-knowledge")
     assert knowledge_response.status_code == 202
@@ -266,12 +279,8 @@ def test_paper_extract_placeholders_are_queryable(client: TestClient) -> None:
 
     paper_knowledge = client.get(f"/api/v1/papers/{paper_id}/knowledge")
     assert paper_knowledge.status_code == 200
-    assert paper_knowledge.json()["data"][0]["display_name"].endswith(
-        "placeholder finding"
-    )
+    assert "placeholder" not in paper_knowledge.json()["data"][0]["display_name"]
 
     paper_datasets = client.get(f"/api/v1/papers/{paper_id}/datasets")
     assert paper_datasets.status_code == 200
-    assert paper_datasets.json()["data"][0]["display_name"].endswith(
-        "placeholder dataset"
-    )
+    assert paper_datasets.json()["data"][0]["display_name"] == "MMLU"
