@@ -10,6 +10,7 @@ from core.task_names import (
     PAPER_EXTRACT_KNOWLEDGE,
     PAPER_GENERATE_NOTE,
     PAPER_CONFIRM_PIPELINE,
+    PAPER_IMPORT_PIPELINE,
     PAPER_PARSE,
     PAPER_REFINE,
     PAPER_SPLIT,
@@ -61,3 +62,8 @@ def extract_datasets(paper_id: int) -> dict[str, object]:
 @celery.task(name=PAPER_CONFIRM_PIPELINE)
 def confirm_pipeline(paper_id: int, parent_job_id: str | None = None) -> dict[str, object]:
     return asdict(PaperService().run_confirm_pipeline(paper_id, parent_job_id))
+
+
+@celery.task(name=PAPER_IMPORT_PIPELINE)
+def import_pipeline(paper_id: int, parent_job_id: str | None = None) -> dict[str, object]:
+    return asdict(PaperService().run_import_pipeline(paper_id, parent_job_id))

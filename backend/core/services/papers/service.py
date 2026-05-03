@@ -148,6 +148,20 @@ class PaperService:
 
         return self.repository.run_confirm_pipeline(paper_id, parent_job_id)
 
+    def create_import_pipeline_job(self, paper_id: int) -> JobRecord:
+        """Create the queued parent job for the import pipeline."""
+
+        return self.repository.create_import_pipeline_job(paper_id)
+
+    def run_import_pipeline(
+        self,
+        paper_id: int,
+        parent_job_id: str | None = None,
+    ) -> JobRecord:
+        """Run download, parse, refine, then stop for manual review."""
+
+        return self.repository.run_import_pipeline(paper_id, parent_job_id)
+
     def run_split_sections(self, paper_id: int) -> JobRecord:
         """生成 canonical sections。"""
 

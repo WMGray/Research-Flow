@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
+
 from core.assets import (
     create_asset,
     create_asset_link,
@@ -489,6 +491,18 @@ class PaperRepository:
             shutil.copy2(local_pdf, pdf_path)
             download_mode = "attached_local_pdf"
 
+        inferred_pdf_url = self._infer_direct_pdf_url(paper)
+        if inferred_pdf_url and not paper.pdf_url:
+            metadata_updates["pdf_url"] = inferred_pdf_url
+            paper = replace(paper, pdf_url=inferred_pdf_url)
+
+        if not pdf_path.exists() and paper.pdf_url.lower().startswith(("http://", "https://")):
+            try:
+                self._download_direct_pdf(paper.pdf_url, pdf_path)
+                download_mode = "direct_pdf_url"
+            except Exception as exc:  # noqa: BLE001 - recorded in job result and fallback
+                warning = f"DIRECT_PDF_DOWNLOAD_FAILED: {exc}"
+
         if not pdf_path.exists() and self._network_download_enabled(paper):
             try:
                 row, result = PaperDownloadService().download(
@@ -499,6 +513,8 @@ class PaperRepository:
                     "download": dict(result),
                 }
                 metadata_updates = self._metadata_updates_from_resolution(paper, row)
+                if metadata_updates:
+                    paper = replace(paper, **self._paper_replacements(metadata_updates))
                 file_path = str(result.get("file_path") or "")
                 source_path = Path(file_path)
                 if (
@@ -510,8 +526,22 @@ class PaperRepository:
                     download_mode = "gpaper"
                 else:
                     warning = str(result.get("detail") or "gPaper did not return a PDF file.")
+                    if paper.pdf_url and self._looks_like_url(paper.pdf_url):
+                        try:
+                            self._download_direct_pdf(paper.pdf_url, pdf_path)
+                            download_mode = "direct_pdf_url"
+                            warning = None
+                        except Exception as exc:  # noqa: BLE001 - recorded in fallback
+                            warning = f"{warning}; DIRECT_PDF_DOWNLOAD_FAILED: {exc}"
             except Exception as exc:  # noqa: BLE001 - recorded in job result and dev fallback
                 warning = str(exc)
+                if paper.pdf_url and self._looks_like_url(paper.pdf_url):
+                    try:
+                        self._download_direct_pdf(paper.pdf_url, pdf_path)
+                        download_mode = "direct_pdf_url"
+                        warning = None
+                    except Exception as direct_exc:  # noqa: BLE001 - recorded in fallback
+                        warning = f"{warning}; DIRECT_PDF_DOWNLOAD_FAILED: {direct_exc}"
 
         if not pdf_path.exists():
             if warning is None and (paper.pdf_url or paper.source_url or paper.doi):
@@ -640,6 +670,26 @@ class PaperRepository:
             updates["pdf_url"] = resolved_pdf_url
 
         return updates
+
+    def _paper_replacements(self, updates: dict[str, Any]) -> dict[str, Any]:
+        replacements: dict[str, Any] = {}
+        mapping = {
+            "title": "title",
+            "pub_year": "year",
+            "venue": "venue",
+            "venue_short": "venue_short",
+            "doi": "doi",
+            "source_url": "source_url",
+            "pdf_url": "pdf_url",
+            "ccf_rank": "ccf_rank",
+            "sci_quartile": "sci_quartile",
+        }
+        for db_key, record_key in mapping.items():
+            if db_key in updates:
+                replacements[record_key] = updates[db_key]
+        if "authors" in updates:
+            replacements["authors"] = json.loads(str(updates["authors"]))
+        return replacements
 
     def _resolution_text(self, resolution: object, field_name: str) -> str:
         value = getattr(resolution, field_name, "")
@@ -1029,6 +1079,113 @@ class PaperRepository:
             status="queued",
             progress=0.0,
             message="Confirm pipeline queued.",
+        )
+
+    def create_import_pipeline_job(self, paper_id: int) -> JobRecord:
+        self.get_paper(paper_id)
+        return self._create_job(
+            paper_id=paper_id,
+            job_type="paper_import_pipeline",
+            status="queued",
+            progress=0.0,
+            message="Import pipeline queued.",
+        )
+
+    def run_import_pipeline(
+        self,
+        paper_id: int,
+        parent_job_id: str | None = None,
+    ) -> JobRecord:
+        parent_job = (
+            self._finish_job(
+                parent_job_id,
+                status="running",
+                progress=0.05,
+                message="Import pipeline started.",
+            )
+            if parent_job_id
+            else self._create_job(
+                paper_id=paper_id,
+                job_type="paper_import_pipeline",
+                status="running",
+                progress=0.05,
+                message="Import pipeline started.",
+            )
+        )
+        jobs: list[JobRecord] = []
+
+        def fail(stage: str, job: JobRecord) -> JobRecord:
+            jobs.append(job)
+            return self._finish_job(
+                parent_job.job_id,
+                status="failed",
+                progress=1.0,
+                message=job.message,
+                result={"stage": stage, "jobs": [asdict(record) for record in jobs]},
+                error=job.error
+                or {
+                    "code": "PAPER_IMPORT_PIPELINE_FAILED",
+                    "message": job.message,
+                    "details": {"stage": stage},
+                },
+            )
+
+        try:
+            for progress, stage, runner in (
+                (0.25, "download", self.run_download),
+                (
+                    0.50,
+                    "parse",
+                    lambda target_id: self.run_parse(
+                        target_id,
+                        parser="mineru",
+                        force=False,
+                    ),
+                ),
+                (
+                    0.75,
+                    "refine",
+                    lambda target_id: self.run_refine_parse(
+                        target_id,
+                        RefineParseInput(),
+                    ),
+                ),
+            ):
+                job = runner(paper_id)
+                if job.status != "succeeded":
+                    return fail(stage, job)
+                jobs.append(job)
+                self._finish_job(
+                    parent_job.job_id,
+                    status="running",
+                    progress=progress,
+                    message=f"Import pipeline completed {stage}.",
+                )
+            self.submit_review(paper_id)
+        except Exception as exc:  # noqa: BLE001 - recorded as parent job failure
+            return self._finish_job(
+                parent_job.job_id,
+                status="failed",
+                progress=1.0,
+                message=str(exc),
+                result={"jobs": [asdict(record) for record in jobs]},
+                error={
+                    "code": "PAPER_IMPORT_PIPELINE_EXCEPTION",
+                    "message": str(exc),
+                    "details": {},
+                },
+            )
+
+        return self._finish_job(
+            parent_job.job_id,
+            status="waiting_review",
+            progress=1.0,
+            message="Import pipeline stopped for refined.md review.",
+            result={
+                "paper_id": paper_id,
+                "jobs": [asdict(record) for record in jobs],
+                "paper": asdict(self.get_paper(paper_id)),
+            },
         )
 
     def run_confirm_pipeline(
@@ -2566,6 +2723,56 @@ class PaperRepository:
 
     def _looks_like_url(self, value: str) -> bool:
         return value.strip().lower().startswith(("http://", "https://"))
+
+    def _infer_direct_pdf_url(self, paper: PaperRecord) -> str:
+        for value in (paper.pdf_url, paper.source_url, paper.doi, paper.title):
+            arxiv_id = self._extract_arxiv_id(value)
+            if arxiv_id:
+                return f"https://arxiv.org/pdf/{arxiv_id}"
+        return ""
+
+    def _extract_arxiv_id(self, value: str) -> str:
+        text = value.strip()
+        if not text:
+            return ""
+        match = re.search(
+            r"(?:arxiv\.org/(?:abs|pdf)/|arxiv:)(\d{4}\.\d{4,5})(?:v\d+)?",
+            text,
+            re.I,
+        )
+        if match:
+            return match.group(1)
+        doi_match = re.search(r"10\.48550/arXiv\.(\d{4}\.\d{4,5})(?:v\d+)?", text, re.I)
+        if doi_match:
+            return doi_match.group(1)
+        return ""
+
+    def _download_direct_pdf(self, url: str, pdf_path: Path) -> None:
+        headers = {"User-Agent": "Research-Flow/0.1"}
+        with httpx.stream(
+            "GET",
+            url,
+            follow_redirects=True,
+            headers=headers,
+            timeout=httpx.Timeout(15.0, read=120.0),
+        ) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "").lower()
+            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = pdf_path.with_suffix(".download")
+            with tmp_path.open("wb") as handle:
+                for chunk in response.iter_bytes():
+                    if chunk:
+                        handle.write(chunk)
+            header = tmp_path.read_bytes()[:5]
+            if header != b"%PDF-" and "pdf" not in content_type:
+                tmp_path.unlink(missing_ok=True)
+                raise ValueError(f"response is not a PDF: {content_type or 'unknown'}")
+            min_size = get_settings().paper_download.min_pdf_size
+            if path_size(tmp_path) < min_size:
+                tmp_path.unlink(missing_ok=True)
+                raise ValueError(f"PDF is smaller than minimum size {min_size}")
+            tmp_path.replace(pdf_path)
 
     def _resolve_local_pdf_reference(self, paper: PaperRecord) -> Path | None:
         for value in (paper.pdf_url, paper.source_url):

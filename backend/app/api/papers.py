@@ -16,6 +16,7 @@ from app.schemas.papers import (
     PaperArtifactResponse,
     PaperConfirmPipelineResponse,
     PaperCreateRequest,
+    PaperImportPipelineResponse,
     PaperListQuery,
     PaperPipelineRequest,
     PaperPipelineResponse,
@@ -58,7 +59,10 @@ from core.services.papers.metadata import (
 )
 from core.services.papers.service import PaperService
 from core.services.resources import ResourceNotFoundError, ResourceRepository
-from worker.tasks.papers import confirm_pipeline as confirm_pipeline_task
+from worker.tasks.papers import (
+    confirm_pipeline as confirm_pipeline_task,
+    import_pipeline as import_pipeline_task,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["papers"])
@@ -137,6 +141,17 @@ def to_confirm_pipeline_response(
     )
 
 
+def to_import_pipeline_response(
+    *,
+    paper: PaperRecord,
+    job: JobRecord,
+) -> PaperImportPipelineResponse:
+    return PaperImportPipelineResponse(
+        paper=to_paper_response(paper),
+        job=to_job_response(job),
+    )
+
+
 def to_parsed_content_response(record: ParsedContentRecord) -> ParsedContentResponse:
     return ParsedContentResponse.model_validate(asdict(record))
 
@@ -199,6 +214,29 @@ def create_paper(
 ) -> APIEnvelope:
     try:
         return envelope(to_paper_response(service.create_paper(to_paper_input(request))))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/papers/{paper_id}/import-pipeline",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def start_import_pipeline(
+    paper_id: int,
+    background_tasks: BackgroundTasks,
+    service: PaperService = Depends(get_paper_service),
+) -> APIEnvelope:
+    try:
+        queued_job = service.create_import_pipeline_job(paper_id)
+        if hasattr(import_pipeline_task, "delay"):
+            import_pipeline_task.delay(paper_id, queued_job.job_id)
+        else:
+            background_tasks.add_task(import_pipeline_task, paper_id, queued_job.job_id)
+        paper = service.get_paper(paper_id)
+        return envelope(to_import_pipeline_response(paper=paper, job=queued_job))
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

@@ -250,6 +250,11 @@ export type PaperConfirmPipelineResponse = {
   job: JobRecord;
 };
 
+export type PaperImportPipelineResponse = {
+  paper: PaperRecord;
+  job: JobRecord;
+};
+
 export type FeedListResponse = {
   items: FeedItemRecord[];
   total: number;
@@ -542,6 +547,16 @@ export async function runPaperPipeline(
       method: "POST",
       body: input,
     },
+  );
+  return envelope.data;
+}
+
+export async function startPaperImportPipeline(
+  paperId: number,
+): Promise<PaperImportPipelineResponse> {
+  const envelope = await request<PaperImportPipelineResponse>(
+    `/api/v1/papers/${paperId}/import-pipeline`,
+    { method: "POST" },
   );
   return envelope.data;
 }
@@ -921,35 +936,14 @@ export async function importPaper(input: {
   value: string;
   categoryId?: number | null;
 }): Promise<PaperRecord> {
-  const resolution = await resolvePaper(input);
-  const sourceUrl =
-    resolution.landing_url ||
-    (input.mode === "source_url" ? input.value : resolution.raw_input);
-  const pdfUrl = resolution.pdf_url || resolution.final_url;
-  const resolvedYear = Number.parseInt(resolution.year, 10);
-
   const paper = await createPaper({
-    title: resolution.title || input.value,
-    authors: resolution.authors,
-    year: Number.isFinite(resolvedYear) ? resolvedYear : null,
-    venue: resolution.venue,
-    venue_short: resolution.venue,
-    ccf_rank: resolution.ccf_rank,
-    sci_quartile: resolution.sci_quartile,
-    doi: resolution.doi,
-    source_url: sourceUrl,
-    pdf_url: pdfUrl,
-    source_kind: "manual",
+    title: input.value,
+    source_url: input.mode === "source_url" ? input.value : "",
+    doi: input.mode === "doi" ? input.value : "",
+    source_kind: "search",
     category_id: input.categoryId ?? null,
   });
 
-  const pipeline = await runPaperPipeline(paper.paper_id, {
-    download_pdf: true,
-    parse: true,
-    refine_parse: true,
-    split_sections: false,
-    generate_note: false,
-    require_review_confirmation: true,
-  });
+  const pipeline = await startPaperImportPipeline(paper.paper_id);
   return pipeline.paper;
 }

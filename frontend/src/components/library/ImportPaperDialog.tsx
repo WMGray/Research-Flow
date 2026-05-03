@@ -64,7 +64,7 @@ export function ImportPaperDialog({
           <div>
             <h2 className="text-lg font-extrabold text-on-surface">Import Paper</h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Resolve metadata from one input, then start PDF download.
+              Resolve metadata and queue the import pipeline.
             </p>
           </div>
           <button
@@ -144,9 +144,8 @@ export function ImportPaperDialog({
             fact_check
           </span>
           <p>
-            The pipeline stops after refined parsing so you can review the
-            refined document before confirming downstream section, note,
-            knowledge, and dataset generation.
+            The dialog closes after the paper is queued. Download, parsing, and
+            refinement continue as a background job.
           </p>
         </div>
 
@@ -173,7 +172,7 @@ export function ImportPaperDialog({
             <span className="material-symbols-outlined text-lg">
               {isSubmitting ? "progress_activity" : "download"}
             </span>
-            <span>{isSubmitting ? "Importing..." : "Resolve & Download"}</span>
+            <span>{isSubmitting ? "Queueing..." : "Start Import"}</span>
           </button>
         </div>
       </div>

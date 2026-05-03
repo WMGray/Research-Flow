@@ -1028,6 +1028,44 @@ def test_create_paper_can_download_after_import(client: TestClient) -> None:
     assert paper["parse_job_id"] is None
 
 
+def test_start_import_pipeline_returns_queued_job(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_refiner(
+        monkeypatch,
+        response_content="\n".join(
+            [
+                "# Refined",
+                "",
+                "## Method",
+                "Method section.",
+                "",
+                "## Experiment",
+                "Experiment section.",
+            ]
+        ),
+    )
+    create_response = client.post(
+        "/api/v1/papers",
+        json={"title": "Queued Import Pipeline"},
+    )
+    paper_id = create_response.json()["data"]["paper_id"]
+
+    response = client.post(f"/api/v1/papers/{paper_id}/import-pipeline")
+
+    assert response.status_code == 202
+    payload = response.json()["data"]
+    assert payload["paper"]["paper_id"] == paper_id
+    assert payload["job"]["type"] == "paper_import_pipeline"
+    assert payload["job"]["status"] == "queued"
+
+    final_job = client.get(f"/api/v1/jobs/{payload['job']['job_id']}").json()["data"]
+    assert final_job["status"] == "waiting_review"
+    paper_response = client.get(f"/api/v1/papers/{paper_id}").json()["data"]
+    assert paper_response["review_status"] == "waiting_review"
+
+
 def test_download_updates_resolved_metadata_and_exposes_files(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -1096,6 +1134,60 @@ def test_download_updates_resolved_metadata_and_exposes_files(
     note_response = client.get(f"/api/v1/papers/{paper['paper_id']}/note/raw")
     assert note_response.status_code == 200
     assert note_response.text.startswith("# https://example.com/paper")
+
+
+def test_download_uses_direct_pdf_url(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import core.services.papers.repository as repository_module
+
+    source_pdf = tmp_path / "direct.pdf"
+    source_pdf.write_bytes(
+        b"%PDF-1.4\n% Direct PDF test\n" + (b"1" * 5000) + b"\n%%EOF\n"
+    )
+
+    class FakeStreamResponse:
+        headers = {"content-type": "application/pdf"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_bytes(self):
+            yield source_pdf.read_bytes()
+
+    def fake_stream(*args, **kwargs):
+        del args, kwargs
+        return FakeStreamResponse()
+
+    monkeypatch.setattr(repository_module.httpx, "stream", fake_stream)
+
+    response = client.post(
+        "/api/v1/papers",
+        json={
+            "title": "Direct PDF Paper",
+            "pdf_url": "https://example.com/direct.pdf",
+            "download_pdf": True,
+        },
+    )
+
+    assert response.status_code == 201
+    paper = response.json()["data"]
+    assert paper["source_pdf_is_real"] is True
+    assert paper["source_pdf_size"] > 4096
+
+    artifacts = client.get(f"/api/v1/papers/{paper['paper_id']}/artifacts").json()[
+        "data"
+    ]
+    pdf_artifact = next(item for item in artifacts if item["artifact_key"] == "source_pdf")
+    assert pdf_artifact["metadata"]["mode"] == "direct_pdf_url"
 
 
 def test_run_paper_pipeline_reaches_note_and_exposes_audit_records(

@@ -264,3 +264,8 @@ class PaperPipelineResponse(BaseModel):
 class PaperConfirmPipelineResponse(BaseModel):
     paper: PaperResponse
     job: JobResponse
+
+
+class PaperImportPipelineResponse(BaseModel):
+    paper: PaperResponse
+    job: JobResponse
