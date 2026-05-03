@@ -245,6 +245,11 @@ export type PaperPipelineResponse = {
   paper: PaperRecord;
 };
 
+export type PaperConfirmPipelineResponse = {
+  paper: PaperRecord;
+  job: JobRecord;
+};
+
 export type FeedListResponse = {
   items: FeedItemRecord[];
   total: number;
@@ -541,8 +546,10 @@ export async function runPaperPipeline(
   return envelope.data;
 }
 
-export async function confirmPaperReview(paperId: number): Promise<PaperRecord> {
-  const envelope = await request<PaperRecord>(
+export async function confirmPaperReview(
+  paperId: number,
+): Promise<PaperConfirmPipelineResponse> {
+  const envelope = await request<PaperConfirmPipelineResponse>(
     `/api/v1/papers/${paperId}/confirm-review`,
     { method: "POST" },
   );

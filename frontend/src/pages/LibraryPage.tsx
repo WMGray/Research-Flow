@@ -11,7 +11,6 @@ import {
   paperNoteUrl,
   paperPdfUrl,
   paperRefinedUrl,
-  runPaperAction,
   updatePaper,
   type CategoryRecord,
   type PaperResolveMode,
@@ -307,20 +306,11 @@ export const LibraryPage: React.FC = () => {
     setError(null);
     setReviewTarget(null);
     try {
-      const confirmedPaper = await confirmPaperReview(paper.paper_id);
-      setPapers((currentPapers) => mergePaper(currentPapers, confirmedPaper));
+      const result = await confirmPaperReview(paper.paper_id);
+      setPapers((currentPapers) => mergePaper(currentPapers, result.paper));
 
-      for (const action of [
-        "split-sections",
-        "generate-note",
-        "extract-knowledge",
-        "extract-datasets",
-      ] as const) {
-        const job = await runPaperAction(paper.paper_id, action);
-        if (job.status !== "succeeded") {
-          throw new Error(job.error?.message ?? job.message);
-        }
-        await loadPapers({ showRefreshing: true });
+      if (result.job.status === "failed") {
+        throw new Error(result.job.error?.message ?? result.job.message);
       }
       await loadPapers({ showRefreshing: true });
     } catch (err) {
