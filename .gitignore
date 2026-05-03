@@ -39,12 +39,16 @@ build/
 .dmypy.json
 .ruff_cache/
 .pytest_cache/
+.pytest-*/
 .pytest_tmp*/
 .pytest-temp/
+pytest-cache-files-*/
 reports/
 skill-lab/
 backend/.pytest-basetemp/
 backend/.pytest-basetemp*/
+backend/.pytest-codex-run/
+backend/.pytest-codex-run*/
 backend/.pytest-*/
 backend/.pytest_tmp*/
 backend/.codex*/
@@ -54,6 +58,7 @@ backend/acl_probe_pytest_mode/
 backend/codex_tmp/
 backend/pytest_*/
 backend/tmp*/
+tmp_pytest/
 .pytest-local-*/
 .tmp*/
 pytest_tmp*/

@@ -1,4 +1,4 @@
-.PHONY: help init dev dev-backend dev-frontend install install-backend install-frontend test-paper-download lint fmt clean
+.PHONY: help init dev dev-backend dev-frontend install install-backend install-frontend test-backend test-paper-download lint fmt clean
 
 # Show common development commands.
 help:
@@ -12,6 +12,7 @@ help:
 	@echo "  make install              Install all dependencies"
 	@echo "  make install-backend      Install backend dependencies"
 	@echo "  make install-frontend     Install frontend dependencies"
+	@echo "  make test-backend         Run backend tests with fixed basetemp"
 	@echo "  make test-paper-download  Run gPaper paper_download check"
 	@echo "  make lint                 Run linters"
 	@echo "  make fmt                  Format code"
@@ -52,6 +53,10 @@ install-backend:
 install-frontend:
 	@echo ">>> Installing frontend dependencies..."
 	cd frontend && npm install
+
+# Run backend tests with a repository-local pytest basetemp.
+test-backend:
+	cd backend && python -m pytest -q --basetemp .pytest-basetemp
 
 # Manual gPaper / paper_download integration check.
 test-paper-download:

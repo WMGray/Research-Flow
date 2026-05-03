@@ -58,7 +58,7 @@ backend/
 
 `app/` 当前只保留 HTTP API、请求/响应 schema、应用生命周期和任务投递入口；`core/services/papers/` 已完成 DTO 分离，不再依赖 `app.schemas`。后续目标位置：`core/models/` 承载 ORM，`core/database.py` 承载两边共享的数据库连接。
 
-截至 2026-04-27，Paper / Project / Job 已具备本地 P0 雏形；真实异步队列、完整 Category / Config API、Knowledge / Dataset / Presentation CRUD 仍未完整落地。当前实现状态以 `backend/core/`、`backend/app/api/` 与 `backend/tests/` 为准，长期目标设计见 `docs/02_backend/`。
+截至 2026-05-01，Paper / Project / Job / Category / Config 已具备本地 P0 雏形；Worker 已注册 Paper / Project / Presentation 等任务入口并复用 `core/services`，但真实异步队列运行仍依赖独立 Worker 环境与 Celery/Redis。Knowledge / Dataset / Presentation CRUD 已有本地实现，后续重点是替换占位生成质量与补齐 Feed / Recommendation / Zotero / Graph / Conference。当前实现状态以 `backend/core/`、`backend/app/api/` 与 `backend/tests/` 为准，长期目标设计见 `docs/02_backend/`。
 
 ---
 
@@ -167,6 +167,30 @@ curl http://localhost:8000/health
 # API 文档
 open http://localhost:8000/docs
 ```
+
+---
+
+## 本地测试
+
+后端测试固定使用仓库内的 `.pytest-basetemp`，避免 Windows 默认临时目录或历史临时目录 ACL 异常影响 pytest fixture 初始化。
+
+```bash
+cd backend
+python -m pytest -q --basetemp .pytest-basetemp
+
+# 或在仓库根目录执行
+make test-backend
+```
+
+最小启动检查：
+
+```bash
+cd backend
+python -c "import app.main; import worker.app; import core.services.papers.knowledge"
+python -m pytest -q tests/test_health.py tests/test_worker_tasks.py --basetemp .pytest-basetemp
+```
+
+如果 `tmp_pytest/basetemp/` 或 `backend/data/tmp/*` 在 Windows 上出现 `PermissionError`，先不要把它们纳入测试扫描或 Git 操作；这些目录已加入 `.gitignore`。需要清理时，关闭占用它们的 Python/pytest 进程后用资源管理器或管理员 PowerShell 手工处理。
 
 ---
 
