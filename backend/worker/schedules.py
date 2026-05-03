@@ -1,13 +1,27 @@
-"""Celery Beat 定时任务表。
+"""Celery Beat schedule.
 
-所有定时任务统一引用 core.task_names，避免 schedule 中写死字符串。
+Task names are imported from core.task_names to avoid string drift.
 """
 
-from celery.schedules import crontab
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+try:
+    from celery.schedules import crontab
+except ModuleNotFoundError:  # pragma: no cover - exercised in minimal local envs
+
+    @dataclass(frozen=True)
+    class LocalCrontab:
+        kwargs: dict[str, Any]
+
+    def crontab(**kwargs: Any) -> LocalCrontab:
+        return LocalCrontab(kwargs=kwargs)
 
 from core.task_names import CONFERENCE_REFRESH_ALL, FEED_FETCH_AND_SCORE
 
-# Beat schedule 只描述“何时投递什么任务”，任务实现放在 worker/tasks。
+# Beat only describes when to dispatch tasks; implementations live in worker/tasks.
 beat_schedule = {
     "daily-paper-push": {
         "task": FEED_FETCH_AND_SCORE,
