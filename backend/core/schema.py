@@ -68,11 +68,49 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sys_agent_profile (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_key TEXT NOT NULL UNIQUE,
+    scene TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    temperature REAL,
+    max_tokens INTEGER,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sys_skill_binding (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_key TEXT NOT NULL UNIQUE,
+    scene TEXT NOT NULL,
+    agent_profile_key TEXT NOT NULL,
+    runtime_instruction_key TEXT NOT NULL DEFAULT '',
+    toolset_json TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sys_llm_probe_result (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_key TEXT NOT NULL UNIQUE,
+    provider TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    connectivity_status TEXT NOT NULL,
+    ttft_ms INTEGER,
+    probe_started_at TEXT,
+    checked_at TEXT NOT NULL,
+    error_message TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_asset_registry_type ON asset_registry(asset_type);
 CREATE INDEX IF NOT EXISTS idx_asset_registry_deleted ON asset_registry(is_deleted);
 CREATE INDEX IF NOT EXISTS idx_asset_link_source ON asset_link(source_id);
 CREATE INDEX IF NOT EXISTS idx_asset_link_target ON asset_link(target_id);
 CREATE INDEX IF NOT EXISTS idx_biz_doc_layout_parent ON biz_doc_layout(parent_id);
+CREATE INDEX IF NOT EXISTS idx_sys_agent_profile_scene ON sys_agent_profile(scene);
+CREATE INDEX IF NOT EXISTS idx_sys_skill_binding_scene ON sys_skill_binding(scene);
+CREATE INDEX IF NOT EXISTS idx_sys_llm_probe_profile ON sys_llm_probe_result(profile_key);
 """
 
 
@@ -83,10 +121,14 @@ PAPER_SCHEMA_SQL = (
 CREATE TABLE IF NOT EXISTS biz_paper (
     asset_id INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
+    paper_slug TEXT NOT NULL UNIQUE,
     authors TEXT NOT NULL DEFAULT '[]',
+    abstract TEXT NOT NULL DEFAULT '',
     pub_year INTEGER,
     venue TEXT NOT NULL DEFAULT '',
     venue_short TEXT NOT NULL DEFAULT '',
+    ccf_rank TEXT NOT NULL DEFAULT '',
+    sci_quartile TEXT NOT NULL DEFAULT '',
     doi TEXT NOT NULL DEFAULT '',
     zotero_id TEXT NOT NULL DEFAULT '',
     paper_stage TEXT NOT NULL DEFAULT 'metadata_ready',
@@ -98,6 +140,7 @@ CREATE TABLE IF NOT EXISTS biz_paper (
     category_id INTEGER,
     source_url TEXT NOT NULL DEFAULT '',
     pdf_url TEXT NOT NULL DEFAULT '',
+    source_kind TEXT NOT NULL DEFAULT 'manual',
     tags TEXT NOT NULL DEFAULT '[]',
     FOREIGN KEY (asset_id) REFERENCES asset_registry(asset_id)
 );

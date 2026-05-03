@@ -64,6 +64,13 @@ api_key = "${SILICONFLOW_API_KEY}"
 timeout = 60
 max_retries = 2
 
+[llm.platforms.xiaomi]
+provider_type = "openai_compatible"
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+api_key = "${XIAOMI_API_KEY}"
+timeout = 60
+max_retries = 2
+
 [llm.models.chat_fast]
 platform = "deepseek"
 model = "deepseek-chat"
@@ -90,6 +97,13 @@ max_tokens = 4096
 platform = "siliconflow"
 model = "Pro/moonshotai/Kimi-K2.5"
 purpose = "月之暗面 Kimi 模型"
+temperature = 0.3
+max_tokens = 4096
+
+[llm.models.chat_xiaomi]
+platform = "xiaomi"
+model = "mimo-v2.5-pro"
+purpose = "小米 mimo-v2.5-pro"
 temperature = 0.3
 max_tokens = 4096
 
@@ -130,6 +144,16 @@ temperature = 0.1
 model = "chat_fast"
 system_prompt = "You generate one evidence-grounded academic paper note block and return only JSON."
 temperature = 0.1
+
+[llm.features.paper_knowledge_extract]
+model = "chat_fast"
+system_prompt = "You extract evidence-grounded reusable academic knowledge from paper notes and return only JSON."
+temperature = 0.0
+
+[llm.features.paper_dataset_extract]
+model = "chat_fast"
+system_prompt = "You extract dataset, benchmark, task, metric, and evidence records from paper notes and return only JSON."
+temperature = 0.0
 
 [llm.features.project_generate_related_work_default]
 model = "chat_kimi_26"
