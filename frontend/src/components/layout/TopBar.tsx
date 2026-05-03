@@ -1,4 +1,5 @@
 import React from "react";
+import { JobNotifications } from "@/components/layout/JobNotifications";
 
 export const TopBar: React.FC = () => {
   return (
@@ -25,12 +26,7 @@ export const TopBar: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-primary"
-          type="button"
-        >
-          <span className="material-symbols-outlined">notifications</span>
-        </button>
+        <JobNotifications />
         <button
           className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-on-primary shadow-sm transition-all hover:bg-primary-dim"
           type="button"
