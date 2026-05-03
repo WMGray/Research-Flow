@@ -1,192 +1,370 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  type KnowledgeRecord,
+  listKnowledge,
+  updateKnowledge,
+} from "@/lib/api";
 
-type InsightCard = {
-  type: "Background" | "Method" | "Limitation";
-  color: string;
-  title: string;
-  description: string;
-  reference: string;
-};
-
-const cards: InsightCard[] = [
-  {
-    type: "Background",
-    color: "bg-blue-50 text-blue-700 border-blue-100",
-    title:
-      "Long-horizon dependencies in video segmentation remain unresolved, especially once clips exceed several minutes and temporal drift starts compounding.",
-    description:
-      '"Current architectures struggle to maintain temporal consistency across extended video sequences, leading to fragmented segmentation maps in complex surgical procedures [1]."',
-    reference: "Video Mamba, 2024",
-  },
-  {
-    type: "Method",
-    color: "bg-emerald-50 text-emerald-700 border-emerald-100",
-    title:
-      "Separating spatial and temporal attention improves boundary sensitivity and makes subtle action transitions easier to isolate.",
-    description:
-      '"By decoupling spatial and temporal features, the model better isolates the transitional frames between discrete actions [4]."',
-    reference: "MS-TCN++ Revisited, 2023",
-  },
-  {
-    type: "Limitation",
-    color: "bg-orange-50 text-orange-700 border-orange-100",
-    title:
-      "Benchmark imbalance still hurts rare-action recall, so tail categories are frequently absorbed into dominant background classes.",
-    description:
-      "\"Rarely occurring actions are often misclassified as dominant 'background' activities due to the skewed distribution in standard benchmarks [12].\"",
-    reference: "ActionSet Analysis, 2024",
-  },
-  {
-    type: "Background",
-    color: "bg-blue-50 text-blue-700 border-blue-100",
-    title:
-      "Diffusion refiners improve sequence smoothness, but the inference budget remains too expensive for practical real-time segmentation.",
-    description:
-      '"While diffusion-based refiners offer superior boundary smoothing, the multiple denoising steps prohibit real-time deployment [7]."',
-    reference: "DiffAction Net, 2024",
-  },
-  {
-    type: "Method",
-    color: "bg-emerald-50 text-emerald-700 border-emerald-100",
-    title:
-      "Masked self-supervised pretraining reduces annotation dependence by forcing the encoder to recover high-level temporal dynamics from incomplete clips.",
-    description:
-      '"Reconstructing masked temporal segments forces the latent space to encode high-level action dynamics without human labels [2]."',
-    reference: "VideoMAE V2, 2023",
-  },
-  {
-    type: "Limitation",
-    color: "bg-orange-50 text-orange-700 border-orange-100",
-    title:
-      "Heavy occlusion still breaks identity continuity, and current temporal convolutions cannot recover tracks once they fragment.",
-    description:
-      '"Severe occlusions lead to track fragments that current temporal convolution networks cannot bridge effectively [5]."',
-    reference: "CrowdSeg Challenges, 2024",
-  },
+const typeOptions: Array<{ label: string; value: "" | KnowledgeRecord["knowledge_type"] }> = [
+  { label: "All", value: "" },
+  { label: "Views", value: "view" },
+  { label: "Definitions", value: "definition" },
 ];
 
-const domains = [
-  "Action Segmentation",
-  "Online Learning",
-  "MLLM Deployment",
-  "Temporal Grounding",
-  "Efficient Transformers",
-  "Human-Object Interaction",
-] as const;
+const reviewOptions: Array<{ label: string; value: "" | KnowledgeRecord["review_status"] }> = [
+  { label: "All review states", value: "" },
+  { label: "Pending", value: "pending_review" },
+  { label: "Accepted", value: "accepted" },
+  { label: "Rejected", value: "rejected" },
+];
+
+function confidenceLabel(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatDate(value: string): string {
+  if (!value) {
+    return "Unknown";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
 
 export const ViewsPage: React.FC = () => {
+  const [query, setQuery] = useState("");
+  const [knowledgeType, setKnowledgeType] = useState<"" | KnowledgeRecord["knowledge_type"]>("");
+  const [reviewStatus, setReviewStatus] = useState<"" | KnowledgeRecord["review_status"]>("");
+  const [items, setItems] = useState<KnowledgeRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadKnowledge(): Promise<void> {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await listKnowledge({
+          q: query,
+          knowledgeType,
+          reviewStatus,
+          pageSize: 24,
+        });
+        setItems(response.knowledge);
+        setTotal(response.total);
+      } catch (exc) {
+        if (!controller.signal.aborted) {
+          setError(exc instanceof Error ? exc.message : "Failed to load knowledge.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    const timer = window.setTimeout(() => void loadKnowledge(), 180);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [knowledgeType, query, reviewStatus]);
+
+  async function setReviewState(
+    item: KnowledgeRecord,
+    nextStatus: KnowledgeRecord["review_status"],
+  ): Promise<void> {
+    setSavingId(item.knowledge_id);
+    setError("");
+    try {
+      const updated = await updateKnowledge(item.knowledge_id, {
+        review_status: nextStatus,
+      });
+      setItems((current) =>
+        current.map((entry) =>
+          entry.knowledge_id === updated.knowledge_id ? updated : entry,
+        ),
+      );
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to update review state.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  const acceptedCount = items.filter((item) => item.review_status === "accepted").length;
+  const pendingCount = items.filter((item) => item.review_status === "pending_review").length;
+  const fields = Array.from(
+    new Set(items.map((item) => item.research_field || item.category_label).filter(Boolean)),
+  ).slice(0, 10);
+
   return (
     <div className="flex min-h-full flex-col">
       <PageHeader
-        primaryActionIcon="add"
-        primaryActionLabel="New View"
-        searchPlaceholder="Search insights, papers, or domains..."
-        subtitle="AI-generated synthesis"
+        primaryActionIcon="psychology"
+        primaryActionLabel="Extract From Paper"
+        searchPlaceholder="Search insights, evidence, or source sections..."
+        subtitle="Evidence-grounded synthesis"
         title="Views"
       />
 
-      <main className="grid gap-8 p-6 sm:p-8 xl:grid-cols-[16rem_minmax(0,1fr)]">
-        <aside className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest py-3 shadow-sm">
-          <div className="mb-4 px-4">
+      <main className="grid gap-8 p-6 sm:p-8 xl:grid-cols-[18rem_minmax(0,1fr)]">
+        <aside className="space-y-5">
+          <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
             <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface-variant">
-              AI Domains
+              Filters
             </span>
-          </div>
-          <nav className="space-y-1 px-2">
-            {domains.map((domain, index) => (
-              <button
-                key={domain}
-                className={`flex w-full items-center rounded-2xl px-4 py-3 text-left text-sm transition-colors ${
-                  index === 0
-                    ? "bg-primary/5 font-semibold text-primary"
-                    : "text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
-                }`}
-                type="button"
+            <label className="mt-4 block">
+              <span className="mb-2 block text-xs font-bold text-on-surface-variant">
+                Search
+              </span>
+              <input
+                className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-2.5 text-sm outline-none transition focus:border-primary"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="method, limitation, MMLU..."
+                value={query}
+              />
+            </label>
+
+            <div className="mt-5 space-y-2">
+              {typeOptions.map((option) => (
+                <button
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm transition-colors ${
+                    knowledgeType === option.value
+                      ? "bg-primary/10 font-bold text-primary"
+                      : "text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
+                  }`}
+                  key={option.label}
+                  onClick={() => setKnowledgeType(option.value)}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-xs font-bold text-on-surface-variant">
+                Review state
+              </span>
+              <select
+                className="w-full rounded-2xl border border-outline-variant/20 bg-surface-container-low px-4 py-2.5 text-sm outline-none transition focus:border-primary"
+                onChange={(event) =>
+                  setReviewStatus(event.target.value as "" | KnowledgeRecord["review_status"])
+                }
+                value={reviewStatus}
               >
-                {domain}
-              </button>
-            ))}
-          </nav>
+                {reviewOptions.map((option) => (
+                  <option key={option.label} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
+
+          <section className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface-variant">
+              Loaded scope
+            </span>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Stat label="Total" value={total} />
+              <Stat label="Accepted" value={acceptedCount} />
+              <Stat label="Pending" value={pendingCount} />
+              <Stat label="Fields" value={fields.length} />
+            </div>
+          </section>
         </aside>
 
         <section className="space-y-8">
-          <header>
-            <h3 className="mb-2 text-2xl font-bold tracking-tight text-on-surface">
-              Action Segmentation
+          <header className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
+            <h3 className="mb-2 text-2xl font-black tracking-tight text-on-surface">
+              Knowledge extracted from papers
             </h3>
-            <p className="max-w-2xl text-sm text-on-surface-variant">
-              Fine-grained notes extracted from the reading pipeline, focused on
-              temporal reasoning, failure modes, and reusable method patterns.
+            <p className="max-w-3xl text-sm leading-6 text-on-surface-variant">
+              This page now reads from `/api/v1/knowledge`. Each card keeps its evidence,
+              source section, confidence, and human review state visible so the UI can support
+              the manual refine and review loop instead of presenting static examples.
             </p>
+            {fields.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {fields.map((field) => (
+                  <span
+                    className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary"
+                    key={field}
+                  >
+                    {field}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </header>
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-3">
-            {cards.map((card) => (
-              <article
-                key={card.title}
-                className="group flex flex-col gap-4 rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm transition-all hover:border-primary/20 hover:shadow-md"
-              >
-                <div className="flex justify-start">
-                  <span
-                    className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${card.color}`}
-                  >
-                    {card.type}
-                  </span>
-                </div>
-                <h4 className="text-lg font-bold leading-snug text-on-surface">
-                  {card.title}
-                </h4>
-                <p className="text-xs italic leading-relaxed text-on-surface-variant line-clamp-4">
-                  {card.description}
-                </p>
-                <footer className="mt-auto border-t border-surface-container pt-4">
-                  <span className="text-[10px] font-medium text-on-surface-variant">
-                    Reference: {card.reference}
-                  </span>
-                </footer>
-              </article>
-            ))}
-          </div>
+          {error ? (
+            <div className="rounded-2xl border border-error/20 bg-error/5 px-4 py-3 text-sm font-medium text-error">
+              {error}
+            </div>
+          ) : null}
 
-          <div className="flex items-center justify-center gap-1 rounded-full border border-outline-variant/10 bg-surface-container-lowest/90 px-3 py-1.5 shadow-lg backdrop-blur-md">
-            <button
-              className="rounded-full p-1 text-on-surface-variant hover:bg-surface-container"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-sm">
-                chevron_left
+          {loading ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  className="h-64 animate-pulse rounded-3xl bg-surface-container-low"
+                  key={index}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {!loading && items.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-outline-variant/30 bg-surface-container-lowest p-8 text-center shadow-sm">
+              <span className="material-symbols-outlined text-4xl text-on-surface-variant/50">
+                travel_explore
               </span>
-            </button>
-            <button
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-on-primary"
-              type="button"
-            >
-              1
-            </button>
-            <button
-              className="flex h-8 w-8 items-center justify-center rounded-full text-xs text-on-surface transition-colors hover:bg-surface-container"
-              type="button"
-            >
-              2
-            </button>
-            <button
-              className="flex h-8 w-8 items-center justify-center rounded-full text-xs text-on-surface transition-colors hover:bg-surface-container"
-              type="button"
-            >
-              3
-            </button>
-            <button
-              className="rounded-full p-1 text-on-surface-variant hover:bg-surface-container"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-sm">
-                chevron_right
-              </span>
-            </button>
-          </div>
+              <h4 className="mt-3 text-lg font-black text-on-surface">
+                No knowledge records yet
+              </h4>
+              <p className="mx-auto mt-2 max-w-xl text-sm text-on-surface-variant">
+                Run `extract-knowledge` from a refined paper or import a paper through the
+                Library pipeline. The page intentionally shows an empty state rather than mock
+                insights.
+              </p>
+            </div>
+          ) : null}
+
+          {!loading && items.length > 0 ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-3">
+              {items.map((item) => (
+                <KnowledgeCard
+                  item={item}
+                  key={item.knowledge_id}
+                  onReview={setReviewState}
+                  saving={savingId === item.knowledge_id}
+                />
+              ))}
+            </div>
+          ) : null}
         </section>
       </main>
     </div>
   );
 };
+
+function KnowledgeCard({
+  item,
+  onReview,
+  saving,
+}: {
+  item: KnowledgeRecord;
+  onReview: (
+    item: KnowledgeRecord,
+    nextStatus: KnowledgeRecord["review_status"],
+  ) => Promise<void>;
+  saving: boolean;
+}): React.ReactElement {
+  return (
+    <article className="group flex min-h-[21rem] flex-col gap-4 rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm transition-all hover:border-primary/20 hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <span
+          className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
+            item.knowledge_type === "definition"
+              ? "border-blue-100 bg-blue-50 text-blue-700"
+              : "border-emerald-100 bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          {item.knowledge_type}
+        </span>
+        <span className="rounded-full bg-surface-container-high px-2.5 py-0.5 text-[10px] font-bold text-on-surface-variant">
+          {confidenceLabel(item.confidence_score)}
+        </span>
+      </div>
+
+      <h4 className="text-lg font-black leading-snug text-on-surface line-clamp-3">
+        {item.title}
+      </h4>
+      <p className="text-sm leading-6 text-on-surface-variant line-clamp-4">
+        {item.summary_zh || item.original_text_en || "No summary text recorded."}
+      </p>
+
+      <blockquote className="rounded-2xl bg-surface-container-low px-4 py-3 text-xs italic leading-5 text-on-surface-variant line-clamp-4">
+        {item.evidence_text || "Evidence text is empty."}
+      </blockquote>
+
+      <footer className="mt-auto space-y-4 border-t border-surface-container pt-4">
+        <div className="grid grid-cols-2 gap-3 text-[11px] text-on-surface-variant">
+          <span>Section: {item.source_section || "Unknown"}</span>
+          <span>Updated: {formatDate(item.updated_at)}</span>
+          <span>Field: {item.research_field || item.category_label || "Unlabeled"}</span>
+          <span>Status: {item.review_status}</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ReviewButton
+            disabled={saving}
+            label="Accept"
+            onClick={() => void onReview(item, "accepted")}
+            selected={item.review_status === "accepted"}
+          />
+          <ReviewButton
+            disabled={saving}
+            label="Reject"
+            onClick={() => void onReview(item, "rejected")}
+            selected={item.review_status === "rejected"}
+          />
+          <ReviewButton
+            disabled={saving}
+            label="Pending"
+            onClick={() => void onReview(item, "pending_review")}
+            selected={item.review_status === "pending_review"}
+          />
+        </div>
+      </footer>
+    </article>
+  );
+}
+
+function ReviewButton({
+  disabled,
+  label,
+  onClick,
+  selected,
+}: {
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+  selected: boolean;
+}): React.ReactElement {
+  return (
+    <button
+      className={`rounded-full px-3 py-1 text-[11px] font-bold transition ${
+        selected
+          ? "bg-primary text-on-primary"
+          : "bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest"
+      } disabled:cursor-not-allowed disabled:opacity-50`}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }): React.ReactElement {
+  return (
+    <div className="rounded-2xl bg-surface-container-low p-3">
+      <p className="text-xl font-black text-on-surface">{value}</p>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+        {label}
+      </p>
+    </div>
+  );
+}

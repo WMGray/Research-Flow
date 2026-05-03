@@ -1,5 +1,12 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  APIError,
+  createDataset,
+  listDatasets,
+  type DatasetCreateInput,
+  type DatasetRecord,
+} from "@/lib/api";
 
 const datasetsDateLabel = new Intl.DateTimeFormat("en-US", {
   weekday: "long",
@@ -8,294 +15,525 @@ const datasetsDateLabel = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 }).format(new Date());
 
+const emptyForm: DatasetCreateInput = {
+  name: "",
+  task_type: "",
+  data_domain: "",
+  scale: "",
+  source: "manual",
+  description: "",
+  benchmark_summary: "",
+  access_url: "",
+};
+
 export const DatasetsPage: React.FC = () => {
+  const [datasets, setDatasets] = useState<DatasetRecord[]>([]);
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadDatasets = useCallback(async (nextQuery = query): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const response = await listDatasets({ q: nextQuery, pageSize: 50 });
+      setDatasets(response.datasets);
+      setSelectedId((currentId) => {
+        if (currentId && response.datasets.some((item) => item.dataset_id === currentId)) {
+          return currentId;
+        }
+        return response.datasets[0]?.dataset_id ?? null;
+      });
+      setError("");
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    void loadDatasets("");
+  }, [loadDatasets]);
+
+  const selectedDataset = useMemo(
+    () => datasets.find((dataset) => dataset.dataset_id === selectedId) ?? null,
+    [datasets, selectedId],
+  );
+
+  const extractedCount = useMemo(
+    () => datasets.filter((dataset) => dataset.source.includes("paper_extract")).length,
+    [datasets],
+  );
+
+  async function handleCreate(input: DatasetCreateInput): Promise<void> {
+    setIsSubmitting(true);
+    try {
+      const created = await createDataset(input);
+      setDatasets((current) => [created, ...current]);
+      setSelectedId(created.dataset_id);
+      setIsCreateOpen(false);
+      setError("");
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="flex min-h-full flex-col">
       <PageHeader
+        onPrimaryAction={() => setIsCreateOpen(true)}
+        onSearchChange={setQuery}
+        onSearchSubmit={() => void loadDatasets(query)}
         primaryActionIcon="add_circle"
         primaryActionLabel="New Dataset"
-        searchPlaceholder="Search papers, views, or datasets..."
+        searchPlaceholder="Search datasets, benchmarks, or domains..."
+        searchValue={query}
         subtitle={datasetsDateLabel}
         title="Datasets"
       />
 
-      <main className="grid gap-8 p-6 sm:p-8 xl:grid-cols-[18rem_minmax(0,1fr)]">
-        <section className="rounded-3xl bg-surface-container-low p-4">
-          <div className="mb-4 flex items-center justify-between px-2">
-            <h3 className="text-xs font-bold uppercase tracking-[0.22em] text-on-surface-variant">
-              Navigation
-            </h3>
-            <span className="material-symbols-outlined cursor-pointer text-sm text-on-surface-variant">
-              unfold_less
-            </span>
+      <main className="grid gap-6 p-6 sm:p-8 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <aside className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-on-surface-variant">
+                Dataset Registry
+              </p>
+              <p className="mt-1 text-xs text-on-surface-variant">
+                {datasets.length} loaded, {extractedCount} extracted from papers
+              </p>
+            </div>
+            <button
+              className="rounded-lg px-2 py-1 text-xs font-bold text-primary hover:bg-primary/10"
+              onClick={() => void loadDatasets(query)}
+              type="button"
+            >
+              Refresh
+            </button>
           </div>
 
-          <div className="space-y-1">
-            <div className="group flex cursor-pointer items-center rounded-2xl px-2 py-2 transition-colors hover:bg-surface-container">
-              <span className="material-symbols-outlined mr-2 text-sm text-on-surface-variant">
-                chevron_right
-              </span>
-              <span
-                className="material-symbols-outlined mr-2 text-lg text-primary"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                folder
-              </span>
-              <span className="text-sm font-medium text-on-surface">
-                Ego-centric Vision
-              </span>
+          {error ? (
+            <div className="mb-3 rounded-lg border border-error/20 bg-red-50 px-3 py-2 text-sm font-semibold text-error">
+              {error}
             </div>
+          ) : null}
 
-            <div className="space-y-1">
-              <div className="group flex cursor-pointer items-center rounded-2xl px-2 py-2 transition-colors hover:bg-surface-container">
-                <span className="material-symbols-outlined mr-2 rotate-90 text-sm text-on-surface-variant">
-                  chevron_right
-                </span>
-                <span className="material-symbols-outlined mr-2 text-lg text-primary">
-                  folder_open
-                </span>
-                <span className="text-sm font-medium text-on-surface">
-                  Action Segmentation
-                </span>
-              </div>
-
-              <div className="space-y-1 pl-8">
-                <div className="flex cursor-pointer items-center rounded-xl bg-primary/10 px-3 py-2 text-primary">
-                  <span className="material-symbols-outlined mr-2 text-[18px]">
-                    description
-                  </span>
-                  <span className="text-xs font-semibold">
-                    EPIC-KITCHENS-100
-                  </span>
-                </div>
-                <div className="flex cursor-pointer items-center rounded-xl px-3 py-2 text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface">
-                  <span className="material-symbols-outlined mr-2 text-[18px] opacity-60">
-                    description
-                  </span>
-                  <span className="text-xs">Breakfast Dataset</span>
-                </div>
-                <div className="flex cursor-pointer items-center rounded-xl px-3 py-2 text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface">
-                  <span className="material-symbols-outlined mr-2 text-[18px] opacity-60">
-                    description
-                  </span>
-                  <span className="text-xs">50 Salads</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="group flex cursor-pointer items-center rounded-2xl px-2 py-2 transition-colors hover:bg-surface-container">
-              <span className="material-symbols-outlined mr-2 text-sm text-on-surface-variant">
-                chevron_right
-              </span>
-              <span
-                className="material-symbols-outlined mr-2 text-lg text-primary"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                folder
-              </span>
-              <span className="text-sm font-medium text-on-surface">
-                MLLM Benchmarks
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-8">
-          <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-8 shadow-sm">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex-1 space-y-4">
-                <h2 className="text-4xl font-extrabold tracking-tight text-on-surface">
-                  EPIC-KITCHENS-100
-                </h2>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-surface-container-high px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-on-surface">
-                    Action Recognition
-                  </span>
-                  <span className="rounded-full bg-surface-container-high px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-on-surface">
-                    2020
-                  </span>
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-primary">
-                    Video + Text
-                  </span>
-                </div>
-                <p className="max-w-4xl text-base leading-relaxed text-on-surface-variant">
-                  The largest benchmark in egocentric vision, featuring 100
-                  hours, 20M frames, and 90,000 action segments across 45
-                  kitchens. It captures unscripted daily activities with
-                  fine-grained verb, noun, and temporal annotations.
-                </p>
-              </div>
-
-              <div className="w-full max-w-[420px] shrink-0">
-                <div className="aspect-video overflow-hidden rounded-2xl bg-surface-container-high shadow-sm">
-                  <div className="flex h-full w-full items-center justify-center bg-slate-300 text-slate-500">
-                    <span className="material-symbols-outlined text-4xl">
-                      image
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-8 xl:grid-cols-2">
-            <div className="flex min-h-[400px] flex-col rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
-              <div className="mb-8 flex items-center justify-between">
-                <h3 className="text-sm font-bold tracking-tight text-on-surface">
-                  Knowledge Graph
-                </h3>
+          <div className="space-y-2">
+            {isLoading ? (
+              <DatasetListSkeleton />
+            ) : datasets.length ? (
+              datasets.map((dataset) => (
                 <button
-                  className="material-symbols-outlined text-on-surface-variant transition-colors hover:text-primary"
+                  className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${
+                    dataset.dataset_id === selectedId
+                      ? "bg-primary text-on-primary"
+                      : "bg-surface-container-low text-on-surface hover:bg-surface-container"
+                  }`}
+                  key={dataset.dataset_id}
+                  onClick={() => setSelectedId(dataset.dataset_id)}
                   type="button"
                 >
-                  fullscreen
+                  <span className="line-clamp-1 text-sm font-bold">
+                    {dataset.name}
+                  </span>
+                  <span
+                    className={`mt-1 block line-clamp-1 text-xs ${
+                      dataset.dataset_id === selectedId
+                        ? "text-on-primary/80"
+                        : "text-on-surface-variant"
+                    }`}
+                  >
+                    {dataset.task_type || "Unspecified task"} ·{" "}
+                    {dataset.data_domain || "No domain"}
+                  </span>
                 </button>
-              </div>
-              <div className="relative flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50">
-                <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
-                  <div className="rounded-full bg-primary px-4 py-2 text-xs font-bold text-on-primary shadow-lg shadow-primary/20">
-                    EPIC-100
-                  </div>
-                </div>
-                <div className="absolute left-1/4 top-1/4 z-10">
-                  <div className="rounded-lg border border-outline-variant/20 bg-surface-container-highest px-3 py-1.5 text-[10px] font-semibold text-on-surface-variant">
-                    Video Mamba
-                  </div>
-                </div>
-                <div className="absolute right-1/4 top-1/3 z-10">
-                  <div className="rounded-lg border border-outline-variant/20 bg-surface-container-highest px-3 py-1.5 text-[10px] font-semibold text-on-surface-variant">
-                    TimeSformer
-                  </div>
-                </div>
-                <div className="absolute bottom-1/4 left-1/3 z-10">
-                  <div className="rounded-lg border border-outline-variant/20 bg-surface-container-highest px-3 py-1.5 text-[10px] font-semibold text-on-surface-variant">
-                    UniFormer
-                  </div>
-                </div>
-                <div className="absolute bottom-1/4 right-1/4 z-10">
-                  <div className="rounded-lg border border-outline-variant/20 bg-surface-container-highest px-3 py-1.5 text-[10px] font-semibold text-on-surface-variant">
-                    SlowFast
-                  </div>
-                </div>
-                <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-30">
-                  <line
-                    stroke="#0078D4"
-                    strokeWidth="1"
-                    x1="25%"
-                    x2="50%"
-                    y1="25%"
-                    y2="50%"
-                  />
-                  <line
-                    stroke="#0078D4"
-                    strokeWidth="1"
-                    x1="66%"
-                    x2="50%"
-                    y1="33%"
-                    y2="50%"
-                  />
-                  <line
-                    stroke="#0078D4"
-                    strokeWidth="1"
-                    x1="33%"
-                    x2="50%"
-                    y1="66%"
-                    y2="50%"
-                  />
-                  <line
-                    stroke="#0078D4"
-                    strokeWidth="1"
-                    x1="75%"
-                    x2="50%"
-                    y1="75%"
-                    y2="50%"
-                  />
-                </svg>
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-surface-container-low via-transparent to-transparent opacity-50" />
-              </div>
-            </div>
-
-            <div className="space-y-8">
-              <div className="flex-1 rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-6 shadow-sm">
-                <h3 className="mb-6 text-sm font-bold tracking-tight text-on-surface">
-                  SOTA Analysis
-                </h3>
-                <div className="space-y-6">
-                  <div className="flex items-end justify-between border-b border-outline-variant/10 pb-4">
-                    <div>
-                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface-variant">
-                        Current SOTA Accuracy
-                      </span>
-                      <div className="text-4xl font-extrabold text-primary">
-                        48.2
-                        <span className="ml-1 text-lg opacity-60">%</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center rounded bg-red-100 px-2 py-1 text-xs font-bold text-error">
-                      <span className="material-symbols-outlined mr-1 text-sm">
-                        trending_up
-                      </span>
-                      +1.4%
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-on-surface-variant">
-                        Top-1 Verb Accuracy
-                      </span>
-                      <span className="font-bold text-on-surface">67.9%</span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-container-high">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: "67.9%" }}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-on-surface-variant">
-                        Top-1 Noun Accuracy
-                      </span>
-                      <span className="font-bold text-on-surface">53.4%</span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-container-high">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: "53.4%" }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="relative overflow-hidden rounded-3xl bg-primary p-6 shadow-lg shadow-primary/10">
-                <div className="relative z-10">
-                  <div className="mb-3 flex items-center space-x-2">
-                    <span
-                      className="material-symbols-outlined text-sm text-on-primary"
-                      style={{ fontVariationSettings: "'FILL' 1" }}
-                    >
-                      auto_awesome
-                    </span>
-                    <h4 className="text-xs font-bold uppercase tracking-[0.22em] text-on-primary">
-                      AI Trend Analysis
-                    </h4>
-                  </div>
-                  <p className="text-xs italic leading-relaxed text-on-primary/90">
-                    "Research is moving from short-range recognition toward
-                    long-context temporal reasoning. Transformer baselines are
-                    stabilizing on EPIC-100, so the next jump will likely come
-                    from multimodal state-space or retrieval-augmented video
-                    models."
-                  </p>
-                </div>
-                <div className="absolute -bottom-8 -right-8 h-32 w-32 rounded-full bg-primary-dim opacity-50 blur-2xl" />
-              </div>
-            </div>
+              ))
+            ) : (
+              <EmptyDatasetState hasQuery={Boolean(query.trim())} />
+            )}
           </div>
+        </aside>
+
+        <section className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-3">
+            <MetricCard label="Total Datasets" value={datasets.length} />
+            <MetricCard label="Paper Extracted" value={extractedCount} />
+            <MetricCard
+              label="Domains"
+              value={
+                new Set(datasets.map((dataset) => dataset.data_domain).filter(Boolean))
+                  .size
+              }
+            />
+          </div>
+
+          {selectedDataset ? (
+            <DatasetDetail dataset={selectedDataset} />
+          ) : (
+            <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-outline-variant/40 bg-surface-container-lowest p-8 text-center">
+              <span className="material-symbols-outlined text-4xl text-on-surface-variant">
+                database
+              </span>
+              <h2 className="mt-3 text-lg font-extrabold text-on-surface">
+                No dataset selected
+              </h2>
+              <p className="mt-2 max-w-md text-sm text-on-surface-variant">
+                Create a dataset manually or extract datasets from reviewed papers.
+              </p>
+            </div>
+          )}
         </section>
       </main>
+
+      {isCreateOpen ? (
+        <CreateDatasetDialog
+          isSubmitting={isSubmitting}
+          onClose={() => setIsCreateOpen(false)}
+          onSubmit={handleCreate}
+        />
+      ) : null}
     </div>
   );
 };
+
+function DatasetDetail({ dataset }: { dataset: DatasetRecord }) {
+  return (
+    <article className="overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest shadow-sm">
+      <div className="bg-gradient-to-br from-surface-container-low via-surface-container-lowest to-primary/10 p-6 sm:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">
+              Dataset Detail
+            </p>
+            <h2 className="mt-3 max-w-4xl text-3xl font-extrabold tracking-tight text-on-surface">
+              {dataset.name}
+            </h2>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Tag label={dataset.task_type || "task unspecified"} />
+              <Tag label={dataset.data_domain || "domain unspecified"} />
+              <Tag label={dataset.source || "source unspecified"} />
+              {dataset.scale ? <Tag label={dataset.scale} /> : null}
+            </div>
+          </div>
+          {dataset.access_url ? (
+            <a
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-on-primary shadow-sm"
+              href={dataset.access_url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <span className="material-symbols-outlined text-lg">open_in_new</span>
+              Access
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid gap-6 p-6 sm:p-8 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="space-y-6">
+          <InfoBlock
+            emptyText="No description has been recorded yet."
+            label="Description"
+            value={dataset.description}
+          />
+          <InfoBlock
+            emptyText="No benchmark evidence has been recorded yet."
+            label="Benchmark Summary / Evidence"
+            value={dataset.benchmark_summary}
+          />
+        </div>
+
+        <aside className="rounded-2xl bg-surface-container-low p-5">
+          <h3 className="text-sm font-extrabold text-on-surface">Metadata</h3>
+          <dl className="mt-4 space-y-3 text-sm">
+            <MetaRow label="Dataset ID" value={String(dataset.dataset_id)} />
+            <MetaRow label="Normalized" value={dataset.normalized_name || "-"} />
+            <MetaRow
+              label="Aliases"
+              value={dataset.aliases.length ? dataset.aliases.join(", ") : "-"}
+            />
+            <MetaRow label="Updated" value={formatDate(dataset.updated_at)} />
+          </dl>
+        </aside>
+      </div>
+    </article>
+  );
+}
+
+function CreateDatasetDialog({
+  isSubmitting,
+  onClose,
+  onSubmit,
+}: {
+  isSubmitting: boolean;
+  onClose: () => void;
+  onSubmit: (input: DatasetCreateInput) => Promise<void>;
+}) {
+  const [form, setForm] = useState<DatasetCreateInput>(emptyForm);
+
+  function updateField(field: keyof DatasetCreateInput, value: string): void {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-background/35 px-4 py-8 backdrop-blur-sm">
+      <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-[0_24px_80px_rgba(22,32,34,0.24)]">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-extrabold text-on-surface">
+              Create Dataset
+            </h2>
+            <p className="mt-1 text-sm text-on-surface-variant">
+              Add a benchmark or reusable dataset to the resource registry.
+            </p>
+          </div>
+          <button
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container"
+            disabled={isSubmitting}
+            onClick={onClose}
+            type="button"
+          >
+            <span className="material-symbols-outlined text-xl">close</span>
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field
+            label="Name"
+            onChange={(value) => updateField("name", value)}
+            placeholder="MMLU"
+            required
+            value={form.name ?? ""}
+          />
+          <Field
+            label="Task Type"
+            onChange={(value) => updateField("task_type", value)}
+            placeholder="reasoning_benchmark"
+            value={form.task_type ?? ""}
+          />
+          <Field
+            label="Domain"
+            onChange={(value) => updateField("data_domain", value)}
+            placeholder="nlp"
+            value={form.data_domain ?? ""}
+          />
+          <Field
+            label="Scale"
+            onChange={(value) => updateField("scale", value)}
+            placeholder="large"
+            value={form.scale ?? ""}
+          />
+          <Field
+            label="Source"
+            onChange={(value) => updateField("source", value)}
+            placeholder="manual"
+            value={form.source ?? ""}
+          />
+          <Field
+            label="Access URL"
+            onChange={(value) => updateField("access_url", value)}
+            placeholder="https://..."
+            value={form.access_url ?? ""}
+          />
+        </div>
+
+        <TextArea
+          label="Description"
+          onChange={(value) => updateField("description", value)}
+          placeholder="What this dataset measures and when to use it."
+          value={form.description ?? ""}
+        />
+        <TextArea
+          label="Benchmark Summary"
+          onChange={(value) => updateField("benchmark_summary", value)}
+          placeholder="Evidence, metrics, or paper-derived context."
+          value={form.benchmark_summary ?? ""}
+        />
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            className="h-10 rounded-lg px-4 text-sm font-semibold text-on-surface-variant transition-colors hover:bg-surface-container"
+            disabled={isSubmitting}
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-on-primary shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!form.name?.trim() || isSubmitting}
+            onClick={() => void onSubmit(form)}
+            type="button"
+          >
+            <span className="material-symbols-outlined text-lg">
+              {isSubmitting ? "progress_activity" : "database"}
+            </span>
+            <span>{isSubmitting ? "Creating..." : "Create Dataset"}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  onChange,
+  placeholder,
+  required = false,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  required?: boolean;
+  value: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-on-surface-variant">
+        {label}
+        {required ? " *" : ""}
+      </span>
+      <input
+        className="w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-3 text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        type="text"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function TextArea({
+  label,
+  onChange,
+  placeholder,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  value: string;
+}) {
+  return (
+    <label className="mt-4 block">
+      <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-on-surface-variant">
+        {label}
+      </span>
+      <textarea
+        className="min-h-24 w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-3 text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        value={value}
+      />
+    </label>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface-variant">
+        {label}
+      </p>
+      <p className="mt-2 text-3xl font-extrabold text-on-surface">{value}</p>
+    </div>
+  );
+}
+
+function InfoBlock({
+  emptyText,
+  label,
+  value,
+}: {
+  emptyText: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <section>
+      <h3 className="text-sm font-extrabold text-on-surface">{label}</h3>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-on-surface-variant">
+        {value || emptyText}
+      </p>
+    </section>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4 border-b border-outline-variant/10 pb-2">
+      <dt className="text-on-surface-variant">{label}</dt>
+      <dd className="max-w-[12rem] truncate text-right font-semibold text-on-surface">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function Tag({ label }: { label: string }) {
+  return (
+    <span className="rounded-full bg-surface-container-high px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-on-surface">
+      {label}
+    </span>
+  );
+}
+
+function DatasetListSkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div
+          className="h-[68px] animate-pulse rounded-xl bg-surface-container-low"
+          key={index}
+        />
+      ))}
+    </div>
+  );
+}
+
+function EmptyDatasetState({ hasQuery }: { hasQuery: boolean }) {
+  return (
+    <div className="rounded-xl border border-dashed border-outline-variant/40 p-6 text-center">
+      <span className="material-symbols-outlined text-3xl text-on-surface-variant">
+        database
+      </span>
+      <p className="mt-2 text-sm font-bold text-on-surface">
+        {hasQuery ? "No matching datasets" : "No datasets yet"}
+      </p>
+      <p className="mt-1 text-xs text-on-surface-variant">
+        {hasQuery
+          ? "Try another query."
+          : "Create one manually or extract datasets from papers."}
+      </p>
+    </div>
+  );
+}
+
+function formatDate(value: string): string {
+  if (!value) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatError(err: unknown): string {
+  if (err instanceof APIError) {
+    return `${err.code}: ${err.message}`;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return "Unexpected dataset API error.";
+}
