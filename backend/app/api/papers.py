@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 
 from app.api.paper_download import get_paper_download_service
@@ -498,18 +498,17 @@ def submit_review(
 )
 def confirm_review(
     paper_id: int,
+    background_tasks: BackgroundTasks,
     service: PaperService = Depends(get_paper_service),
 ) -> APIEnvelope:
     try:
         queued_job = service.create_confirm_pipeline_job(paper_id)
         if hasattr(confirm_pipeline_task, "delay"):
             confirm_pipeline_task.delay(paper_id, queued_job.job_id)
-            job = queued_job
         else:
-            job_payload = confirm_pipeline_task(paper_id, queued_job.job_id)
-            job = JobRecord(**job_payload)
+            background_tasks.add_task(confirm_pipeline_task, paper_id, queued_job.job_id)
         paper = service.get_paper(paper_id)
-        return envelope(to_confirm_pipeline_response(paper=paper, job=job))
+        return envelope(to_confirm_pipeline_response(paper=paper, job=queued_job))
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

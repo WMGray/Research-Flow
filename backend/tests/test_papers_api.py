@@ -747,7 +747,12 @@ def test_review_and_note_generation_flow(
     assert confirm_response.status_code == 202
     confirm_payload = confirm_response.json()["data"]
     assert confirm_payload["job"]["type"] == "paper_confirm_pipeline"
-    assert confirm_payload["job"]["status"] == "succeeded"
+    assert confirm_payload["job"]["status"] == "queued"
+
+    final_job = client.get(f"/api/v1/jobs/{confirm_payload['job']['job_id']}").json()[
+        "data"
+    ]
+    assert final_job["status"] == "succeeded"
 
     paper_response = client.get(f"/api/v1/papers/{paper_id}")
     assert paper_response.json()["data"]["paper_stage"] == "completed"
