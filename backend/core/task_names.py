@@ -12,6 +12,7 @@ PAPER_SPLIT = "worker.tasks.papers.split"
 PAPER_GENERATE_NOTE = "worker.tasks.papers.generate_note"
 PAPER_EXTRACT_KNOWLEDGE = "worker.tasks.papers.extract_knowledge"
 PAPER_EXTRACT_DATASETS = "worker.tasks.papers.extract_datasets"
+PAPER_CONFIRM_PIPELINE = "worker.tasks.papers.confirm_pipeline"
 
 # Project 模块生成与刷新任务。
 PROJECT_GENERATE_RELATED_WORK = "worker.tasks.projects.generate_related_work"
@@ -45,6 +46,7 @@ ALL_TASK_NAMES: tuple[str, ...] = (
     PAPER_GENERATE_NOTE,
     PAPER_EXTRACT_KNOWLEDGE,
     PAPER_EXTRACT_DATASETS,
+    PAPER_CONFIRM_PIPELINE,
     PROJECT_GENERATE_RELATED_WORK,
     PROJECT_GENERATE_METHOD,
     PROJECT_GENERATE_EXPERIMENT,

@@ -259,3 +259,8 @@ class PaperPipelineResponse(BaseModel):
     stopped_at: str | None = None
     jobs: list[JobResponse] = Field(default_factory=list)
     paper: PaperResponse
+
+
+class PaperConfirmPipelineResponse(BaseModel):
+    paper: PaperResponse
+    job: JobResponse

@@ -119,7 +119,7 @@ class PaperRepository:
     ) -> None:
         self.db_path = db_path or configured_db_path()
         self.data_root = data_root or configured_data_root()
-        self.paper_root = self.data_root / "papers_api"
+        self.paper_root = self.data_root / "Papers"
         self.initialize()
 
     def initialize(self) -> None:
@@ -158,8 +158,9 @@ class PaperRepository:
             venue,
         )
         with self.connect() as conn:
+            category_id = values.get("category_id")
             paper_slug = self._unique_paper_slug(conn, str(values["title"]))
-            paper_dir = self.paper_root / paper_slug
+            paper_dir = self._target_paper_dir_for_slug(conn, paper_slug, category_id)
             paper_dir.mkdir(parents=True, exist_ok=True)
             asset_id = create_asset(
                 conn,
@@ -198,7 +199,7 @@ class PaperRepository:
                     "pending",
                     "pending",
                     "empty",
-                    values.get("category_id"),
+                    category_id,
                     values.get("source_url", ""),
                     values.get("pdf_url", ""),
                     values.get("source_kind", "manual"),
@@ -212,6 +213,7 @@ class PaperRepository:
                 title=values["title"],
                 now=now,
             )
+            self._write_metadata_json(conn, asset_id, now)
             conn.commit()
         return self.get_paper(asset_id)
 
@@ -332,6 +334,8 @@ class PaperRepository:
                     f"UPDATE biz_paper SET {', '.join(columns)} WHERE asset_id = ?",
                     params,
                 )
+            if "category_id" in values:
+                self._relocate_paper_dir_for_category(conn, paper_id)
             conn.execute(
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
@@ -341,6 +345,7 @@ class PaperRepository:
                     "UPDATE asset_registry SET display_name = ? WHERE asset_id = ?",
                     (values["title"], paper_id),
                 )
+            self._write_metadata_json(conn, paper_id, now)
             conn.commit()
         return self.get_paper(paper_id)
 
@@ -553,6 +558,7 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._write_metadata_json(conn, paper_id, now)
             conn.commit()
         return self._create_pipeline_job(
             paper_id=paper_id,
@@ -1011,8 +1017,99 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._write_metadata_json(conn, paper_id, now)
             conn.commit()
         return self.get_paper(paper_id)
+
+    def create_confirm_pipeline_job(self, paper_id: int) -> JobRecord:
+        self.get_paper(paper_id)
+        return self._create_job(
+            paper_id=paper_id,
+            job_type="paper_confirm_pipeline",
+            status="queued",
+            progress=0.0,
+            message="Confirm pipeline queued.",
+        )
+
+    def run_confirm_pipeline(
+        self,
+        paper_id: int,
+        parent_job_id: str | None = None,
+    ) -> JobRecord:
+        parent_job = (
+            self._finish_job(
+                parent_job_id,
+                status="running",
+                progress=0.05,
+                message="Confirm pipeline started.",
+            )
+            if parent_job_id
+            else self._create_job(
+                paper_id=paper_id,
+                job_type="paper_confirm_pipeline",
+                status="running",
+                progress=0.05,
+                message="Confirm pipeline started.",
+            )
+        )
+        jobs: list[JobRecord] = []
+
+        def fail(stage: str, job: JobRecord) -> JobRecord:
+            jobs.append(job)
+            return self._finish_job(
+                parent_job.job_id,
+                status="failed",
+                progress=1.0,
+                message=job.message,
+                result={
+                    "stage": stage,
+                    "jobs": [asdict(record) for record in jobs],
+                },
+                error=job.error
+                or {
+                    "code": "PAPER_CONFIRM_PIPELINE_FAILED",
+                    "message": job.message,
+                    "details": {"stage": stage},
+                },
+            )
+
+        try:
+            self.confirm_review(paper_id)
+            for stage, runner in (
+                ("split", self.run_split_sections),
+                ("summarize", self.run_generate_note),
+                ("extract_knowledge", self.run_extract_knowledge),
+                ("extract_datasets", self.run_extract_datasets),
+            ):
+                job = runner(paper_id)
+                if job.status != "succeeded":
+                    return fail(stage, job)
+                jobs.append(job)
+        except Exception as exc:  # noqa: BLE001 - recorded as parent job failure
+            return self._finish_job(
+                parent_job.job_id,
+                status="failed",
+                progress=1.0,
+                message=str(exc),
+                result={"jobs": [asdict(record) for record in jobs]},
+                error={
+                    "code": "PAPER_CONFIRM_PIPELINE_EXCEPTION",
+                    "message": str(exc),
+                    "details": {},
+                },
+            )
+
+        return self._finish_job(
+            parent_job.job_id,
+            status="succeeded",
+            progress=1.0,
+            message="Confirmed review and completed paper extraction pipeline.",
+            result={
+                "paper_id": paper_id,
+                "jobs": [asdict(record) for record in jobs],
+                "paper": asdict(self.get_paper(paper_id)),
+            },
+        )
 
     def run_split_sections(self, paper_id: int) -> JobRecord:
         paper = self.get_paper(paper_id)
@@ -1196,6 +1293,7 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._write_metadata_json(conn, paper_id, now)
             self._upsert_note_state(
                 conn=conn,
                 paper_id=paper_id,
@@ -1309,6 +1407,20 @@ class PaperRepository:
         )
         now = utc_now()
         with self.connect() as conn:
+            self._upsert_paper_artifact(
+                conn=conn,
+                paper_id=paper_id,
+                artifact_key="extracted_knowledge",
+                artifact_type="json",
+                stage="extract",
+                path=output_path,
+                metadata={
+                    "source": extraction_source,
+                    "item_count": len(items),
+                    "skipped_reason": skipped_reason,
+                },
+                now=now,
+            )
             conn.execute(
                 """
                 UPDATE biz_paper
@@ -1321,6 +1433,7 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._write_metadata_json(conn, paper_id, now)
             conn.commit()
         return self._create_job(
             paper_id=paper_id,
@@ -1410,6 +1523,19 @@ class PaperRepository:
         )
         now = utc_now()
         with self.connect() as conn:
+            self._upsert_paper_artifact(
+                conn=conn,
+                paper_id=paper_id,
+                artifact_key="extracted_datasets",
+                artifact_type="json",
+                stage="extract",
+                path=output_path,
+                metadata={
+                    "source": "paper_extract_datasets_local",
+                    "item_count": len(items),
+                },
+                now=now,
+            )
             conn.execute(
                 """
                 UPDATE biz_paper
@@ -1422,6 +1548,7 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._write_metadata_json(conn, paper_id, now)
             conn.commit()
         return self._create_job(
             paper_id=paper_id,
@@ -1608,6 +1735,38 @@ class PaperRepository:
             raise JobNotFoundError(f"Job not found: {job_id}")
         return self._job_from_row(row)
 
+    def _finish_job(
+        self,
+        job_id: str | None,
+        *,
+        status: str,
+        progress: float,
+        message: str,
+        result: dict[str, Any] | None = None,
+        error: dict[str, Any] | None = None,
+    ) -> JobRecord:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = ?, progress = ?, message = ?, result = ?,
+                    error = ?, updated_at = ?
+                WHERE job_id = ?
+                """,
+                (
+                    status,
+                    progress,
+                    message,
+                    json.dumps(result, ensure_ascii=False) if result is not None else None,
+                    json.dumps(error, ensure_ascii=False) if error is not None else None,
+                    now,
+                    job_id,
+                ),
+            )
+            conn.commit()
+        return self.get_job(job_id)
+
     def list_jobs(self, query: dict[str, Any]) -> tuple[list[JobRecord], int]:
         where = ["1 = 1"]
         params: list[Any] = []
@@ -1725,6 +1884,145 @@ class PaperRepository:
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_biz_paper_slug_unique ON biz_paper(paper_slug)"
         )
+
+    def _target_paper_dir_for_slug(
+        self,
+        conn: sqlite3.Connection,
+        paper_slug: str,
+        category_id: object,
+    ) -> Path:
+        category_path = self._category_storage_path(conn, category_id)
+        return self.paper_root / category_path / paper_slug
+
+    def _category_storage_path(
+        self,
+        conn: sqlite3.Connection,
+        category_id: object,
+    ) -> Path:
+        if category_id is None:
+            return Path("unclassified")
+        try:
+            category_id_int = int(category_id)
+        except (TypeError, ValueError):
+            return Path("unclassified")
+        row = conn.execute(
+            "SELECT path FROM biz_category WHERE id = ?",
+            (category_id_int,),
+        ).fetchone()
+        if row is None:
+            return Path("unclassified")
+        parts = [
+            self._slugify_storage_segment(part)
+            for part in str(row["path"]).split("/")
+            if part.strip()
+        ]
+        return Path(*parts) if parts else Path("unclassified")
+
+    def _slugify_storage_segment(self, value: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+        return slug or "untitled"
+
+    def _relocate_paper_dir_for_category(
+        self,
+        conn: sqlite3.Connection,
+        paper_id: int,
+    ) -> None:
+        row = conn.execute(
+            """
+            SELECT bp.paper_slug, bp.category_id, pi.storage_path
+            FROM biz_paper bp
+            JOIN asset_registry ar ON ar.asset_id = bp.asset_id
+            JOIN physical_item pi ON pi.item_id = ar.item_id
+            WHERE bp.asset_id = ?
+            """,
+            (paper_id,),
+        ).fetchone()
+        if row is None:
+            raise PaperNotFoundError(f"Paper not found: {paper_id}")
+
+        current_dir = Path(str(row["storage_path"]))
+        target_dir = self._target_paper_dir_for_slug(
+            conn,
+            str(row["paper_slug"]),
+            row["category_id"],
+        )
+        if current_dir.resolve() == target_dir.resolve():
+            return
+
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if current_dir.exists() and not target_dir.exists():
+            shutil.move(str(current_dir), str(target_dir))
+        else:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        self._rewrite_paper_storage_paths(conn, paper_id, current_dir, target_dir)
+
+    def _rewrite_paper_storage_paths(
+        self,
+        conn: sqlite3.Connection,
+        paper_id: int,
+        old_dir: Path,
+        new_dir: Path,
+    ) -> None:
+        paper_asset = conn.execute(
+            "SELECT item_id FROM asset_registry WHERE asset_id = ?",
+            (paper_id,),
+        ).fetchone()
+        if paper_asset is not None:
+            conn.execute(
+                "UPDATE physical_item SET storage_path = ? WHERE item_id = ?",
+                (str(new_dir), str(paper_asset["item_id"])),
+            )
+
+        doc_rows = conn.execute(
+            """
+            SELECT bdl.doc_id, bdl.doc_role, bdl.doc_path, ar.item_id
+            FROM biz_doc_layout bdl
+            JOIN asset_registry ar ON ar.asset_id = bdl.doc_id
+            WHERE bdl.parent_id = ?
+            """,
+            (paper_id,),
+        ).fetchall()
+        for row in doc_rows:
+            rewritten = self._rewrite_child_path(Path(str(row["doc_path"])), old_dir, new_dir)
+            conn.execute(
+                "UPDATE biz_doc_layout SET doc_path = ? WHERE parent_id = ? AND doc_role = ?",
+                (str(rewritten), paper_id, str(row["doc_role"])),
+            )
+            conn.execute(
+                "UPDATE physical_item SET storage_path = ? WHERE item_id = ?",
+                (str(rewritten), str(row["item_id"])),
+            )
+
+        artifact_rows = conn.execute(
+            """
+            SELECT bpa.artifact_id, bpa.asset_id, bpa.storage_path, ar.item_id
+            FROM biz_paper_artifact bpa
+            JOIN asset_registry ar ON ar.asset_id = bpa.asset_id
+            WHERE bpa.paper_id = ?
+            """,
+            (paper_id,),
+        ).fetchall()
+        for row in artifact_rows:
+            rewritten = self._rewrite_child_path(
+                Path(str(row["storage_path"])),
+                old_dir,
+                new_dir,
+            )
+            conn.execute(
+                "UPDATE biz_paper_artifact SET storage_path = ? WHERE artifact_id = ?",
+                (str(rewritten), int(row["artifact_id"])),
+            )
+            conn.execute(
+                "UPDATE physical_item SET storage_path = ? WHERE item_id = ?",
+                (str(rewritten), str(row["item_id"])),
+            )
+
+    def _rewrite_child_path(self, path: Path, old_dir: Path, new_dir: Path) -> Path:
+        try:
+            relative = path.resolve().relative_to(old_dir.resolve())
+        except ValueError:
+            return path
+        return new_dir / relative
 
     def _table_columns(self, conn: sqlite3.Connection, table_name: str) -> set[str]:
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -2587,7 +2885,88 @@ class PaperRepository:
                 "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
                 (now, paper_id),
             )
+            self._write_metadata_json(conn, paper_id, now)
             conn.commit()
+
+    def _write_metadata_json(
+        self,
+        conn: sqlite3.Connection,
+        paper_id: int,
+        now: str,
+    ) -> None:
+        row = conn.execute(
+            """
+            SELECT bp.*, pi.storage_path
+            FROM biz_paper bp
+            JOIN asset_registry ar ON ar.asset_id = bp.asset_id
+            JOIN physical_item pi ON pi.item_id = ar.item_id
+            WHERE bp.asset_id = ?
+            """,
+            (paper_id,),
+        ).fetchone()
+        if row is None:
+            return
+
+        paper_dir = Path(str(row["storage_path"]))
+        metadata_path = paper_dir / "metadata.json"
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        category_path = ""
+        if row["category_id"] is not None:
+            category = conn.execute(
+                "SELECT path FROM biz_category WHERE id = ?",
+                (row["category_id"],),
+            ).fetchone()
+            category_path = "" if category is None else str(category["path"])
+        artifacts = {
+            str(artifact["artifact_key"]): str(artifact["storage_path"])
+            for artifact in conn.execute(
+                """
+                SELECT artifact_key, storage_path
+                FROM biz_paper_artifact
+                WHERE paper_id = ?
+                ORDER BY artifact_key ASC
+                """,
+                (paper_id,),
+            ).fetchall()
+        }
+        payload = {
+            "paper_id": paper_id,
+            "paper_slug": str(row["paper_slug"]),
+            "title": str(row["title"]),
+            "authors": json.loads(row["authors"] or "[]"),
+            "abstract": str(row["abstract"] or ""),
+            "year": row["pub_year"],
+            "venue": str(row["venue"] or ""),
+            "venue_short": str(row["venue_short"] or ""),
+            "doi": str(row["doi"] or ""),
+            "source_url": str(row["source_url"] or ""),
+            "pdf_url": str(row["pdf_url"] or ""),
+            "source_kind": str(row["source_kind"] or ""),
+            "category_id": row["category_id"],
+            "category_path": category_path,
+            "paper_stage": str(row["paper_stage"]),
+            "download_status": str(row["download_status"]),
+            "parse_status": str(row["parse_status"]),
+            "refine_status": str(row["refine_status"]),
+            "review_status": str(row["review_status"]),
+            "note_status": str(row["note_status"]),
+            "artifacts": artifacts,
+            "updated_at": now,
+        }
+        metadata_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self._upsert_paper_artifact(
+            conn=conn,
+            paper_id=paper_id,
+            artifact_key="metadata_json",
+            artifact_type="json",
+            stage="metadata",
+            path=metadata_path,
+            metadata={"doc_role": "metadata"},
+            now=now,
+        )
 
     def _create_job(
         self,

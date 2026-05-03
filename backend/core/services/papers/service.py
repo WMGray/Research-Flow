@@ -134,6 +134,20 @@ class PaperService:
 
         return self.repository.confirm_review(paper_id)
 
+    def create_confirm_pipeline_job(self, paper_id: int) -> JobRecord:
+        """Create the queued parent job for the post-review pipeline."""
+
+        return self.repository.create_confirm_pipeline_job(paper_id)
+
+    def run_confirm_pipeline(
+        self,
+        paper_id: int,
+        parent_job_id: str | None = None,
+    ) -> JobRecord:
+        """Confirm review and run the post-review Paper pipeline."""
+
+        return self.repository.run_confirm_pipeline(paper_id, parent_job_id)
+
     def run_split_sections(self, paper_id: int) -> JobRecord:
         """生成 canonical sections。"""
 

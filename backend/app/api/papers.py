@@ -14,6 +14,7 @@ from app.schemas.papers import (
     DocumentUpdateRequest,
     JobResponse,
     PaperArtifactResponse,
+    PaperConfirmPipelineResponse,
     PaperCreateRequest,
     PaperListQuery,
     PaperPipelineRequest,
@@ -57,6 +58,7 @@ from core.services.papers.metadata import (
 )
 from core.services.papers.service import PaperService
 from core.services.resources import ResourceNotFoundError, ResourceRepository
+from worker.tasks.papers import confirm_pipeline as confirm_pipeline_task
 
 
 router = APIRouter(prefix="/api/v1", tags=["papers"])
@@ -122,6 +124,17 @@ def to_pipeline_run_response(
 
 def to_pipeline_response(record: PaperPipelineRecord) -> PaperPipelineResponse:
     return PaperPipelineResponse.model_validate(asdict(record))
+
+
+def to_confirm_pipeline_response(
+    *,
+    paper: PaperRecord,
+    job: JobRecord,
+) -> PaperConfirmPipelineResponse:
+    return PaperConfirmPipelineResponse(
+        paper=to_paper_response(paper),
+        job=to_job_response(job),
+    )
 
 
 def to_parsed_content_response(record: ParsedContentRecord) -> ParsedContentResponse:
@@ -478,13 +491,25 @@ def submit_review(
         raise
 
 
-@router.post("/papers/{paper_id}/confirm-review", response_model=APIEnvelope)
+@router.post(
+    "/papers/{paper_id}/confirm-review",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
 def confirm_review(
     paper_id: int,
     service: PaperService = Depends(get_paper_service),
 ) -> APIEnvelope:
     try:
-        return envelope(to_paper_response(service.confirm_review(paper_id)))
+        queued_job = service.create_confirm_pipeline_job(paper_id)
+        if hasattr(confirm_pipeline_task, "delay"):
+            confirm_pipeline_task.delay(paper_id, queued_job.job_id)
+            job = queued_job
+        else:
+            job_payload = confirm_pipeline_task(paper_id, queued_job.job_id)
+            job = JobRecord(**job_payload)
+        paper = service.get_paper(paper_id)
+        return envelope(to_confirm_pipeline_response(paper=paper, job=job))
     except Exception as exc:  # pragma: no cover - centralized mapping
         raise_http_error(exc)
         raise

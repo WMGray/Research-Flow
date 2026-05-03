@@ -240,6 +240,11 @@ def test_paper_crud_flow(client: TestClient, tmp_path: Path) -> None:
     assert paper["paper_stage"] == "metadata_ready"
     assert paper["note_status"] == "empty"
     assert paper["source_url"] == "https://arxiv.org/abs/2106.09685"
+    paper_dir = tmp_path / "storage" / "Papers" / "unclassified" / paper["paper_slug"]
+    assert paper_dir.is_dir()
+    assert (paper_dir / "metadata.json").is_file()
+    assert (paper_dir / "note.md").is_file()
+    assert (paper_dir / "parsed" / "refined.md").is_file()
 
     with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
         paper_columns = {
@@ -325,7 +330,7 @@ def test_paper_uses_single_note_and_refined_documents(
     assert [row["doc_role"] for row in doc_rows] == ["note", "refined"]
     assert all(row["asset_type"] == "Markdown" for row in doc_rows)
     assert link_count == 2
-    assert physical_count == 3
+    assert physical_count == 4
 
 
 def test_paper_create_rejects_duplicate_doi(client: TestClient) -> None:
@@ -336,6 +341,68 @@ def test_paper_create_rejects_duplicate_doi(client: TestClient) -> None:
     )
     assert duplicate_response.status_code == 409
     assert duplicate_response.json()["detail"]["code"] == "PAPER_DUPLICATE"
+
+
+def test_paper_directory_moves_when_category_changes(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    paper = create_sample_paper(client)
+    paper_id = paper["paper_id"]
+    original_dir = tmp_path / "storage" / "Papers" / "unclassified" / paper["paper_slug"]
+    assert original_dir.is_dir()
+
+    root_response = client.post("/api/v1/categories", json={"name": "NLP"})
+    assert root_response.status_code == 201
+    child_response = client.post(
+        "/api/v1/categories",
+        json={
+            "name": "Parameter Efficient Fine Tuning",
+            "parent_id": root_response.json()["data"]["category_id"],
+        },
+    )
+    assert child_response.status_code == 201
+
+    update_response = client.patch(
+        f"/api/v1/papers/{paper_id}",
+        json={"category_id": child_response.json()["data"]["category_id"]},
+    )
+    assert update_response.status_code == 200
+
+    moved_dir = (
+        tmp_path
+        / "storage"
+        / "Papers"
+        / "nlp"
+        / "parameter-efficient-fine-tuning"
+        / paper["paper_slug"]
+    )
+    assert moved_dir.is_dir()
+    assert not original_dir.exists()
+    assert (moved_dir / "metadata.json").is_file()
+
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        conn.row_factory = sqlite3.Row
+        paths = {
+            str(row["storage_path"])
+            for row in conn.execute(
+                """
+                SELECT storage_path
+                FROM biz_paper_artifact
+                WHERE paper_id = ?
+                """,
+                (paper_id,),
+            ).fetchall()
+        }
+        doc_paths = {
+            str(row["doc_path"])
+            for row in conn.execute(
+                "SELECT doc_path FROM biz_doc_layout WHERE parent_id = ?",
+                (paper_id,),
+            ).fetchall()
+        }
+    assert all(str(moved_dir) in path for path in paths)
+    assert all(str(moved_dir) in path for path in doc_paths)
 
 
 def test_paper_note_updates_mark_user_modified(client: TestClient) -> None:
@@ -600,7 +667,10 @@ def test_parse_uses_postprocessed_figures_for_refined_markdown(
                 "Figure 1: Method overview.",
                 "",
                 "## Experiment",
-                "Experiment section.",
+                (
+                    "Experiment section. LoRA is evaluated on WikiSQL, MNLI, and "
+                    "SAMSum benchmark datasets for natural language understanding."
+                ),
                 "",
                 "## Conclusion",
                 "Conclusion section.",
@@ -653,24 +723,34 @@ def test_review_and_note_generation_flow(
     assert refine_response.json()["data"]["result"]["llm_run_id"].startswith("llm_")
     assert "Prefer clean canonical section titles." in requests[0].messages[0].content
 
+    refined_document = client.get(f"/api/v1/papers/{paper_id}/parsed/refined").json()[
+        "data"
+    ]
+    refined_content = refined_document["content"].replace(
+        "Experiment section.",
+        "Experiment section. LoRA is evaluated on WikiSQL benchmark dataset.",
+    )
+    update_refined_response = client.put(
+        f"/api/v1/papers/{paper_id}/parsed/refined",
+        json={
+            "content": refined_content,
+            "base_version": refined_document["version"],
+        },
+    )
+    assert update_refined_response.status_code == 200
+
     submit_response = client.post(f"/api/v1/papers/{paper_id}/submit-review")
     assert submit_response.status_code == 200
     assert submit_response.json()["data"]["review_status"] == "waiting_review"
 
     confirm_response = client.post(f"/api/v1/papers/{paper_id}/confirm-review")
-    assert confirm_response.status_code == 200
-    assert confirm_response.json()["data"]["paper_stage"] == "review_confirmed"
-
-    split_response = client.post(f"/api/v1/papers/{paper_id}/split-sections")
-    assert split_response.status_code == 202
-    assert split_response.json()["data"]["status"] == "succeeded"
-
-    note_response = client.post(f"/api/v1/papers/{paper_id}/generate-note")
-    assert note_response.status_code == 202
-    assert note_response.json()["data"]["type"] == "paper_generate_note"
+    assert confirm_response.status_code == 202
+    confirm_payload = confirm_response.json()["data"]
+    assert confirm_payload["job"]["type"] == "paper_confirm_pipeline"
+    assert confirm_payload["job"]["status"] == "succeeded"
 
     paper_response = client.get(f"/api/v1/papers/{paper_id}")
-    assert paper_response.json()["data"]["paper_stage"] == "noted"
+    assert paper_response.json()["data"]["paper_stage"] == "completed"
     assert paper_response.json()["data"]["note_status"] == "clean_generated"
 
     note_document = client.get(f"/api/v1/papers/{paper_id}/note")
@@ -695,9 +775,16 @@ def test_review_and_note_generation_flow(
             """,
             (paper_id,),
         ).fetchone()
+        knowledge_count = conn.execute(
+            "SELECT COUNT(*) FROM biz_knowledge WHERE source_paper_asset_id = ?",
+            (paper_id,),
+        ).fetchone()[0]
+        dataset_count = conn.execute("SELECT COUNT(*) FROM biz_dataset").fetchone()[0]
 
     assert note_artifact == ("note_markdown", "summarize")
     assert summarize_run == ("summarize", "succeeded")
+    assert knowledge_count >= 1
+    assert dataset_count >= 1
 
 
 def test_generate_note_preserves_user_modified_note(
