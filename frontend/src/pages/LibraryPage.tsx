@@ -1,16 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ImportPaperDialog } from "@/components/library/ImportPaperDialog";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
   APIError,
   createCategory,
   confirmPaperReview,
+  deleteCategory,
   importPaper,
   listCategories,
   listPapers,
   paperNoteUrl,
   paperPdfUrl,
-  paperRefinedUrl,
+  retryPaperPipeline,
   updatePaper,
   type CategoryRecord,
   type PaperResolveMode,
@@ -23,13 +25,23 @@ type PaperCardProps = {
   paper: PaperRecord;
   isAdvancing: boolean;
   isAssigningDomain: boolean;
+  isFocused: boolean;
+  isRetrying: boolean;
+  paperRef?: React.RefObject<HTMLDivElement | null>;
   onAssignDomain: (paper: PaperRecord, categoryId: number | null) => void;
-  onRequestReviewConfirm: (paper: PaperRecord) => void;
+  onRetryPipeline: (paper: PaperRecord) => void;
+  onReviewConfirm: (paper: PaperRecord) => void;
 };
 
 const PAPER_PAGE_SIZE = 20;
 const PAPER_POLL_INTERVAL_MS = 3000;
 const LIVE_STATUSES = new Set(["queued", "running"]);
+const PAPER_SORT_OPTIONS = [
+  { label: "Updated", value: "updated_at" },
+  { label: "Created", value: "created_at" },
+  { label: "Year", value: "year" },
+  { label: "Title", value: "title" },
+] as const;
 
 const statusLabels: Record<string, string> = {
   metadata_ready: "Metadata",
@@ -46,6 +58,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const jobTypeLabels: Record<string, string> = {
+  paper_resolve_metadata: "Metadata",
   paper_download: "Download",
   paper_parse: "Parse",
   paper_refine_parse: "Refine",
@@ -66,12 +79,22 @@ const jobStatusLabels: Record<string, string> = {
 };
 
 export const LibraryPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [papers, setPapers] = useState<PaperRecord[]>([]);
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [total, setTotal] = useState(0);
+  const [libraryTotal, setLibraryTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [draftQuery, setDraftQuery] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [selectedStage, setSelectedStage] = useState<string>("");
+  const [yearFrom, setYearFrom] = useState("");
+  const [yearTo, setYearTo] = useState("");
+  const [sort, setSort] = useState<(typeof PAPER_SORT_OPTIONS)[number]["value"]>(
+    "updated_at",
+  );
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
   const [importMode, setImportMode] = useState<PaperResolveMode>("source_url");
   const [importValue, setImportValue] = useState("");
   const [importCategoryId, setImportCategoryId] = useState<number | null>(null);
@@ -83,25 +106,42 @@ export const LibraryPage: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [advancingPaperId, setAdvancingPaperId] = useState<number | null>(null);
   const [assigningPaperId, setAssigningPaperId] = useState<number | null>(null);
-  const [reviewTarget, setReviewTarget] = useState<PaperRecord | null>(null);
+  const [deletingDomainId, setDeletingDomainId] = useState<number | null>(null);
+  const [retryingPaperId, setRetryingPaperId] = useState<number | null>(null);
   const [domainName, setDomainName] = useState("");
   const [domainParentId, setDomainParentId] = useState<number | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [domainError, setDomainError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const focusedPaperId = Number.parseInt(searchParams.get("paper_id") ?? "", 10);
+  const focusedPaperRef = useRef<HTMLDivElement | null>(null);
 
   const loadPapers = useCallback(
     async ({
       signal,
       showLoading = false,
       showRefreshing = false,
+      categoryIdOverride,
       queryOverride,
+      pageOverride,
+      paperStageOverride,
+      sortOverride,
+      orderOverride,
+      yearFromOverride,
+      yearToOverride,
     }: {
       signal?: AbortSignal;
       showLoading?: boolean;
       showRefreshing?: boolean;
+      categoryIdOverride?: number | null;
       queryOverride?: string;
+      pageOverride?: number;
+      paperStageOverride?: string | null;
+      sortOverride?: (typeof PAPER_SORT_OPTIONS)[number]["value"];
+      orderOverride?: "asc" | "desc";
+      yearFromOverride?: string;
+      yearToOverride?: string;
     } = {}) => {
       if (showLoading) {
         setIsLoading(true);
@@ -114,12 +154,22 @@ export const LibraryPage: React.FC = () => {
       try {
         const result = await listPapers({
           q: queryOverride ?? query,
-          categoryId: selectedCategoryId,
-          page: 1,
+          categoryId:
+            categoryIdOverride === undefined
+              ? selectedCategoryId
+              : categoryIdOverride,
+          paperStage:
+            paperStageOverride === undefined ? selectedStage : paperStageOverride,
+          yearFrom: parseOptionalYear(yearFromOverride ?? yearFrom),
+          yearTo: parseOptionalYear(yearToOverride ?? yearTo),
+          sort: sortOverride ?? sort,
+          order: orderOverride ?? order,
+          page: pageOverride ?? page,
           pageSize: PAPER_PAGE_SIZE,
         }, signal);
         setPapers(result.papers);
         setTotal(result.total);
+        setPage(result.page);
         setLastSyncedAt(new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -139,7 +189,7 @@ export const LibraryPage: React.FC = () => {
         }
       }
     },
-    [query, selectedCategoryId],
+    [order, page, query, selectedCategoryId, selectedStage, sort, yearFrom, yearTo],
   );
 
   const loadCategories = useCallback(async (signal?: AbortSignal) => {
@@ -156,19 +206,50 @@ export const LibraryPage: React.FC = () => {
     }
   }, []);
 
+  const loadLibraryTotal = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const result = await listPapers({ page: 1, pageSize: 1 }, signal);
+      if (!signal?.aborted) {
+        setLibraryTotal(result.total);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+      setError(formatError(err));
+    }
+  }, []);
+
+  const refreshLibrary = useCallback(
+    async (
+      options: Parameters<typeof loadPapers>[0] = {},
+      signal?: AbortSignal,
+    ) => {
+      await Promise.all([
+        loadPapers(options),
+        loadCategories(signal),
+        loadLibraryTotal(signal),
+      ]);
+    },
+    [loadCategories, loadLibraryTotal, loadPapers],
+  );
+
   useEffect(() => {
     const controller = new AbortController();
-    void loadPapers({ signal: controller.signal, showLoading: true });
-    void loadCategories(controller.signal);
+    void refreshLibrary(
+      { signal: controller.signal, showLoading: true },
+      controller.signal,
+    );
 
     return () => {
       controller.abort();
     };
-  }, [loadCategories, loadPapers]);
+  }, [refreshLibrary]);
 
   const hasLivePaper = useMemo(() => {
     return papers.some((paper) =>
       [
+        paper.latest_job_status,
         paper.download_status,
         paper.parse_status,
         paper.refine_status,
@@ -181,15 +262,15 @@ export const LibraryPage: React.FC = () => {
       return;
     }
     const timer = window.setInterval(() => {
-      void loadPapers({ queryOverride: "", showRefreshing: true });
+      void refreshLibrary({ showRefreshing: true });
     }, PAPER_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [hasLivePaper, loadPapers]);
+  }, [hasLivePaper, refreshLibrary]);
 
   useEffect(() => {
     function refreshWhenVisible(): void {
       if (document.visibilityState === "visible") {
-        void loadPapers({ showRefreshing: true });
+        void refreshLibrary({ showRefreshing: true });
       }
     }
 
@@ -199,14 +280,28 @@ export const LibraryPage: React.FC = () => {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [loadPapers]);
+  }, [refreshLibrary]);
 
-  const statusCounts = useMemo(() => {
+  useEffect(() => {
+    if (Number.isNaN(focusedPaperId) || focusedPaperId <= 0) {
+      return;
+    }
+    focusedPaperRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [focusedPaperId, papers]);
+
+  const visibleStatusCounts = useMemo(() => {
     return papers.reduce<Record<string, number>>((counts, paper) => {
       counts[paper.paper_stage] = (counts[paper.paper_stage] ?? 0) + 1;
       return counts;
     }, {});
   }, [papers]);
+  const hasActiveFilters = Boolean(
+    query || selectedCategoryId || selectedStage || yearFrom || yearTo,
+  );
+  const totalPages = Math.max(1, Math.ceil(total / PAPER_PAGE_SIZE));
 
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
 
@@ -234,6 +329,8 @@ export const LibraryPage: React.FC = () => {
       });
       setDraftQuery("");
       setQuery("");
+      setSelectedStage("");
+      setPage(1);
       setPapers((currentPapers) => mergePaper(currentPapers, createdPaper));
       setTotal((currentTotal) =>
         papers.some((paper) => paper.paper_id === createdPaper.paper_id)
@@ -248,7 +345,7 @@ export const LibraryPage: React.FC = () => {
       setImportValue("");
       setImportCategoryId(selectedCategoryId);
       setIsImportOpen(false);
-      void loadPapers({ showRefreshing: true });
+      void refreshLibrary({ showRefreshing: true });
     } catch (err) {
       setImportError(formatError(err));
     } finally {
@@ -269,16 +366,40 @@ export const LibraryPage: React.FC = () => {
         name,
         parent_id: domainParentId,
       });
-      await loadCategories();
       setSelectedCategoryId(createdDomain.category_id);
+      setPage(1);
       setDomainName("");
       setDomainParentId(null);
       setIsDomainOpen(false);
-      await loadPapers({ showRefreshing: true });
+      await refreshLibrary({ showRefreshing: true });
     } catch (err) {
       setDomainError(formatError(err));
     } finally {
       setIsCreatingDomain(false);
+    }
+  }
+
+  async function handleDeleteDomain(category: CategoryRecord): Promise<void> {
+    setDeletingDomainId(category.category_id);
+    setDomainError(null);
+    setError(null);
+    try {
+      await deleteCategory(category.category_id);
+      if (selectedCategoryId === category.category_id) {
+        setSelectedCategoryId(null);
+        setPage(1);
+        await refreshLibrary({
+          categoryIdOverride: null,
+          pageOverride: 1,
+          showRefreshing: true,
+        });
+        return;
+      }
+      await refreshLibrary({ showRefreshing: true });
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setDeletingDomainId(null);
     }
   }
 
@@ -293,7 +414,7 @@ export const LibraryPage: React.FC = () => {
         category_id: categoryId,
       });
       setPapers((currentPapers) => mergePaper(currentPapers, updatedPaper));
-      await loadPapers({ showRefreshing: true });
+      await refreshLibrary({ showRefreshing: true });
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -304,7 +425,6 @@ export const LibraryPage: React.FC = () => {
   async function handleConfirmReview(paper: PaperRecord): Promise<void> {
     setAdvancingPaperId(paper.paper_id);
     setError(null);
-    setReviewTarget(null);
     try {
       const result = await confirmPaperReview(paper.paper_id);
       setPapers((currentPapers) => mergePaper(currentPapers, result.paper));
@@ -312,11 +432,25 @@ export const LibraryPage: React.FC = () => {
       if (result.job.status === "failed") {
         throw new Error(result.job.error?.message ?? result.job.message);
       }
-      await loadPapers({ showRefreshing: true });
+      await refreshLibrary({ showRefreshing: true });
     } catch (err) {
       setError(formatError(err));
     } finally {
       setAdvancingPaperId(null);
+    }
+  }
+
+  async function handleRetryPipeline(paper: PaperRecord): Promise<void> {
+    setRetryingPaperId(paper.paper_id);
+    setError(null);
+    try {
+      const result = await retryPaperPipeline(paper.paper_id);
+      setPapers((currentPapers) => mergePaper(currentPapers, result.paper));
+      await refreshLibrary({ showRefreshing: true });
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setRetryingPaperId(null);
     }
   }
 
@@ -334,44 +468,16 @@ export const LibraryPage: React.FC = () => {
           setIsImportOpen(true);
         }}
         onSearchChange={setDraftQuery}
-        onSearchSubmit={() => setQuery(draftQuery.trim())}
+        onSearchSubmit={() => {
+          setQuery(draftQuery.trim());
+          setPage(1);
+        }}
         searchValue={draftQuery}
       />
 
       <main className="grid gap-8 p-6 sm:p-8 xl:grid-cols-[18rem_minmax(0,1fr)]">
         <section className="flex flex-col rounded-lg bg-surface-container-low p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-[0.22em] text-on-surface-variant">
-              Collections
-            </h3>
-            <span className="material-symbols-outlined text-sm text-on-surface-variant">
-              filter_list
-            </span>
-          </div>
-
-          <div className="space-y-2">
-            <StatusFilter
-              active={query === "" && selectedCategoryId === null}
-              count={total}
-              icon="library_books"
-              label="All Papers"
-              onClick={() => {
-                setDraftQuery("");
-                setQuery("");
-                setSelectedCategoryId(null);
-              }}
-            />
-            {Object.entries(statusCounts).map(([stage, count]) => (
-              <StatusFilter
-                key={stage}
-                count={count}
-                icon={stage === "completed" ? "check_circle" : "radio_button_unchecked"}
-                label={statusLabels[stage] ?? stage}
-              />
-            ))}
-          </div>
-
-          <div className="mt-8 border-t border-outline-variant/10 pt-6">
+          <div>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-[0.22em] text-on-surface-variant">
                 Domains
@@ -392,13 +498,18 @@ export const LibraryPage: React.FC = () => {
             <div className="space-y-1">
               {flatCategories.length > 0 ? (
                 flatCategories.map((category) => (
-                  <StatusFilter
+                  <DomainFilter
                     active={selectedCategoryId === category.category_id}
-                    count={papers.filter((paper) => paper.category_id === category.category_id).length}
+                    count={category.paper_count}
+                    disabled={deletingDomainId === category.category_id}
                     icon={category.depth === 0 ? "folder" : "subdirectory_arrow_right"}
                     key={category.category_id}
                     label={category.label}
-                    onClick={() => setSelectedCategoryId(category.category_id)}
+                    onDelete={() => void handleDeleteDomain(category)}
+                    onClick={() => {
+                      setSelectedCategoryId(category.category_id);
+                      setPage(1);
+                    }}
                   />
                 ))
               ) : (
@@ -410,15 +521,44 @@ export const LibraryPage: React.FC = () => {
           </div>
 
           <div className="mt-8 border-t border-outline-variant/10 pt-6">
-            <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface-variant">
-              <span>Loaded From API</span>
-              <span className="text-primary">{papers.length}</span>
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-[0.22em] text-on-surface-variant">
+                Collections
+              </h3>
+              <span className="material-symbols-outlined text-sm text-on-surface-variant">
+                filter_list
+              </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-surface-container shadow-inner">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
-                style={{ width: `${Math.min(100, papers.length * 8)}%` }}
+
+            <div className="space-y-2">
+              <StatusFilter
+                active={query === "" && selectedCategoryId === null}
+                count={libraryTotal}
+                icon="library_books"
+                label="All Papers"
+                onClick={() => {
+                  setDraftQuery("");
+                  setQuery("");
+                  setSelectedCategoryId(null);
+                  setSelectedStage("");
+                  setYearFrom("");
+                  setYearTo("");
+                  setPage(1);
+                }}
               />
+              {Object.entries(visibleStatusCounts).map(([stage, count]) => (
+                <StatusFilter
+                  active={selectedStage === stage}
+                  key={stage}
+                  count={count}
+                  icon={stage === "completed" ? "check_circle" : "radio_button_unchecked"}
+                  label={statusLabels[stage] ?? stage}
+                  onClick={() => {
+                    setSelectedStage((current) => (current === stage ? "" : stage));
+                    setPage(1);
+                  }}
+                />
+              ))}
             </div>
           </div>
         </section>
@@ -448,6 +588,110 @@ export const LibraryPage: React.FC = () => {
                   Domain: {categoryNames[selectedCategoryId] ?? selectedCategoryId}
                 </span>
               ) : null}
+              {selectedStage ? (
+                <FilterChip
+                  label={`Stage: ${statusLabels[selectedStage] ?? selectedStage}`}
+                  onClear={() => {
+                    setSelectedStage("");
+                    setPage(1);
+                  }}
+                />
+              ) : null}
+              {yearFrom || yearTo ? (
+                <FilterChip
+                  label={`Year: ${yearFrom || "min"}-${yearTo || "max"}`}
+                  onClear={() => {
+                    setYearFrom("");
+                    setYearTo("");
+                    setPage(1);
+                  }}
+                />
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="sr-only" htmlFor="library-year-from">
+                Year from
+              </label>
+              <input
+                className="h-9 w-24 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-3 text-xs font-bold text-on-surface outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+                id="library-year-from"
+                inputMode="numeric"
+                maxLength={4}
+                onChange={(event) => {
+                  setYearFrom(event.target.value.replace(/\D/g, "").slice(0, 4));
+                  setPage(1);
+                }}
+                placeholder="From"
+                type="text"
+                value={yearFrom}
+              />
+              <label className="sr-only" htmlFor="library-year-to">
+                Year to
+              </label>
+              <input
+                className="h-9 w-24 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-3 text-xs font-bold text-on-surface outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+                id="library-year-to"
+                inputMode="numeric"
+                maxLength={4}
+                onChange={(event) => {
+                  setYearTo(event.target.value.replace(/\D/g, "").slice(0, 4));
+                  setPage(1);
+                }}
+                placeholder="To"
+                type="text"
+                value={yearTo}
+              />
+              <label className="sr-only" htmlFor="library-sort">
+                Sort papers
+              </label>
+              <select
+                className="h-9 rounded-lg border border-outline-variant/30 bg-surface-container-lowest px-3 text-xs font-bold text-on-surface outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+                id="library-sort"
+                onChange={(event) => {
+                  setSort(
+                    event.target.value as (typeof PAPER_SORT_OPTIONS)[number]["value"],
+                  );
+                  setPage(1);
+                }}
+                value={sort}
+              >
+                {PAPER_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                aria-label="Toggle sort order"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-lowest text-on-surface-variant transition-colors hover:bg-surface-container"
+                onClick={() => {
+                  setOrder((current) => (current === "desc" ? "asc" : "desc"));
+                  setPage(1);
+                }}
+                title={order === "desc" ? "Descending" : "Ascending"}
+                type="button"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  {order === "desc" ? "south" : "north"}
+                </span>
+              </button>
+              {hasActiveFilters ? (
+                <button
+                  className="h-9 rounded-lg px-3 text-xs font-bold text-on-surface-variant transition-colors hover:bg-surface-container"
+                  onClick={() => {
+                    setDraftQuery("");
+                    setQuery("");
+                    setSelectedCategoryId(null);
+                    setSelectedStage("");
+                    setYearFrom("");
+                    setYearTo("");
+                    setPage(1);
+                  }}
+                  type="button"
+                >
+                  Clear
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -471,12 +715,26 @@ export const LibraryPage: React.FC = () => {
                   }
                   isAdvancing={advancingPaperId === paper.paper_id}
                   isAssigningDomain={assigningPaperId === paper.paper_id}
+                  isFocused={focusedPaperId === paper.paper_id}
+                  isRetrying={retryingPaperId === paper.paper_id}
                   key={paper.paper_id}
+                  paperRef={
+                    focusedPaperId === paper.paper_id ? focusedPaperRef : undefined
+                  }
                   onAssignDomain={handleAssignDomain}
-                  onRequestReviewConfirm={setReviewTarget}
+                  onRetryPipeline={(targetPaper) => void handleRetryPipeline(targetPaper)}
+                  onReviewConfirm={(targetPaper) => void handleConfirmReview(targetPaper)}
                   paper={paper}
                 />
               ))}
+              <PaginationBar
+                page={page}
+                pageSize={PAPER_PAGE_SIZE}
+                total={total}
+                totalPages={totalPages}
+                onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+                onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+              />
             </div>
           ) : (
             <EmptyState hasQuery={query.length > 0} />
@@ -522,23 +780,6 @@ export const LibraryPage: React.FC = () => {
         onParentChange={setDomainParentId}
         onSubmit={handleCreateDomain}
         parentId={domainParentId}
-      />
-
-      <ReviewConfirmDialog
-        isAdvancing={
-          reviewTarget !== null && advancingPaperId === reviewTarget.paper_id
-        }
-        onClose={() => {
-          if (advancingPaperId === null) {
-            setReviewTarget(null);
-          }
-        }}
-        onConfirm={() => {
-          if (reviewTarget) {
-            void handleConfirmReview(reviewTarget);
-          }
-        }}
-        paper={reviewTarget}
       />
     </div>
   );
@@ -599,6 +840,62 @@ function StatusFilter({
       </span>
       <span className="text-xs font-bold">{count}</span>
     </button>
+  );
+}
+
+function DomainFilter({
+  active = false,
+  count,
+  disabled = false,
+  icon,
+  label,
+  onClick,
+  onDelete,
+}: {
+  active?: boolean;
+  count: number;
+  disabled?: boolean;
+  icon: string;
+  label: string;
+  onClick: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className={`group flex w-full items-center rounded-lg transition-colors ${
+        active
+          ? "bg-surface-container-highest text-primary"
+          : "text-on-surface-variant hover:bg-surface-container"
+      }`}
+    >
+      <button
+        className="flex min-w-0 flex-1 items-center justify-between rounded-lg px-3 py-2 text-left"
+        disabled={disabled}
+        onClick={onClick}
+        type="button"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="material-symbols-outlined text-lg">{icon}</span>
+          <span className="truncate text-sm font-semibold">{label}</span>
+        </span>
+        <span className="ml-2 shrink-0 text-xs font-bold">{count}</span>
+      </button>
+      <button
+        aria-label={`Delete domain ${label.trim()}`}
+        className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-on-surface-variant/60 opacity-70 transition-all hover:bg-error/10 hover:text-error group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={disabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete();
+        }}
+        title="Delete domain"
+        type="button"
+      >
+        <span className="material-symbols-outlined text-base">
+          {disabled ? "progress_activity" : "delete"}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -727,117 +1024,38 @@ function DomainDialog({
   );
 }
 
-function ReviewConfirmDialog({
-  isAdvancing,
-  onClose,
-  onConfirm,
-  paper,
-}: {
-  isAdvancing: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  paper: PaperRecord | null;
-}) {
-  if (!paper) {
-    return null;
-  }
-
-  const hasPdf = paper.source_pdf_is_real || Boolean(paper.pdf_url);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-background/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-5 shadow-[0_24px_80px_rgba(22,32,34,0.24)]">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-base font-extrabold text-on-surface">
-              Confirm review?
-            </h2>
-            <p className="mt-1 text-sm text-on-surface-variant">
-              Continue downstream generation for this paper.
-            </p>
-          </div>
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-50"
-            disabled={isAdvancing}
-            onClick={onClose}
-            type="button"
-          >
-            <span className="material-symbols-outlined text-xl">close</span>
-          </button>
-        </div>
-
-        <p className="line-clamp-2 rounded-xl bg-surface-container-low px-3 py-3 text-sm font-bold text-on-surface">
-          {paper.title}
-        </p>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <a
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-surface-container-high px-3 text-sm font-bold text-primary transition-colors hover:bg-surface-container-highest"
-            href={paperRefinedUrl(paper)}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <span className="material-symbols-outlined text-lg">open_in_new</span>
-            Refined
-          </a>
-          {hasPdf ? (
-            <a
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-surface-container-high px-3 text-sm font-bold text-secondary transition-colors hover:bg-surface-container-highest"
-              href={paperPdfUrl(paper)}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
-              PDF
-            </a>
-          ) : null}
-        </div>
-
-        <div className="mt-5 flex justify-end gap-3">
-          <button
-            className="h-10 rounded-lg px-4 text-sm font-semibold text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-50"
-            disabled={isAdvancing}
-            onClick={onClose}
-            type="button"
-          >
-            Cancel
-          </button>
-          <button
-            className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-on-primary shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isAdvancing}
-            onClick={onConfirm}
-            type="button"
-          >
-            <span className="material-symbols-outlined text-lg">
-              {isAdvancing ? "progress_activity" : "check_circle"}
-            </span>
-            <span>{isAdvancing ? "Continuing..." : "Confirm"}</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function PaperCard({
   categories,
   categoryName,
   isAdvancing,
   isAssigningDomain,
+  isFocused,
+  isRetrying,
+  paperRef,
   onAssignDomain,
-  onRequestReviewConfirm,
+  onRetryPipeline,
+  onReviewConfirm,
   paper,
 }: PaperCardProps) {
   const displayStatus = getDisplayStatus(paper);
   const statusColorClass = getStatusColorClass(displayStatus.status);
-  const authors = paper.authors.length ? paper.authors.join(", ") : "No authors";
   const hasPdf = paper.source_pdf_is_real || Boolean(paper.pdf_url);
   const hasNote = Boolean(paper.assets.note) || paper.note_status !== "empty";
   const needsReview = paper.review_status === "waiting_review";
+  const isLiveJob =
+    paper.latest_job_status === "queued" || paper.latest_job_status === "running";
+  const canRetry =
+    !isLiveJob &&
+    (paper.paper_stage === "error" || paper.latest_job_status === "failed");
   const categoryOptions = flattenCategories(categories);
 
   return (
-    <article className="rounded-lg border border-transparent bg-surface-container-lowest p-5 shadow-[0_2px_12px_rgba(45,52,53,0.04)] transition-all hover:border-primary/10 hover:shadow-[0_8px_32px_rgba(45,52,53,0.06)]">
+    <article
+      className={`rounded-lg border bg-surface-container-lowest p-5 shadow-[0_2px_12px_rgba(45,52,53,0.04)] transition-all hover:border-primary/10 hover:shadow-[0_8px_32px_rgba(45,52,53,0.06)] ${
+        isFocused ? "border-primary/30 ring-2 ring-primary/15" : "border-transparent"
+      }`}
+      ref={paperRef}
+    >
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <h4
@@ -854,9 +1072,6 @@ function PaperCard({
         </div>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs font-medium text-on-surface-variant">
-            <span className="max-w-[320px] truncate" title={authors}>
-              {authors}
-            </span>
             {paper.year ? <span>{paper.year}</span> : null}
             {paper.venue_short || paper.venue ? (
               <span className="rounded bg-secondary-container px-2 py-0.5 font-bold text-on-secondary-container">
@@ -907,13 +1122,26 @@ function PaperCard({
               <button
                 className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-on-primary shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isAdvancing}
-                onClick={() => onRequestReviewConfirm(paper)}
+                onClick={() => onReviewConfirm(paper)}
                 type="button"
               >
                 <span className="material-symbols-outlined text-base">
                   {isAdvancing ? "progress_activity" : "fact_check"}
                 </span>
                 <span>{isAdvancing ? "Advancing" : "Review Confirm"}</span>
+              </button>
+            ) : null}
+            {canRetry ? (
+              <button
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-surface-container-high px-3 text-xs font-bold text-on-surface shadow-sm transition-all hover:bg-surface-container-highest disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isRetrying}
+                onClick={() => onRetryPipeline(paper)}
+                type="button"
+              >
+                <span className="material-symbols-outlined text-base">
+                  {isRetrying ? "progress_activity" : "restart_alt"}
+                </span>
+                <span>{isRetrying ? "Retrying" : "Retry"}</span>
               </button>
             ) : null}
             <ResourceIcon
@@ -964,6 +1192,73 @@ function ResourceIcon({
   );
 }
 
+function FilterChip({
+  label,
+  onClear,
+}: {
+  label: string;
+  onClear: () => void;
+}) {
+  return (
+    <button
+      className="inline-flex items-center gap-1 rounded-full bg-surface-container px-2 py-0.5 text-[10px] font-bold text-on-surface-variant transition-colors hover:bg-surface-container-high"
+      onClick={onClear}
+      type="button"
+    >
+      <span>{label}</span>
+      <span className="material-symbols-outlined text-sm">close</span>
+    </button>
+  );
+}
+
+function PaginationBar({
+  page,
+  pageSize,
+  total,
+  totalPages,
+  onNext,
+  onPrevious,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-outline-variant/15 bg-surface-container-lowest px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-xs font-bold text-on-surface-variant">
+        Showing {start}-{end} of {total}
+      </div>
+      <div className="flex items-center gap-2 self-end sm:self-auto">
+        <button
+          className="h-9 rounded-lg px-3 text-xs font-bold text-on-surface-variant transition-colors hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={page <= 1}
+          onClick={onPrevious}
+          type="button"
+        >
+          Previous
+        </button>
+        <span className="min-w-20 text-center text-xs font-bold text-on-surface">
+          Page {page}/{totalPages}
+        </span>
+        <button
+          className="h-9 rounded-lg px-3 text-xs font-bold text-on-surface-variant transition-colors hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={page >= totalPages}
+          onClick={onNext}
+          type="button"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PaperListSkeleton() {
   return (
     <div className="space-y-3">
@@ -975,6 +1270,17 @@ function PaperListSkeleton() {
       ))}
     </div>
   );
+}
+
+function parseOptionalYear(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+  return parsed;
 }
 
 function EmptyState({ hasQuery }: { hasQuery: boolean }) {
@@ -998,6 +1304,9 @@ function EmptyState({ hasQuery }: { hasQuery: boolean }) {
 function getDisplayStatus(paper: PaperRecord): { label: string; status: string } {
   if (paper.review_status === "waiting_review") {
     return { label: "Review Waiting", status: "waiting_review" };
+  }
+  if (paper.latest_job_type === "paper_resolve_metadata" && paper.latest_job_status === "succeeded") {
+    return { label: "Metadata Ready", status: "completed" };
   }
   if (paper.latest_job_status) {
     const jobType = jobTypeLabels[paper.latest_job_type] ?? paper.latest_job_type;
@@ -1039,6 +1348,12 @@ function getStatusColorClass(status: string): string {
 
 function formatError(err: unknown): string {
   if (err instanceof APIError) {
+    if (err.code === "PAPER_DUPLICATE") {
+      const paperId = err.details.paper_id;
+      return paperId
+        ? `This paper already exists in Library as paper #${paperId}.`
+        : "This paper already exists in Library.";
+    }
     return `${err.code}: ${err.message}`;
   }
   if (err instanceof Error) {

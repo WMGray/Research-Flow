@@ -8,6 +8,7 @@ export type JobRecord = {
   message: string;
   resource_type: string;
   resource_id: number;
+  resource_label: string;
   created_at: string;
   updated_at: string;
   result: Record<string, unknown> | null;

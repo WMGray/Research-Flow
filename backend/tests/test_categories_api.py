@@ -68,3 +68,29 @@ def test_category_delete_rejects_in_use_category(client: TestClient) -> None:
 
     assert delete_response.status_code == 409
     assert delete_response.json()["detail"]["code"] == "CATEGORY_IN_USE"
+
+
+def test_category_tree_includes_global_paper_counts(client: TestClient) -> None:
+    first = client.post("/api/v1/categories", json={"name": "NLP"}).json()["data"]
+    second = client.post("/api/v1/categories", json={"name": "CV"}).json()["data"]
+    client.post(
+        "/api/v1/papers",
+        json={"title": "Paper A", "category_id": first["category_id"]},
+    )
+    client.post(
+        "/api/v1/papers",
+        json={"title": "Paper B", "category_id": second["category_id"]},
+    )
+    client.post(
+        "/api/v1/papers",
+        json={"title": "Paper C", "category_id": second["category_id"]},
+    )
+
+    tree_response = client.get("/api/v1/categories")
+
+    assert tree_response.status_code == 200
+    counts = {
+        category["name"]: category["paper_count"]
+        for category in tree_response.json()["data"]
+    }
+    assert counts == {"CV": 2, "NLP": 1}

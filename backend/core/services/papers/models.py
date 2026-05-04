@@ -18,6 +18,19 @@ class PaperNotFoundError(PaperRepositoryError):
 class DuplicatePaperError(PaperRepositoryError):
     code = "PAPER_DUPLICATE"
 
+    def __init__(self, message: str, paper_id: int | None = None) -> None:
+        super().__init__(message)
+        self.paper_id = paper_id
+
+
+class PaperRetryNotAllowedError(PaperRepositoryError):
+    code = "PAPER_RETRY_NOT_ALLOWED"
+
+    def __init__(self, message: str, *, paper_id: int, status: str) -> None:
+        super().__init__(message)
+        self.paper_id = paper_id
+        self.status = status
+
 
 class DocumentNotFoundError(PaperRepositoryError):
     code = "DOCUMENT_NOT_FOUND"
@@ -97,6 +110,7 @@ class JobRecord:
     updated_at: str
     result: dict[str, Any] | None
     error: dict[str, Any] | None
+    resource_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)

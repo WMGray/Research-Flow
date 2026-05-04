@@ -216,6 +216,7 @@ class JobResponse(BaseModel):
     message: str
     resource_type: str
     resource_id: int
+    resource_label: str = ""
     created_at: str
     updated_at: str
     result: dict[str, Any] | None = None

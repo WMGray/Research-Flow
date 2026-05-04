@@ -14,6 +14,7 @@ PAPER_EXTRACT_KNOWLEDGE = "worker.tasks.papers.extract_knowledge"
 PAPER_EXTRACT_DATASETS = "worker.tasks.papers.extract_datasets"
 PAPER_CONFIRM_PIPELINE = "worker.tasks.papers.confirm_pipeline"
 PAPER_IMPORT_PIPELINE = "worker.tasks.papers.import_pipeline"
+PAPER_RETRY_PIPELINE = "worker.tasks.papers.retry_pipeline"
 
 # Project 模块生成与刷新任务。
 PROJECT_GENERATE_RELATED_WORK = "worker.tasks.projects.generate_related_work"
@@ -49,6 +50,7 @@ ALL_TASK_NAMES: tuple[str, ...] = (
     PAPER_EXTRACT_DATASETS,
     PAPER_CONFIRM_PIPELINE,
     PAPER_IMPORT_PIPELINE,
+    PAPER_RETRY_PIPELINE,
     PROJECT_GENERATE_RELATED_WORK,
     PROJECT_GENERATE_METHOD,
     PROJECT_GENERATE_EXPERIMENT,

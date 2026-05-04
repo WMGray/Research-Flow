@@ -22,6 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
     monkeypatch.setenv("RESEARCH_FLOW_ENV_FILE", "none")
     monkeypatch.setenv("RFLOW_DB_PATH", str(tmp_path / "research_flow.sqlite"))
     monkeypatch.setenv("RFLOW_STORAGE_DIR", str(tmp_path / "storage"))
+    monkeypatch.setenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "0")
     reset_settings()
     with TestClient(app) as test_client:
         try:
@@ -194,12 +195,52 @@ def create_sample_paper(client: TestClient, **overrides: object) -> dict:
     return response.json()["data"]
 
 
+def paper_dir_for(client: TestClient, paper_id: int) -> Path:
+    del client
+    from core.services.papers.repository import PaperRepository
+
+    return PaperRepository()._paper_dir(paper_id)
+
+
+def write_mineru_fixture(client: TestClient, paper_id: int, content: str | None = None) -> Path:
+    paper_dir = paper_dir_for(client, paper_id)
+    mineru_dir = paper_dir / "parsed" / "mineru"
+    mineru_dir.mkdir(parents=True, exist_ok=True)
+    markdown_path = mineru_dir / "full.md"
+    markdown_path.write_text(
+        content
+        or "\n".join(
+            [
+                "# LoRA: Low-Rank Adaptation of Large Language Models",
+                "",
+                "## Introduction",
+                "LoRA introduces low-rank adapters for efficient model adaptation.",
+                "",
+                "## Related Work",
+                "Related work section.",
+                "",
+                "## Method",
+                "Method section.",
+                "",
+                "## Experiment",
+                "Experiment section.",
+                "",
+                "## Conclusion",
+                "Conclusion section.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return markdown_path
+
+
 def prepare_paper_sections_for_note(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> int:
     paper = create_sample_paper(client)
     paper_id = int(paper["paper_id"])
+    write_mineru_fixture(client, paper_id)
     client.post(f"/api/v1/papers/{paper_id}/parse", json={})
     install_fake_refiner(
         monkeypatch,
@@ -341,6 +382,63 @@ def test_paper_create_rejects_duplicate_doi(client: TestClient) -> None:
     )
     assert duplicate_response.status_code == 409
     assert duplicate_response.json()["detail"]["code"] == "PAPER_DUPLICATE"
+    assert duplicate_response.json()["detail"]["details"]["paper_id"] > 0
+
+
+def test_paper_create_rejects_duplicate_arxiv_url(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/papers",
+        json={
+            "title": "Attention Is All You Need",
+            "source_url": "https://arxiv.org/abs/1706.03762",
+        },
+    )
+    assert first.status_code == 201
+
+    duplicate_response = client.post(
+        "/api/v1/papers",
+        json={
+            "title": "https://arxiv.org/pdf/1706.03762",
+            "source_url": "https://arxiv.org/pdf/1706.03762",
+        },
+    )
+
+    assert duplicate_response.status_code == 409
+    assert duplicate_response.json()["detail"]["code"] == "PAPER_DUPLICATE"
+    assert (
+        duplicate_response.json()["detail"]["details"]["paper_id"]
+        == first.json()["data"]["paper_id"]
+    )
+
+
+def test_paper_create_rejects_duplicate_title(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/papers",
+        json={"title": "Exact Duplicate Title"},
+    )
+    assert first.status_code == 201
+
+    duplicate_response = client.post(
+        "/api/v1/papers",
+        json={"title": "  exact   duplicate title  "},
+    )
+
+    assert duplicate_response.status_code == 409
+    assert duplicate_response.json()["detail"]["code"] == "PAPER_DUPLICATE"
+    assert duplicate_response.json()["detail"]["details"]["paper_id"] == first.json()["data"]["paper_id"]
+
+
+def test_retry_pipeline_rejects_non_failed_paper(client: TestClient) -> None:
+    paper = client.post(
+        "/api/v1/papers",
+        json={"title": "Retry Guard Paper"},
+    ).json()["data"]
+
+    response = client.post(f"/api/v1/papers/{paper['paper_id']}/retry-pipeline")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PAPER_RETRY_NOT_ALLOWED"
+    assert response.json()["detail"]["details"]["paper_id"] == paper["paper_id"]
 
 
 def test_paper_directory_moves_when_category_changes(
@@ -465,6 +563,7 @@ def test_download_parse_and_sections_flow(
     assert download_response.status_code == 202
     assert download_response.json()["data"]["status"] == "succeeded"
 
+    write_mineru_fixture(client, paper_id)
     parse_response = client.post(f"/api/v1/papers/{paper_id}/parse", json={})
     assert parse_response.status_code == 202
     job = parse_response.json()["data"]
@@ -693,6 +792,7 @@ def test_review_and_note_generation_flow(
 ) -> None:
     paper = create_sample_paper(client)
     paper_id = paper["paper_id"]
+    write_mineru_fixture(client, paper_id)
     client.post(f"/api/v1/papers/{paper_id}/parse", json={})
     requests = install_fake_refiner(
         monkeypatch,
@@ -753,6 +853,15 @@ def test_review_and_note_generation_flow(
         "data"
     ]
     assert final_job["status"] == "succeeded"
+    child_job_types = {
+        record["type"] for record in final_job["result"]["jobs"]
+    }
+    assert {
+        "paper_split_sections",
+        "paper_generate_note",
+        "paper_extract_knowledge",
+        "paper_extract_datasets",
+    }.issubset(child_job_types)
 
     paper_response = client.get(f"/api/v1/papers/{paper_id}")
     assert paper_response.json()["data"]["paper_stage"] == "completed"
@@ -798,6 +907,7 @@ def test_generate_note_preserves_user_modified_note(
 ) -> None:
     paper = create_sample_paper(client)
     paper_id = paper["paper_id"]
+    write_mineru_fixture(client, paper_id)
     client.post(f"/api/v1/papers/{paper_id}/parse", json={})
     install_fake_refiner(
         monkeypatch,
@@ -950,6 +1060,7 @@ def test_extract_actions_write_final_jobs(
 ) -> None:
     paper = create_sample_paper(client)
     paper_id = paper["paper_id"]
+    write_mineru_fixture(client, paper_id)
     client.post(f"/api/v1/papers/{paper_id}/parse", json={})
     install_fake_refiner(
         monkeypatch,
@@ -989,6 +1100,7 @@ def test_extract_actions_write_final_jobs(
 
 def test_cancel_rejects_finished_job(client: TestClient) -> None:
     paper = create_sample_paper(client)
+    write_mineru_fixture(client, paper["paper_id"])
     parse_response = client.post(f"/api/v1/papers/{paper['paper_id']}/parse", json={})
     job_id = parse_response.json()["data"]["job_id"]
 
@@ -1005,9 +1117,9 @@ def test_create_paper_can_parse_after_import(client: TestClient) -> None:
 
     assert response.status_code == 201
     paper = response.json()["data"]
-    assert paper["paper_stage"] == "parsed"
+    assert paper["paper_stage"] == "error"
     assert paper["download_status"] == "succeeded"
-    assert paper["parse_status"] == "succeeded"
+    assert paper["parse_status"] == "failed"
     assert paper["download_job_id"].startswith("job_")
     assert paper["parse_job_id"].startswith("job_")
 
@@ -1032,20 +1144,6 @@ def test_start_import_pipeline_returns_queued_job(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    install_fake_refiner(
-        monkeypatch,
-        response_content="\n".join(
-            [
-                "# Refined",
-                "",
-                "## Method",
-                "Method section.",
-                "",
-                "## Experiment",
-                "Experiment section.",
-            ]
-        ),
-    )
     create_response = client.post(
         "/api/v1/papers",
         json={"title": "Queued Import Pipeline"},
@@ -1061,9 +1159,253 @@ def test_start_import_pipeline_returns_queued_job(
     assert payload["job"]["status"] == "queued"
 
     final_job = client.get(f"/api/v1/jobs/{payload['job']['job_id']}").json()["data"]
+    assert final_job["status"] == "failed"
+    assert final_job["error"]["code"] == "PAPER_PARSE_REAL_MARKDOWN_MISSING"
+    paper_response = client.get(f"/api/v1/papers/{paper_id}").json()["data"]
+    assert paper_response["parse_status"] == "failed"
+
+
+def test_retry_pipeline_requeues_failed_import_pipeline(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_response = client.post(
+        "/api/v1/papers",
+        json={"title": "Retry Import Pipeline"},
+    )
+    paper_id = create_response.json()["data"]["paper_id"]
+    first_response = client.post(f"/api/v1/papers/{paper_id}/import-pipeline")
+    first_job = client.get(
+        f"/api/v1/jobs/{first_response.json()['data']['job']['job_id']}"
+    ).json()["data"]
+    assert first_job["status"] == "failed"
+
+    write_mineru_fixture(client, paper_id)
+    install_fake_refiner(
+        monkeypatch,
+        response_content="\n".join(
+            [
+                "# Retry Import Pipeline",
+                "",
+                "## Method",
+                "Method section.",
+                "",
+                "## Experiment",
+                "Experiment section.",
+            ]
+        ),
+    )
+
+    retry_response = client.post(f"/api/v1/papers/{paper_id}/retry-pipeline")
+
+    assert retry_response.status_code == 202
+    retry_payload = retry_response.json()["data"]
+    assert retry_payload["job"]["type"] == "paper_retry_pipeline"
+    final_job = client.get(f"/api/v1/jobs/{retry_payload['job']['job_id']}").json()["data"]
     assert final_job["status"] == "waiting_review"
     paper_response = client.get(f"/api/v1/papers/{paper_id}").json()["data"]
     assert paper_response["review_status"] == "waiting_review"
+
+
+def test_resolve_metadata_upgrades_arxiv_venue_when_resolver_finds_official_one(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.services.papers.repository as repository_module
+    from core.services.papers.repository import PaperRepository
+
+    class FakeDownloadService:
+        def resolve(self, request):
+            del request
+            return FakeResolveRow(
+                index=1,
+                raw_input="10.48550/arXiv.1706.03762",
+                title="Attention Is All You Need",
+                authors=[],
+                year="2017",
+                venue="NeurIPS",
+                doi="10.48550/arXiv.1706.03762",
+                resolve_method="arxiv_s2_official->official_neurips",
+                source="neurips_proceedings",
+                status="ready_download",
+                pdf_url="https://papers.nips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
+                landing_url="https://papers.nips.cc/paper_files/paper/2017/hash/3f5ee243547dee91fbd053c1c4a845aa-Abstract.html",
+                final_url="https://papers.nips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
+                http_status="200",
+                content_type="application/pdf",
+                detail="",
+                error_code="",
+                metadata_source="semantic_scholar_arxiv",
+                metadata_confidence="high",
+                suggested_filename="Attention Is All You Need__2017.pdf",
+                target_path="C:\\fake\\attention.pdf",
+                probe_trace=["resolver"],
+            )
+
+    monkeypatch.setattr(repository_module, "PaperDownloadService", FakeDownloadService)
+
+    response = client.post(
+        "/api/v1/papers",
+        json={
+            "title": "Attention Is All You Need",
+            "source_url": "https://arxiv.org/abs/1706.03762",
+            "doi": "10.48550/arXiv.1706.03762",
+            "venue": "arXiv",
+            "venue_short": "arXiv",
+            "source_kind": "search",
+        },
+    )
+    paper_id = response.json()["data"]["paper_id"]
+
+    repository = PaperRepository()
+    job = repository.resolve_paper_metadata(paper_id)
+    assert job.status == "succeeded"
+
+    paper_response = client.get(f"/api/v1/papers/{paper_id}").json()["data"]
+    assert paper_response["venue"] == "NeurIPS"
+    assert paper_response["venue_short"] == "NeurIPS"
+    assert paper_response["ccf_rank"] == "CCF-A"
+
+
+def test_retry_pipeline_rejects_live_retry_job(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    create_response = client.post(
+        "/api/v1/papers",
+        json={"title": "Retry Live Job Guard"},
+    )
+    paper_id = create_response.json()["data"]["paper_id"]
+
+    with sqlite3.connect(tmp_path / "research_flow.sqlite") as conn:
+        conn.execute(
+            """
+            UPDATE biz_paper
+            SET paper_stage = 'error', download_status = 'failed'
+            WHERE asset_id = ?
+            """,
+            (paper_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, type, status, progress, message, resource_type,
+                resource_id, result, error, created_at, updated_at
+            )
+            VALUES (
+                'retry_live_guard', 'paper_retry_pipeline', 'running', 0.5,
+                'Retry still running.', 'paper', ?, NULL, NULL,
+                datetime('now'), datetime('now')
+            )
+            """,
+            (paper_id,),
+        )
+        conn.commit()
+
+    response = client.post(f"/api/v1/papers/{paper_id}/retry-pipeline")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PAPER_RETRY_NOT_ALLOWED"
+    assert response.json()["detail"]["details"]["status"] == "running"
+
+
+def test_import_pipeline_refreshes_url_title_and_reaches_review(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import core.services.papers.repository as repository_module
+
+    pdf_path = tmp_path / "import.pdf"
+    pdf_path.write_bytes(
+        b"%PDF-1.4\n% Import pipeline PDF\n" + (b"0" * 5000) + b"\n%%EOF\n"
+    )
+
+    class FakeDownloadService:
+        def resolve(self, request):
+            del request
+            return FakeResolveRow(
+                index=1,
+                raw_input="https://example.com/import",
+                title="Resolved Import Title",
+                authors=["Ada Lovelace"],
+                year="2024",
+                venue="ICML",
+                doi="10.1234/import",
+                resolve_method="direct",
+                source="semantic_scholar",
+                status="ready_download",
+                pdf_url="https://example.com/import.pdf",
+                landing_url="https://example.com/import",
+                final_url="https://example.com/import.pdf",
+                http_status="200",
+                content_type="application/pdf",
+                detail="",
+                error_code="",
+                metadata_source="semantic_scholar",
+                metadata_confidence="high",
+                suggested_filename="Resolved Import Title__2024.pdf",
+                target_path=str(pdf_path),
+                probe_trace=["resolve"],
+            )
+
+        def download(self, request):
+            return self.resolve(request), {
+                "status": "downloaded",
+                "file_path": str(pdf_path),
+                "detail": "",
+            }
+
+    monkeypatch.setattr(repository_module, "PaperDownloadService", FakeDownloadService)
+    monkeypatch.setenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "1")
+    install_fake_refiner(
+        monkeypatch,
+        response_content="\n".join(
+            [
+                "# Resolved Import Title",
+                "",
+                "## Method",
+                "Method section.",
+                "",
+                "## Experiment",
+                "Experiment section.",
+            ]
+        ),
+    )
+    create_response = client.post(
+        "/api/v1/papers",
+        json={"title": "https://example.com/import", "source_kind": "search"},
+    )
+    paper_id = create_response.json()["data"]["paper_id"]
+    write_mineru_fixture(
+        client,
+        paper_id,
+        "\n".join(
+            [
+                "# Resolved Import Title",
+                "",
+                "## Method",
+                "Method section with enough detail for import pipeline validation.",
+                "The parser keeps technical terms and section order for LLM repair.",
+                "",
+                "## Experiment",
+                "Experiment section with benchmark evidence and result discussion.",
+                "The content is long enough that refinement preservation checks pass.",
+            ]
+        ),
+    )
+
+    response = client.post(f"/api/v1/papers/{paper_id}/import-pipeline")
+
+    assert response.status_code == 202
+    payload = response.json()["data"]
+    final_job = client.get(f"/api/v1/jobs/{payload['job']['job_id']}").json()["data"]
+    assert final_job["status"] == "waiting_review"
+    paper_response = client.get(f"/api/v1/papers/{paper_id}").json()["data"]
+    assert paper_response["title"] == "Resolved Import Title"
+    assert paper_response["authors"] == ["Ada Lovelace"]
+    assert paper_response["review_status"] == "waiting_review"
+    assert paper_response["source_pdf_is_real"] is True
 
 
 def test_download_updates_resolved_metadata_and_exposes_files(
@@ -1168,6 +1510,7 @@ def test_download_uses_direct_pdf_url(
         return FakeStreamResponse()
 
     monkeypatch.setattr(repository_module.httpx, "stream", fake_stream)
+    monkeypatch.setenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "1")
 
     response = client.post(
         "/api/v1/papers",
@@ -1196,6 +1539,7 @@ def test_run_paper_pipeline_reaches_note_and_exposes_audit_records(
 ) -> None:
     paper = create_sample_paper(client)
     paper_id = paper["paper_id"]
+    write_mineru_fixture(client, paper_id)
     install_fake_refiner(
         monkeypatch,
         response_content="\n".join(
@@ -1258,6 +1602,7 @@ def test_refine_parse_requires_raw_markdown(client: TestClient) -> None:
 
 def test_split_sections_requires_refined_markdown(client: TestClient) -> None:
     paper = create_sample_paper(client)
+    write_mineru_fixture(client, paper["paper_id"])
     client.post(f"/api/v1/papers/{paper['paper_id']}/parse", json={})
 
     response = client.post(f"/api/v1/papers/{paper['paper_id']}/split-sections")

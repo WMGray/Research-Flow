@@ -38,6 +38,7 @@ from core.services.papers import (
     PaperCreateInput,
     PaperListInput,
     PaperNotFoundError,
+    PaperRetryNotAllowedError,
     PaperPipelineInput,
     PaperUpdateInput,
     ParsePaperInput,
@@ -62,6 +63,7 @@ from core.services.resources import ResourceNotFoundError, ResourceRepository
 from worker.tasks.papers import (
     confirm_pipeline as confirm_pipeline_task,
     import_pipeline as import_pipeline_task,
+    retry_pipeline as retry_pipeline_task,
 )
 
 
@@ -176,9 +178,24 @@ def inline_file_response(path: Path, *, media_type: str, filename: str) -> FileR
 
 def raise_http_error(exc: Exception) -> None:
     if isinstance(exc, DuplicatePaperError):
+        detail: dict[str, object] = {"code": exc.code, "message": str(exc)}
+        if exc.paper_id is not None:
+            detail["details"] = {"paper_id": exc.paper_id}
         raise HTTPException(
             status_code=409,
-            detail={"code": exc.code, "message": str(exc)},
+            detail=detail,
+        )
+    if isinstance(exc, PaperRetryNotAllowedError):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "details": {
+                    "paper_id": exc.paper_id,
+                    "status": exc.status,
+                },
+            },
         )
     if isinstance(exc, DocumentVersionConflictError):
         raise HTTPException(
@@ -235,6 +252,29 @@ def start_import_pipeline(
             import_pipeline_task.delay(paper_id, queued_job.job_id)
         else:
             background_tasks.add_task(import_pipeline_task, paper_id, queued_job.job_id)
+        paper = service.get_paper(paper_id)
+        return envelope(to_import_pipeline_response(paper=paper, job=queued_job))
+    except Exception as exc:  # pragma: no cover - centralized mapping
+        raise_http_error(exc)
+        raise
+
+
+@router.post(
+    "/papers/{paper_id}/retry-pipeline",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=APIEnvelope,
+)
+def retry_paper_pipeline(
+    paper_id: int,
+    background_tasks: BackgroundTasks,
+    service: PaperService = Depends(get_paper_service),
+) -> APIEnvelope:
+    try:
+        queued_job = service.create_retry_pipeline_job(paper_id)
+        if hasattr(retry_pipeline_task, "delay"):
+            retry_pipeline_task.delay(paper_id, queued_job.job_id)
+        else:
+            background_tasks.add_task(retry_pipeline_task, paper_id, queued_job.job_id)
         paper = service.get_paper(paper_id)
         return envelope(to_import_pipeline_response(paper=paper, job=queued_job))
     except Exception as exc:  # pragma: no cover - centralized mapping

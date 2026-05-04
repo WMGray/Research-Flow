@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
   APIError,
@@ -27,6 +28,7 @@ const emptyForm: DatasetCreateInput = {
 };
 
 export const DatasetsPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [datasets, setDatasets] = useState<DatasetRecord[]>([]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -34,6 +36,8 @@ export const DatasetsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const focusedDatasetId = Number.parseInt(searchParams.get("dataset_id") ?? "", 10);
+  const focusedDatasetRef = React.useRef<HTMLButtonElement | null>(null);
 
   const loadDatasets = useCallback(async (nextQuery = query): Promise<void> => {
     setIsLoading(true);
@@ -57,6 +61,23 @@ export const DatasetsPage: React.FC = () => {
   useEffect(() => {
     void loadDatasets("");
   }, [loadDatasets]);
+
+  useEffect(() => {
+    if (Number.isNaN(focusedDatasetId) || focusedDatasetId <= 0) {
+      return;
+    }
+    setSelectedId(focusedDatasetId);
+  }, [focusedDatasetId]);
+
+  useEffect(() => {
+    if (Number.isNaN(focusedDatasetId) || focusedDatasetId <= 0) {
+      return;
+    }
+    focusedDatasetRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [focusedDatasetId, datasets]);
 
   const selectedDataset = useMemo(
     () => datasets.find((dataset) => dataset.dataset_id === selectedId) ?? null,
@@ -135,6 +156,11 @@ export const DatasetsPage: React.FC = () => {
                       : "bg-surface-container-low text-on-surface hover:bg-surface-container"
                   }`}
                   key={dataset.dataset_id}
+                  ref={
+                    dataset.dataset_id === focusedDatasetId
+                      ? focusedDatasetRef
+                      : undefined
+                  }
                   onClick={() => setSelectedId(dataset.dataset_id)}
                   type="button"
                 >

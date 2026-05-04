@@ -40,6 +40,7 @@ from core.services.papers.models import (
     JobRecord,
     PaperArtifactRecord,
     PaperNotFoundError,
+    PaperRetryNotAllowedError,
     PaperPipelineRunRecord,
     PaperRecord,
     RefineParseInput,
@@ -50,8 +51,10 @@ from core.services.papers.models import (
 )
 from core.services.papers.metadata import (
     authors_from_resolution,
+    fetch_arxiv_metadata,
     infer_ccf_rank,
     infer_sci_quartile,
+    normalize_venue_key,
 )
 from core.services.papers.refine import refine_markdown
 from core.services.papers.split import (
@@ -144,10 +147,14 @@ class PaperRepository:
     def create_paper(self, values: dict[str, Any]) -> PaperRecord:
         """创建 Paper 资产、业务记录和默认文档。"""
 
-        doi = str(values.get("doi") or "")
-        if doi and self.find_by_doi(doi) is not None:
-            raise DuplicatePaperError(f"Paper with DOI already exists: {doi}")
+        duplicate = self.find_duplicate_paper(values)
+        if duplicate is not None:
+            raise DuplicatePaperError(
+                f"Paper already exists: {duplicate.title}",
+                paper_id=duplicate.paper_id,
+            )
 
+        doi = str(values.get("doi") or "")
         now = utc_now()
         venue = str(values.get("venue", "") or "")
         venue_short = str(values.get("venue_short", "") or "")
@@ -220,18 +227,46 @@ class PaperRepository:
         return self.get_paper(asset_id)
 
     def find_by_doi(self, doi: str) -> PaperRecord | None:
+        normalized_doi = self._normalize_doi(doi)
+        if not normalized_doi:
+            return None
         with self.connect() as conn:
             row = conn.execute(
                 """
                 SELECT bp.*, ar.created_at, ar.updated_at, ar.is_deleted
                 FROM biz_paper bp
                 JOIN asset_registry ar ON ar.asset_id = bp.asset_id
-                WHERE bp.doi = ? AND ar.is_deleted = 0
+                WHERE LOWER(bp.doi) = ? AND ar.is_deleted = 0
                 LIMIT 1
                 """,
-                (doi,),
+                (normalized_doi,),
             ).fetchone()
         return self._paper_from_row(row) if row else None
+
+    def find_duplicate_paper(self, values: dict[str, Any]) -> PaperRecord | None:
+        doi = self._normalize_doi(str(values.get("doi") or ""))
+        if doi:
+            existing = self.find_by_doi(doi)
+            if existing is not None:
+                return existing
+
+        identifiers = self._paper_identity_candidates(values)
+        if not identifiers:
+            return None
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT bp.*, ar.created_at, ar.updated_at, ar.is_deleted
+                FROM biz_paper bp
+                JOIN asset_registry ar ON ar.asset_id = bp.asset_id
+                WHERE ar.is_deleted = 0
+                """
+            ).fetchall()
+        for row in rows:
+            candidate = self._paper_from_row(row)
+            if identifiers & self._paper_record_identities(candidate):
+                return candidate
+        return None
 
     def get_paper(self, paper_id: int) -> PaperRecord:
         with self.connect() as conn:
@@ -307,7 +342,8 @@ class PaperRepository:
             existing = self.find_by_doi(values["doi"])
             if existing is not None and existing.paper_id != paper_id:
                 raise DuplicatePaperError(
-                    f"Paper with DOI already exists: {values['doi']}"
+                    f"Paper with DOI already exists: {values['doi']}",
+                    paper_id=existing.paper_id,
                 )
 
         if ("venue" in values or "venue_short" in values) and "ccf_rank" not in values:
@@ -491,19 +527,24 @@ class PaperRepository:
             shutil.copy2(local_pdf, pdf_path)
             download_mode = "attached_local_pdf"
 
-        inferred_pdf_url = self._infer_direct_pdf_url(paper)
+        network_enabled = self._network_download_enabled(paper)
+        inferred_pdf_url = self._infer_direct_pdf_url(paper) if network_enabled else ""
         if inferred_pdf_url and not paper.pdf_url:
             metadata_updates["pdf_url"] = inferred_pdf_url
             paper = replace(paper, pdf_url=inferred_pdf_url)
 
-        if not pdf_path.exists() and paper.pdf_url.lower().startswith(("http://", "https://")):
+        if (
+            network_enabled
+            and not pdf_path.exists()
+            and paper.pdf_url.lower().startswith(("http://", "https://"))
+        ):
             try:
                 self._download_direct_pdf(paper.pdf_url, pdf_path)
                 download_mode = "direct_pdf_url"
             except Exception as exc:  # noqa: BLE001 - recorded in job result and fallback
                 warning = f"DIRECT_PDF_DOWNLOAD_FAILED: {exc}"
 
-        if not pdf_path.exists() and self._network_download_enabled(paper):
+        if not pdf_path.exists() and network_enabled:
             try:
                 row, result = PaperDownloadService().download(
                     self._download_request_for_paper(paper)
@@ -542,6 +583,60 @@ class PaperRepository:
                         warning = None
                     except Exception as direct_exc:  # noqa: BLE001 - recorded in fallback
                         warning = f"{warning}; DIRECT_PDF_DOWNLOAD_FAILED: {direct_exc}"
+
+        if not pdf_path.exists() and network_enabled:
+            now = utc_now()
+            with self.connect() as conn:
+                if metadata_updates:
+                    columns = [f"{key} = ?" for key in metadata_updates]
+                    conn.execute(
+                        f"UPDATE biz_paper SET {', '.join(columns)} WHERE asset_id = ?",
+                        [*metadata_updates.values(), paper_id],
+                    )
+                    if "title" in metadata_updates:
+                        conn.execute(
+                            "UPDATE asset_registry SET display_name = ? WHERE asset_id = ?",
+                            (metadata_updates["title"], paper_id),
+                        )
+                conn.execute(
+                    """
+                    UPDATE biz_paper
+                    SET paper_stage = ?, download_status = ?
+                    WHERE asset_id = ?
+                    """,
+                    ("error", "failed", paper_id),
+                )
+                conn.execute(
+                    "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
+                    (now, paper_id),
+                )
+                self._write_metadata_json(conn, paper_id, now)
+                conn.commit()
+            message = warning or "Network paper download did not produce a real PDF."
+            return self._create_pipeline_job(
+                paper_id=paper_id,
+                job_type="paper_download",
+                status="failed",
+                progress=1.0,
+                message=message,
+                result={
+                    "download_mode": "network_failed",
+                    "warning": warning,
+                    **download_payload,
+                },
+                error={
+                    "code": "PAPER_REAL_PDF_DOWNLOAD_FAILED",
+                    "message": message,
+                    "details": {
+                        "source_url": paper.source_url,
+                        "pdf_url": paper.pdf_url,
+                    },
+                },
+                stage="download",
+                input_artifacts=[],
+                output_artifacts=[],
+                metrics={},
+            )
 
         if not pdf_path.exists():
             if warning is None and (paper.pdf_url or paper.source_url or paper.doi):
@@ -628,12 +723,15 @@ class PaperRepository:
             updates["pub_year"] = resolved_year
 
         resolved_venue = self._resolution_text(resolution, "venue")
-        if resolved_venue and not paper.venue:
+        if resolved_venue and self._should_replace_venue(paper.venue, resolved_venue):
             updates["venue"] = resolved_venue
-        if resolved_venue and not paper.venue_short:
+        if resolved_venue and self._should_replace_venue(
+            paper.venue_short,
+            resolved_venue,
+        ):
             updates["venue_short"] = resolved_venue
 
-        if not paper.ccf_rank:
+        if not paper.ccf_rank or self._looks_like_arxiv_venue(paper.venue, paper.venue_short):
             ccf_rank = infer_ccf_rank(
                 resolved_venue,
                 paper.venue_short,
@@ -671,6 +769,40 @@ class PaperRepository:
 
         return updates
 
+    def _arxiv_metadata_updates(self, paper: PaperRecord) -> dict[str, Any]:
+        arxiv_id = ""
+        for value in (paper.source_url, paper.doi, paper.pdf_url, paper.title):
+            arxiv_id = self._extract_arxiv_id(value)
+            if arxiv_id:
+                break
+        if not arxiv_id:
+            return {}
+
+        metadata = fetch_arxiv_metadata(arxiv_id)
+        updates: dict[str, Any] = {}
+        title = str(metadata.get("title") or "").strip()
+        if title and self._should_replace_title(paper.title, title):
+            updates["title"] = title
+        abstract = str(metadata.get("abstract") or "").strip()
+        if abstract and not paper.abstract:
+            updates["abstract"] = abstract
+        authors = metadata.get("authors")
+        if authors and not paper.authors:
+            updates["authors"] = json.dumps(authors, ensure_ascii=False)
+        year = metadata.get("year")
+        if isinstance(year, int) and paper.year is None:
+            updates["pub_year"] = year
+        doi = str(metadata.get("doi") or "").strip()
+        if doi and not paper.doi:
+            updates["doi"] = doi
+        source_url = str(metadata.get("source_url") or "").strip()
+        if source_url and not paper.source_url:
+            updates["source_url"] = source_url
+        pdf_url = str(metadata.get("pdf_url") or "").strip()
+        if pdf_url and not paper.pdf_url:
+            updates["pdf_url"] = pdf_url
+        return updates
+
     def _paper_replacements(self, updates: dict[str, Any]) -> dict[str, Any]:
         replacements: dict[str, Any] = {}
         mapping = {
@@ -690,6 +822,29 @@ class PaperRepository:
         if "authors" in updates:
             replacements["authors"] = json.loads(str(updates["authors"]))
         return replacements
+
+    def _apply_metadata_updates(self, paper_id: int, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+        now = utc_now()
+        with self.connect() as conn:
+            columns = [f"{key} = ?" for key in updates]
+            conn.execute(
+                f"UPDATE biz_paper SET {', '.join(columns)} WHERE asset_id = ?",
+                [*updates.values(), paper_id],
+            )
+            if "title" in updates:
+                conn.execute(
+                    "UPDATE asset_registry SET display_name = ?, updated_at = ? WHERE asset_id = ?",
+                    (updates["title"], now, paper_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
+                    (now, paper_id),
+                )
+            self._write_metadata_json(conn, paper_id, now)
+            conn.commit()
 
     def _resolution_text(self, resolution: object, field_name: str) -> str:
         value = getattr(resolution, field_name, "")
@@ -711,6 +866,20 @@ class PaperRepository:
             return False
         return not current or self._looks_like_url(current)
 
+    def _should_replace_venue(self, current_venue: str, resolved_venue: str) -> bool:
+        current = current_venue.strip()
+        resolved = resolved_venue.strip()
+        if not resolved or resolved == current:
+            return False
+        return not current or self._looks_like_arxiv_venue(current)
+
+    def _looks_like_arxiv_venue(self, *values: str) -> bool:
+        for value in values:
+            normalized = normalize_venue_key(value)
+            if normalized == "arxiv":
+                return True
+        return False
+
     def run_parse(
         self,
         paper_id: int,
@@ -730,6 +899,48 @@ class PaperRepository:
             )
         else:
             raw_content = raw_path.read_text(encoding="utf-8")
+
+        if parse_mode == "metadata_fallback":
+            now = utc_now()
+            with self.connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE biz_paper
+                    SET paper_stage = ?, parse_status = ?
+                    WHERE asset_id = ?
+                    """,
+                    ("error", "failed", paper_id),
+                )
+                conn.execute(
+                    "UPDATE asset_registry SET updated_at = ? WHERE asset_id = ?",
+                    (now, paper_id),
+                )
+                conn.commit()
+            return self._create_pipeline_job(
+                paper_id=paper_id,
+                job_type="paper_parse",
+                status="failed",
+                progress=1.0,
+                message=parse_warning
+                or "MinerU did not produce real parsed markdown.",
+                result={
+                    "parser": parser,
+                    "force": force,
+                    "parse_mode": parse_mode,
+                    "warning": parse_warning,
+                    "artifacts": parsed_artifacts,
+                },
+                error={
+                    "code": "PAPER_PARSE_REAL_MARKDOWN_MISSING",
+                    "message": parse_warning
+                    or "MinerU did not produce real parsed markdown.",
+                    "details": {"parse_mode": parse_mode},
+                },
+                stage="parse",
+                input_artifacts=["source_pdf"] if self._pdf_path(paper_id).exists() else [],
+                output_artifacts=[],
+                metrics={},
+            )
 
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_text(raw_content, encoding="utf-8")
@@ -1091,6 +1302,66 @@ class PaperRepository:
             message="Import pipeline queued.",
         )
 
+    def create_retry_pipeline_job(self, paper_id: int) -> JobRecord:
+        paper = self.get_paper(paper_id)
+        self._ensure_retryable_pipeline(paper)
+        return self._create_job(
+            paper_id=paper_id,
+            job_type="paper_retry_pipeline",
+            status="queued",
+            progress=0.0,
+            message="Retry pipeline queued.",
+        )
+
+    def resolve_paper_metadata(self, paper_id: int) -> JobRecord:
+        paper = self.get_paper(paper_id)
+        try:
+            arxiv_updates = self._arxiv_metadata_updates(paper)
+            if arxiv_updates:
+                self._apply_metadata_updates(paper_id, arxiv_updates)
+                paper = replace(paper, **self._paper_replacements(arxiv_updates))
+
+            row = PaperDownloadService().resolve(self._download_request_for_paper(paper))
+            updates = self._metadata_updates_from_resolution(paper, row)
+            all_updates = dict(arxiv_updates)
+            all_updates.update(updates)
+            if updates:
+                self._apply_metadata_updates(paper_id, updates)
+            return self._create_pipeline_job(
+                paper_id=paper_id,
+                job_type="paper_resolve_metadata",
+                status="succeeded",
+                progress=1.0,
+                message="Resolved paper metadata.",
+                result={
+                    "source": "semantic_scholar_or_official",
+                    "arxiv_updated_fields": sorted(arxiv_updates),
+                    "resolution": self._jsonable_record(row),
+                    "updated_fields": sorted(all_updates),
+                },
+                stage="resolve",
+                input_artifacts=[],
+                output_artifacts=["metadata_json"],
+                metrics={"updated_field_count": len(all_updates)},
+            )
+        except Exception as exc:  # noqa: BLE001 - recorded as import stage failure
+            return self._create_pipeline_job(
+                paper_id=paper_id,
+                job_type="paper_resolve_metadata",
+                status="failed",
+                progress=1.0,
+                message=f"Failed to resolve paper metadata: {exc}",
+                error={
+                    "code": "PAPER_METADATA_RESOLVE_FAILED",
+                    "message": str(exc),
+                    "details": {},
+                },
+                stage="resolve",
+                input_artifacts=[],
+                output_artifacts=[],
+                metrics={},
+            )
+
     def run_import_pipeline(
         self,
         paper_id: int,
@@ -1132,9 +1403,10 @@ class PaperRepository:
 
         try:
             for progress, stage, runner in (
-                (0.25, "download", self.run_download),
+                (0.15, "resolve", self.resolve_paper_metadata),
+                (0.35, "download", self.run_download),
                 (
-                    0.50,
+                    0.60,
                     "parse",
                     lambda target_id: self.run_parse(
                         target_id,
@@ -1143,7 +1415,7 @@ class PaperRepository:
                     ),
                 ),
                 (
-                    0.75,
+                    0.85,
                     "refine",
                     lambda target_id: self.run_refine_parse(
                         target_id,
@@ -1187,6 +1459,17 @@ class PaperRepository:
                 "paper": asdict(self.get_paper(paper_id)),
             },
         )
+
+    def run_retry_pipeline(
+        self,
+        paper_id: int,
+        parent_job_id: str | None = None,
+    ) -> JobRecord:
+        paper = self.get_paper(paper_id)
+        self._ensure_retryable_pipeline(paper, parent_job_id=parent_job_id)
+        if self._should_retry_confirm_pipeline(paper):
+            return self.run_confirm_pipeline(paper_id, parent_job_id)
+        return self.run_import_pipeline(paper_id, parent_job_id)
 
     def run_confirm_pipeline(
         self,
@@ -1878,6 +2161,91 @@ class PaperRepository:
             result.append(value)
         return result
 
+    def _paper_identity_candidates(self, values: dict[str, Any]) -> set[str]:
+        identifiers: set[str] = set()
+        doi = self._normalize_doi(str(values.get("doi") or ""))
+        if doi:
+            identifiers.add(f"doi:{doi}")
+        for key in ("source_url", "pdf_url"):
+            url = self._normalize_url(str(values.get(key) or ""))
+            if url:
+                identifiers.add(f"url:{url}")
+            arxiv_id = self._extract_arxiv_id(str(values.get(key) or ""))
+            if arxiv_id:
+                identifiers.add(f"arxiv:{arxiv_id.lower()}")
+        title = str(values.get("title") or "")
+        if not self._looks_like_url(title):
+            normalized_title = self._normalize_title(title)
+            if normalized_title:
+                identifiers.add(f"title:{normalized_title}")
+        arxiv_id = self._extract_arxiv_id(title)
+        if arxiv_id:
+            identifiers.add(f"arxiv:{arxiv_id.lower()}")
+        return identifiers
+
+    def _paper_record_identities(self, paper: PaperRecord) -> set[str]:
+        return self._paper_identity_candidates(
+            {
+                "doi": paper.doi,
+                "source_url": paper.source_url,
+                "pdf_url": paper.pdf_url,
+                "title": paper.title,
+            }
+        )
+
+    def _should_retry_confirm_pipeline(self, paper: PaperRecord) -> bool:
+        return (
+            paper.review_status == "confirmed"
+            or paper.paper_stage
+            in {
+                "review_confirmed",
+                "sectioned",
+                "noted",
+                "knowledge_extracted",
+                "dataset_extracted",
+            }
+        )
+
+    def _ensure_retryable_pipeline(
+        self,
+        paper: PaperRecord,
+        *,
+        parent_job_id: str | None = None,
+    ) -> None:
+        if paper.latest_job_status == "failed":
+            return
+        if parent_job_id and paper.latest_job_id == parent_job_id:
+            return
+        if paper.paper_stage == "error" and paper.latest_job_status not in {
+            "queued",
+            "running",
+            "waiting_review",
+            "waiting_confirm",
+        }:
+            return
+        raise PaperRetryNotAllowedError(
+            "Retry is only allowed after a failed paper pipeline.",
+            paper_id=paper.paper_id,
+            status=paper.latest_job_status or paper.paper_stage,
+        )
+
+    def _normalize_doi(self, value: str) -> str:
+        normalized = value.strip().lower()
+        normalized = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", normalized)
+        normalized = normalized.removeprefix("doi:")
+        return normalized.strip().rstrip("/")
+
+    def _normalize_url(self, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            return ""
+        normalized = re.sub(r"#.*$", "", normalized)
+        normalized = re.sub(r"[?&]utm_[^=&]+=[^&]+", "", normalized)
+        return normalized.rstrip("/")
+
+    def _normalize_title(self, value: str) -> str:
+        return re.sub(r"\s+", " ", value.strip().lower())
+
     # ============================================================
     # Job & Artifact Management
     # ============================================================
@@ -2531,11 +2899,39 @@ class PaperRepository:
             message=str(row["message"]),
             resource_type=str(row["resource_type"]),
             resource_id=int(row["resource_id"]),
+            resource_label=self._job_resource_label(
+                str(row["resource_type"]),
+                int(row["resource_id"]),
+            ),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
             result=json.loads(row["result"]) if row["result"] else None,
             error=json.loads(row["error"]) if row["error"] else None,
         )
+
+    def _job_resource_label(self, resource_type: str, resource_id: int) -> str:
+        if not resource_type or not resource_id:
+            return ""
+
+        table_map = {
+            "paper": ("biz_paper", "title"),
+            "project": ("biz_project", "name"),
+            "dataset": ("biz_dataset", "name"),
+            "knowledge": ("biz_knowledge", "title"),
+        }
+        table_info = table_map.get(resource_type)
+        if table_info is None:
+            return ""
+
+        table_name, label_column = table_info
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT {label_column} AS label FROM {table_name} WHERE asset_id = ?",
+                (resource_id,),
+            ).fetchone()
+        if row is None:
+            return ""
+        return str(row["label"] or "").strip()
 
     def _artifact_from_row(self, row: sqlite3.Row) -> PaperArtifactRecord:
         return PaperArtifactRecord(
@@ -2708,18 +3104,20 @@ class PaperRepository:
         )
 
     def _network_download_enabled(self, paper: PaperRecord) -> bool:
+        explicit = os.getenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "").lower()
+        if explicit in {"0", "false", "no"}:
+            return False
+        if explicit in {"1", "true", "yes"}:
+            return True
         if not (
             paper.pdf_url
             or paper.source_url
             or paper.doi
             or self._looks_like_url(paper.title)
+            or (paper.source_kind == "search" and paper.title.strip())
         ):
             return False
-        return os.getenv("RFLOW_ENABLE_NETWORK_PAPER_DOWNLOAD", "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }
+        return True
 
     def _looks_like_url(self, value: str) -> bool:
         return value.strip().lower().startswith(("http://", "https://"))
@@ -2837,21 +3235,21 @@ class PaperRepository:
                 return raw_content, "mineru", warning, artifacts
             except PDFParserError as exc:
                 return (
-                    self._build_raw_markdown(paper, parser),
+                    "",
                     "metadata_fallback",
                     f"{exc.error_code}: {exc.message}",
                     {"pdf_path": str(pdf_path)},
                 )
             except Exception as exc:  # noqa: BLE001 - external MinerU/network failures fail open
                 return (
-                    self._build_raw_markdown(paper, parser),
+                    "",
                     "metadata_fallback",
                     f"MINERU_EXTERNAL_FAILURE: {exc}",
                     {"pdf_path": str(pdf_path)},
                 )
 
         return (
-            self._build_raw_markdown(paper, parser),
+            "",
             "metadata_fallback",
             "MinerU input markdown or API token is not available.",
             {"pdf_path": str(pdf_path) if pdf_path.exists() else ""},
@@ -3296,17 +3694,6 @@ class PaperRepository:
         if hasattr(value, "__dict__"):
             return dict(value.__dict__)
         return {"value": str(value)}
-
-    def _build_raw_markdown(self, paper: PaperRecord, parser: str) -> str:
-        return (
-            f"# {paper.title}\n\n"
-            f"- Parser: {parser}\n"
-            f"- DOI: {paper.doi or 'N/A'}\n"
-            f"- Venue: {paper.venue or 'N/A'}\n"
-            f"- Year: {paper.year or 'N/A'}\n\n"
-            "## Parsed Body\n\n"
-            "Research-Flow local placeholder parse output.\n"
-        )
 
     def _write_sections_from_content(
         self, paper_id: int, content: str

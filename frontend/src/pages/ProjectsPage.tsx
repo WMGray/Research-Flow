@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
   APIError,
@@ -29,6 +30,7 @@ const statusLabels: Record<ProjectRecord["status"], string> = {
 };
 
 export const ProjectsPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -38,6 +40,8 @@ export const ProjectsPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshingOverview, setIsRefreshingOverview] = useState(false);
   const [error, setError] = useState("");
+  const focusedProjectId = Number.parseInt(searchParams.get("project_id") ?? "", 10);
+  const focusedProjectRef = React.useRef<HTMLButtonElement | null>(null);
 
   const loadProjects = useCallback(async (nextQuery = query): Promise<void> => {
     setIsLoading(true);
@@ -61,6 +65,23 @@ export const ProjectsPage: React.FC = () => {
   useEffect(() => {
     void loadProjects("");
   }, [loadProjects]);
+
+  useEffect(() => {
+    if (Number.isNaN(focusedProjectId) || focusedProjectId <= 0) {
+      return;
+    }
+    setSelectedId(focusedProjectId);
+  }, [focusedProjectId]);
+
+  useEffect(() => {
+    if (Number.isNaN(focusedProjectId) || focusedProjectId <= 0) {
+      return;
+    }
+    focusedProjectRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [focusedProjectId, projects]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_id === selectedId) ?? null,
@@ -184,6 +205,7 @@ export const ProjectsPage: React.FC = () => {
                       : "bg-surface-container-low text-on-surface hover:bg-surface-container"
                   }`}
                   key={project.project_id}
+                  ref={project.project_id === focusedProjectId ? focusedProjectRef : undefined}
                   onClick={() => setSelectedId(project.project_id)}
                   type="button"
                 >

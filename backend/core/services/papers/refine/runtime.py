@@ -374,7 +374,7 @@ def _annotate_refine_warnings(
             ri_parts.append(f'{issue_id} @{start}-{end}')
         review_fields.append(f'refine_review_items: "{"; ".join(ri_parts)}"')
 
-    review_fields.append(f'refine_review_artifact: "refine/verify.json"')
+    review_fields.append('refine_review_artifact: "refine/verify.json"')
 
     lines = refined_text.splitlines()
     if len(lines) >= 2 and lines[0].strip() == "---":

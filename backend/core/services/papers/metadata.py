@@ -121,6 +121,51 @@ def fetch_arxiv_authors(arxiv_id: str) -> list[str]:
     return authors
 
 
+def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, Any]:
+    query = urllib.parse.urlencode({"id_list": arxiv_id})
+    request = urllib.request.Request(
+        f"{ARXIV_API_URL}?{query}",
+        headers={"User-Agent": "Research-Flow/0.1"},
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:
+        payload = response.read()
+
+    root = ET.fromstring(payload)
+    entry = root.find("atom:entry", ARXIV_NS)
+    if entry is None:
+        raise ValueError(f"arXiv record not found: {arxiv_id}")
+
+    title = re.sub(
+        r"\s+",
+        " ",
+        entry.findtext("atom:title", default="", namespaces=ARXIV_NS),
+    ).strip()
+    summary = re.sub(
+        r"\s+",
+        " ",
+        entry.findtext("atom:summary", default="", namespaces=ARXIV_NS),
+    ).strip()
+    published = entry.findtext("atom:published", default="", namespaces=ARXIV_NS)
+    year: int | None = None
+    if len(published) >= 4 and published[:4].isdigit():
+        year = int(published[:4])
+    authors: list[str] = []
+    for author in entry.findall("atom:author", ARXIV_NS):
+        name = author.findtext("atom:name", default="", namespaces=ARXIV_NS).strip()
+        if name:
+            authors.append(name)
+    return {
+        "title": title,
+        "abstract": summary,
+        "authors": authors,
+        "year": year,
+        "venue": "arXiv",
+        "doi": f"10.48550/arXiv.{arxiv_id}",
+        "source_url": f"https://arxiv.org/abs/{arxiv_id}",
+        "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}",
+    }
+
+
 def infer_ccf_rank(*venues: str) -> str:
     for venue in venues:
         normalized = normalize_venue_key(venue)

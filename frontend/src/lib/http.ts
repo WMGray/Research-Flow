@@ -19,12 +19,19 @@ export type RequestOptions = {
 export class APIError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly details: Record<string, unknown>;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    details: Record<string, unknown> = {},
+  ) {
     super(message);
     this.name = "APIError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -50,7 +57,7 @@ export async function request<T>(
     const detail = payload?.detail ?? payload?.error;
     const code = detail?.code ?? `HTTP_${response.status}`;
     const message = detail?.message ?? response.statusText ?? "Request failed.";
-    throw new APIError(message, response.status, code);
+    throw new APIError(message, response.status, code, detail?.details ?? {});
   }
 
   return payload as APIEnvelope<T>;

@@ -19,6 +19,7 @@ def test_paper_task_names_cover_current_job_types() -> None:
         task_names.PAPER_EXTRACT_DATASETS,
         task_names.PAPER_CONFIRM_PIPELINE,
         task_names.PAPER_IMPORT_PIPELINE,
+        task_names.PAPER_RETRY_PIPELINE,
     }
 
     assert expected_task_names.issubset(set(task_names.ALL_TASK_NAMES))

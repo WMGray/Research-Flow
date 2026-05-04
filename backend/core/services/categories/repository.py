@@ -57,9 +57,14 @@ class CategoryRepository:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, name, parent_id, path, sort_order
-                FROM biz_category
-                ORDER BY parent_id IS NOT NULL, sort_order ASC, name ASC
+                SELECT bc.id, bc.name, bc.parent_id, bc.path, bc.sort_order,
+                    COUNT(ar.asset_id) AS paper_count
+                FROM biz_category bc
+                LEFT JOIN biz_paper bp ON bp.category_id = bc.id
+                LEFT JOIN asset_registry ar
+                    ON ar.asset_id = bp.asset_id AND ar.is_deleted = 0
+                GROUP BY bc.id, bc.name, bc.parent_id, bc.path, bc.sort_order
+                ORDER BY bc.parent_id IS NOT NULL, bc.sort_order ASC, bc.name ASC
                 """
             ).fetchall()
         return [self._category_from_row(row) for row in rows]
@@ -68,9 +73,14 @@ class CategoryRepository:
         with self.connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, name, parent_id, path, sort_order
-                FROM biz_category
-                WHERE id = ?
+                SELECT bc.id, bc.name, bc.parent_id, bc.path, bc.sort_order,
+                    COUNT(ar.asset_id) AS paper_count
+                FROM biz_category bc
+                LEFT JOIN biz_paper bp ON bp.category_id = bc.id
+                LEFT JOIN asset_registry ar
+                    ON ar.asset_id = bp.asset_id AND ar.is_deleted = 0
+                WHERE bc.id = ?
+                GROUP BY bc.id, bc.name, bc.parent_id, bc.path, bc.sort_order
                 """,
                 (category_id,),
             ).fetchone()
@@ -126,7 +136,12 @@ class CategoryRepository:
             )
             paper_count = int(
                 conn.execute(
-                    "SELECT COUNT(*) FROM biz_paper WHERE category_id = ?",
+                    """
+                    SELECT COUNT(*)
+                    FROM biz_paper bp
+                    JOIN asset_registry ar ON ar.asset_id = bp.asset_id
+                    WHERE bp.category_id = ? AND ar.is_deleted = 0
+                    """,
                     (category_id,),
                 ).fetchone()[0]
             )
@@ -183,4 +198,5 @@ class CategoryRepository:
             parent_id=row["parent_id"],
             path=str(row["path"]),
             sort_order=int(row["sort_order"]),
+            paper_count=int(row["paper_count"] or 0) if "paper_count" in row.keys() else 0,
         )

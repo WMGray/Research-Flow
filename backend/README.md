@@ -192,6 +192,24 @@ python -m pytest -q tests/test_health.py tests/test_worker_tasks.py --basetemp .
 
 如果 `tmp_pytest/basetemp/` 或 `backend/data/tmp/*` 在 Windows 上出现 `PermissionError`，先不要把它们纳入测试扫描或 Git 操作；这些目录已加入 `.gitignore`。需要清理时，关闭占用它们的 Python/pytest 进程后用资源管理器或管理员 PowerShell 手工处理。
 
+推荐的人工清理顺序：
+
+```powershell
+# 1) 先确认没有残留 pytest / uv / python 进程占用这些目录
+Get-Process python,pytest,uv -ErrorAction SilentlyContinue
+
+# 2) 再按目录单独清理，不要跨目录拼接危险命令
+Remove-Item -LiteralPath .\tmp_pytest -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath .\data\tmp -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath .\.pytest-basetemp -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+如果仍然报 ACL 或拒绝访问，优先：
+
+1. 关闭正在运行的后端服务、pytest、编辑器文件预览。
+2. 改用管理员 PowerShell 对单个目录执行清理。
+3. 不把这些临时目录加入 `rg` 搜索根，也不要参与 `git add -A`。
+
 ---
 
 ## uv Workspace 说明

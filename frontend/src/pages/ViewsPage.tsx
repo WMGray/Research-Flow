@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
   type KnowledgeRecord,
@@ -36,6 +37,7 @@ function formatDate(value: string): string {
 }
 
 export const ViewsPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [knowledgeType, setKnowledgeType] = useState<"" | KnowledgeRecord["knowledge_type"]>("");
   const [reviewStatus, setReviewStatus] = useState<"" | KnowledgeRecord["review_status"]>("");
@@ -44,6 +46,8 @@ export const ViewsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const focusedKnowledgeId = Number.parseInt(searchParams.get("knowledge_id") ?? "", 10);
+  const focusedKnowledgeRef = React.useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -77,6 +81,16 @@ export const ViewsPage: React.FC = () => {
       window.clearTimeout(timer);
     };
   }, [knowledgeType, query, reviewStatus]);
+
+  useEffect(() => {
+    if (Number.isNaN(focusedKnowledgeId) || focusedKnowledgeId <= 0) {
+      return;
+    }
+    focusedKnowledgeRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [focusedKnowledgeId, items]);
 
   async function setReviewState(
     item: KnowledgeRecord,
@@ -245,8 +259,14 @@ export const ViewsPage: React.FC = () => {
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-3">
               {items.map((item) => (
                 <KnowledgeCard
+                  isFocused={item.knowledge_id === focusedKnowledgeId}
                   item={item}
                   key={item.knowledge_id}
+                  cardRef={
+                    item.knowledge_id === focusedKnowledgeId
+                      ? focusedKnowledgeRef
+                      : undefined
+                  }
                   onReview={setReviewState}
                   saving={savingId === item.knowledge_id}
                 />
@@ -260,11 +280,15 @@ export const ViewsPage: React.FC = () => {
 };
 
 function KnowledgeCard({
+  isFocused,
   item,
+  cardRef,
   onReview,
   saving,
 }: {
+  isFocused: boolean;
   item: KnowledgeRecord;
+  cardRef?: React.RefObject<HTMLDivElement | null>;
   onReview: (
     item: KnowledgeRecord,
     nextStatus: KnowledgeRecord["review_status"],
@@ -272,7 +296,12 @@ function KnowledgeCard({
   saving: boolean;
 }): React.ReactElement {
   return (
-    <article className="group flex min-h-[21rem] flex-col gap-4 rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm transition-all hover:border-primary/20 hover:shadow-md">
+    <article
+      className={`group flex min-h-[21rem] flex-col gap-4 rounded-3xl border bg-surface-container-lowest p-5 shadow-sm transition-all hover:border-primary/20 hover:shadow-md ${
+        isFocused ? "border-primary/30 ring-2 ring-primary/15" : "border-outline-variant/10"
+      }`}
+      ref={cardRef}
+    >
       <div className="flex items-start justify-between gap-3">
         <span
           className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${

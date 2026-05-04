@@ -31,6 +31,7 @@ class CategoryResponse(BaseModel):
     parent_id: int | None = None
     path: str
     sort_order: int
+    paper_count: int = 0
 
 
 class CategoryTreeResponse(CategoryResponse):

@@ -30,6 +30,7 @@ class CategoryRecord:
     parent_id: int | None
     path: str
     sort_order: int
+    paper_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

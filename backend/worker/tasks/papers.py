@@ -13,6 +13,7 @@ from core.task_names import (
     PAPER_IMPORT_PIPELINE,
     PAPER_PARSE,
     PAPER_REFINE,
+    PAPER_RETRY_PIPELINE,
     PAPER_SPLIT,
 )
 from worker.app import celery
@@ -67,3 +68,8 @@ def confirm_pipeline(paper_id: int, parent_job_id: str | None = None) -> dict[st
 @celery.task(name=PAPER_IMPORT_PIPELINE)
 def import_pipeline(paper_id: int, parent_job_id: str | None = None) -> dict[str, object]:
     return asdict(PaperService().run_import_pipeline(paper_id, parent_job_id))
+
+
+@celery.task(name=PAPER_RETRY_PIPELINE)
+def retry_pipeline(paper_id: int, parent_job_id: str | None = None) -> dict[str, object]:
+    return asdict(PaperService().run_retry_pipeline(paper_id, parent_job_id))

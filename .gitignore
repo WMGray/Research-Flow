@@ -61,6 +61,10 @@ backend/tmp*/
 tmp_pytest/
 .pytest-local-*/
 .tmp*/
+.tmp/
+.node-runtime/
+backend/data/tmp/
+frontend/.vite/
 pytest_tmp*/
 data/tmp/
 .coverage
