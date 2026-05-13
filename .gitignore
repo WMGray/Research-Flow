@@ -1,0 +1,84 @@
+# OS / file explorer
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.nox/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+site/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Node / frontend
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+.cache/
+
+# Research / experiment artifacts
+outputs/
+checkpoints/
+lightning_logs/
+mlruns/
+wandb/
+tensorboard/
+runs/
+*.ckpt
+*.pt
+*.pth
+
+# Local databases and generated data
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+settings.json
+credentials.json
+*_secret*
+*_token*
+*.pem
+*.key
