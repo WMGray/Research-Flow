@@ -46,6 +46,7 @@ node_modules/
 .nuxt/
 .svelte-kit/
 coverage/
+*.tsbuildinfo
 
 # Logs and temp files
 *.log
