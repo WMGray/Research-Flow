@@ -118,6 +118,30 @@ def test_generate_note_template_endpoint() -> None:
     assert "Flow-Matching" in content
 
 
+def test_generate_paper_note_endpoint_creates_missing_note(tmp_path: Path) -> None:
+    source_dir = create_source_paper(tmp_path / "incoming", title="API Note Sample")
+
+    with isolated_client(tmp_path) as test_client:
+        ingest = test_client.post(
+            "/api/papers/ingest",
+            json={
+                "source": str(source_dir),
+                "domain": "Speech",
+                "area": "Voice-Synthesis",
+                "topic": "Singing-Voice-Synthesis",
+            },
+        )
+        paper_id = ingest.json()["data"]["paper_id"]
+        note_path = Path(ingest.json()["data"]["note_path"])
+        note_path.unlink()
+        response = test_client.post(f"/api/papers/{paper_id}/generate-note", json={"overwrite": False})
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["note_path"]
+    assert Path(payload["note_path"]).exists()
+
+
 def test_ingest_endpoint_creates_needs_pdf_record(tmp_path: Path) -> None:
     source_dir = create_source_paper(tmp_path / "incoming", title="API Ingest Sample", with_pdf=False)
 
@@ -158,3 +182,120 @@ def test_migrate_endpoint_moves_source_into_library(tmp_path: Path) -> None:
     assert payload["status"] == "processed"
     assert Path(payload["path"]).exists()
     assert not source_dir.exists()
+
+
+def test_config_endpoint(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        response = test_client.get("/api/config")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["paths"]["data_root"]["exists"] is True
+    assert "parser" in payload
+
+
+def test_parse_and_parser_runs_endpoints(tmp_path: Path) -> None:
+    source_dir = create_source_paper(tmp_path / "incoming", title="API Parse Sample", with_pdf=False)
+
+    with isolated_client(tmp_path) as test_client:
+        ingest = test_client.post(
+            "/api/papers/ingest",
+            json={
+                "source": str(source_dir),
+                "domain": "Speech",
+                "area": "Voice-Synthesis",
+                "topic": "Singing-Voice-Synthesis",
+            },
+        )
+        paper_id = ingest.json()["data"]["paper_id"]
+        parse_response = test_client.post(
+            f"/api/papers/{paper_id}/parse-pdf",
+            json={"force": True, "parser": "pymupdf"},
+        )
+        runs_response = test_client.get(f"/api/papers/{paper_id}/parser-runs")
+
+    assert parse_response.status_code == 200
+    assert parse_response.json()["data"]["status"] == "needs-pdf"
+    assert runs_response.status_code == 200
+    assert runs_response.json()["data"]["total"] == 1
+
+
+def test_mark_and_reject_endpoints(tmp_path: Path) -> None:
+    source_dir = create_source_paper(tmp_path / "incoming", title="API Mark Sample")
+
+    with isolated_client(tmp_path) as test_client:
+        ingest = test_client.post(
+            "/api/papers/ingest",
+            json={
+                "source": str(source_dir),
+                "domain": "Speech",
+                "area": "Voice-Synthesis",
+                "topic": "Singing-Voice-Synthesis",
+            },
+        )
+        paper_id = ingest.json()["data"]["paper_id"]
+        review = test_client.post(f"/api/papers/{paper_id}/mark-review")
+        processed = test_client.post(f"/api/papers/{paper_id}/mark-processed")
+        rejected = test_client.post(f"/api/papers/{paper_id}/reject")
+
+    assert review.json()["data"]["status"] == "needs-review"
+    assert processed.json()["data"]["status"] == "processed"
+    assert rejected.json()["data"]["status"] == "rejected"
+    assert not Path(rejected.json()["data"]["path"]).exists()
+
+
+def test_candidate_decision_endpoint(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-a"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        artifact_dir = tmp_path / "data" / "Discover" / "landing" / "candidate-a"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "paper.pdf").write_text("pdf\n", encoding="utf-8")
+        (batch_dir / "candidates.json").write_text(
+            '{\n'
+            '  "candidates": [\n'
+            '    {"id": "P001", "title": "Candidate", "year": 2026, "venue": "AAAI", "result_path": "Discover/landing/candidate-a"},\n'
+            '    {"id": "P002", "title": "Candidate B"}\n'
+            "  ]\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        keep_response = test_client.post(
+            "/api/discover/batches/batch-a/candidates/P001/decision",
+            json={"decision": "keep"},
+        )
+        reject_response = test_client.post(
+            "/api/discover/batches/batch-a/candidates/P002/decision",
+            json={"decision": "reject"},
+        )
+
+    assert keep_response.status_code == 200
+    assert keep_response.json()["data"]["decision"] == "keep"
+    assert reject_response.status_code == 200
+    assert reject_response.json()["data"]["decision"] == "reject"
+    assert not artifact_dir.exists()
+    assert not batch_dir.exists()
+
+
+def test_batch_deleted_after_last_pending_candidate_is_resolved(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-finished"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "search.md").write_text("# search\n", encoding="utf-8")
+        (batch_dir / "candidates.json").write_text(
+            '{\n'
+            '  "candidates": [\n'
+            '    {"id": "P001", "title": "Candidate A"},\n'
+            '    {"id": "P002", "title": "Candidate B", "gate1_decision": "reject"}\n'
+            "  ]\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        response = test_client.post(
+            "/api/discover/batches/batch-finished/candidates/P001/decision",
+            json={"decision": "keep"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["decision"] == "keep"
+    assert batch_dir.exists() is False

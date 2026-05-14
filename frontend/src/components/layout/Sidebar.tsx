@@ -1,13 +1,11 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { AppIcon, type AppIconName } from "@/components/ui/AppIcon";
+import { showPlaceholderAction } from "@/lib/placeholder";
 
 const items = [
-  { to: "/", label: "Home", icon: "home" },
-  { to: "/discover", label: "Discover", icon: "search" },
-  { to: "/acquire", label: "Acquire", icon: "download" },
-  { to: "/library", label: "Library", icon: "book" },
-  { to: "/runtime", label: "Runtime", icon: "clock" },
-  { to: "/logs", label: "Logs", icon: "document" },
+  { to: "/", label: "首页", icon: "home" },
+  { to: "/discover", label: "Workflow", icon: "search" },
+  { to: "/config", label: "配置", icon: "settings" },
 ] as const satisfies ReadonlyArray<{
   to: string;
   label: string;
@@ -15,14 +13,17 @@ const items = [
 }>;
 
 const utilityItems = [
-  { label: "Settings", icon: "settings" },
-  { label: "Help", icon: "help" },
+  { label: "设置", icon: "settings", to: "/config" },
+  { label: "帮助", icon: "help" },
 ] as const satisfies ReadonlyArray<{
   label: string;
   icon: AppIconName;
+  to?: string;
 }>;
 
 export function Sidebar() {
+  const navigate = useNavigate();
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -52,11 +53,18 @@ export function Sidebar() {
             key={item.label}
             title={item.label}
             type="button"
+            onClick={() => {
+              if ("to" in item && item.to) {
+                navigate(item.to);
+                return;
+              }
+              showPlaceholderAction(item.label);
+            }}
           >
             <AppIcon name={item.icon} size={18} />
           </button>
         ))}
-        <div className="sidebar-avatar" title="Workspace owner">
+        <div className="sidebar-avatar" title="工作区所有者">
           WG
         </div>
       </div>

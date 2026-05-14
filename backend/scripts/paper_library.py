@@ -4,8 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from backend.app.library import PaperLibrary, write_json, write_text
-from backend.app.settings import get_settings
+from backend.core.config import get_settings
+from backend.core.services.papers import PaperService, write_text
+from backend.core.services.papers.models import GenerateNoteInput, IngestPaperInput, ParsePdfInput
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -13,6 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("scan", help="Print dashboard summary as JSON")
+    subparsers.add_parser("config-health", help="Print data root and parser health")
 
     ingest_parser = subparsers.add_parser("ingest", help="Ingest a paper or paper directory")
     ingest_parser.add_argument("--input", required=True)
@@ -39,58 +41,93 @@ def build_parser() -> argparse.ArgumentParser:
     note_parser.add_argument("--topic")
     note_parser.add_argument("--output")
 
+    parse_parser = subparsers.add_parser("parse-pdf", help="Parse a paper PDF")
+    parse_parser.add_argument("--paper-id", required=True)
+    parse_parser.add_argument("--force", action="store_true")
+    parse_parser.add_argument("--parser", default="auto", choices=["auto", "mineru", "pymupdf"])
+
+    mark_parser = subparsers.add_parser("mark-status", help="Mark a paper workflow status")
+    mark_parser.add_argument("--paper-id", required=True)
+    mark_parser.add_argument("--status", required=True, choices=["processed", "needs-review", "needs-pdf", "parse-failed", "rejected"])
+
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    library = PaperLibrary(get_settings().data_root)
+    library = PaperService(data_root=get_settings().data_root)
 
     if args.command == "scan":
         print(json.dumps(library.dashboard_home(), ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "config-health":
+        print(json.dumps(library.config_health(), ensure_ascii=False, indent=2))
+        return 0
+
     if args.command == "ingest":
         record = library.ingest(
-            Path(args.input),
-            domain=args.domain,
-            area=args.area,
-            topic=args.topic,
-            target_path=args.target_path,
-            move=args.move,
+            IngestPaperInput(
+                source=Path(args.input),
+                domain=args.domain,
+                area=args.area,
+                topic=args.topic,
+                target_path=args.target_path,
+                move=args.move,
+            )
         )
         print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "migrate":
         record = library.migrate(
-            Path(args.input),
-            domain=args.domain,
-            area=args.area,
-            topic=args.topic,
-            target_path=args.target_path,
+            IngestPaperInput(
+                source=Path(args.input),
+                domain=args.domain,
+                area=args.area,
+                topic=args.topic,
+                target_path=args.target_path,
+                move=True,
+            )
         )
         print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "note-template":
-        metadata = {
-            "title": args.title,
-            "year": args.year,
-            "venue": args.venue,
-            "doi": args.doi,
-            "domain": args.domain,
-            "area": args.area,
-            "topic": args.topic,
-            "status": "draft",
-            "tags": ["paper"],
-        }
-        content = library.generate_note_template(metadata)
+        content = library.generate_note_template(
+            GenerateNoteInput(
+                title=args.title,
+                year=int(args.year) if args.year else None,
+                venue=args.venue or "",
+                doi=args.doi or "",
+                domain=args.domain or "",
+                area=args.area or "",
+                topic=args.topic or "",
+                tags=["paper"],
+            )
+        )
         if args.output:
             write_text(Path(args.output), content)
         else:
             print(content)
+        return 0
+
+    if args.command == "parse-pdf":
+        record = library.parse_pdf(ParsePdfInput(paper_id=args.paper_id, force=args.force, parser=args.parser))
+        print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "mark-status":
+        if args.status == "needs-review":
+            record = library.mark_review(args.paper_id)
+        elif args.status == "processed":
+            record = library.mark_processed(args.paper_id)
+        elif args.status == "rejected":
+            record = library.reject_paper(args.paper_id)
+        else:
+            record = library.repository.mark_status(args.paper_id, args.status)
+        print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
     parser.error("Unsupported command")
@@ -99,4 +136,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

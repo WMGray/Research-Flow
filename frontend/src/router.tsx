@@ -1,7 +1,11 @@
 import { createBrowserRouter } from "react-router-dom";
 import { MainLayout } from "@/layouts/MainLayout";
+import { AcquirePage } from "@/pages/AcquirePage";
+import { ConfigPage } from "@/pages/ConfigPage";
+import { DiscoverPage } from "@/pages/DiscoverPage";
 import { HomePage } from "@/pages/HomePage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
+import { LibraryPage } from "@/pages/LibraryPage";
+import { PaperDetailPage } from "@/pages/PaperDetailPage";
 
 export const router = createBrowserRouter([
   {
@@ -9,12 +13,11 @@ export const router = createBrowserRouter([
     element: <MainLayout />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: "overview", element: <PlaceholderPage title="Papers Overview" /> },
-      { path: "discover", element: <PlaceholderPage title="Discover" /> },
-      { path: "acquire", element: <PlaceholderPage title="Acquire" /> },
-      { path: "library", element: <PlaceholderPage title="Library" /> },
-      { path: "runtime", element: <PlaceholderPage title="Runtime" /> },
-      { path: "logs", element: <PlaceholderPage title="Logs" /> },
+      { path: "discover", element: <DiscoverPage /> },
+      { path: "acquire", element: <AcquirePage /> },
+      { path: "library", element: <LibraryPage /> },
+      { path: "library/:paperId", element: <PaperDetailPage /> },
+      { path: "config", element: <ConfigPage /> },
     ],
   },
 ]);

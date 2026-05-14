@@ -1,15 +1,22 @@
 # Research-Flow
 
-Research-Flow 是一个面向科研人员的本地优先研究工作台。
-
-本轮落地的是 Paper MVP：以前后端分离架构承接 `05_Research` 中已有的文献处理流程，把 `data/` 作为唯一文献库真源，并先完成 HomePage 与后端脚本闭环。
+Research-Flow 是一个面向研究流程的本地优先工作台。当前阶段聚焦 Paper 全流程：以根目录 `data/` 为唯一真源，先完成 Discover、Acquire、Library、Paper Detail、Config 与程序式 PDF parser 的可维护闭环。
 
 ## 目录
 
-- `backend/`：FastAPI 服务、`PaperLibrary` 领域逻辑、`paper_library` CLI 与测试
-- `frontend/`：Vite + React 前端壳，当前已实现 HomePage 与占位路由
-- `data/`：本地文献库真源，包含 `Discover / Acquire / Library / templates`
-- `docs/`：需求、架构、API、数据目录与 Paper 流程文档
+- `backend/`：FastAPI 后端，当前已按 `app / core / scripts / tests` 分层
+- `frontend/`：Vite + React 前端，当前实现 HomePage 与 Paper 全流程页面壳
+- `data/`：唯一数据真源，包含 `Discover / Acquire / Library / templates`
+- `docs/`：按 `master` 风格整理的分层文档中心
+
+## 文档入口
+
+- 总索引：`docs/README.md`
+- 需求与路线图：`docs/00_overview/`
+- 前端说明：`docs/01_frontend/`
+- 后端说明：`docs/02_backend/`
+- API 规范：`docs/03_api/`
+- 参考截图：`docs/04_reference/`
 
 ## 快速启动
 
@@ -29,14 +36,15 @@ cmd /c npm run dev
 
 ## 验证
 
-后端测试：
+后端：
 
 ```bash
 python -m pytest backend/tests
 python -m compileall backend
+python -m backend.scripts.paper_library scan
 ```
 
-前端构建：
+前端：
 
 ```bash
 cd frontend

@@ -6,12 +6,17 @@ export type AppIconName =
   | "book"
   | "calendar"
   | "check"
+  | "close"
   | "clock"
   | "document"
   | "download"
+  | "filter"
+  | "folder"
   | "help"
   | "home"
+  | "image"
   | "list"
+  | "play"
   | "search"
   | "settings"
   | "spark"
@@ -89,6 +94,13 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="m8.7 12.3 2.1 2.1 4.6-4.8" />
         </>
       );
+    case "close":
+      return (
+        <>
+          <path d="M6 6 18 18" />
+          <path d="M18 6 6 18" />
+        </>
+      );
     case "clock":
       return (
         <>
@@ -113,6 +125,20 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="M5 18h14" />
         </>
       );
+    case "filter":
+      return (
+        <>
+          <path d="M4 6h16" />
+          <path d="M7 12h10" />
+          <path d="M10 18h4" />
+        </>
+      );
+    case "folder":
+      return (
+        <>
+          <path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4l2 2h6a2.5 2.5 0 0 1 2.5 2.5V17A2.5 2.5 0 0 1 18 19.5H6A2.5 2.5 0 0 1 3.5 17Z" />
+        </>
+      );
     case "help":
       return (
         <>
@@ -128,6 +154,14 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="M6.5 10.5V19h11v-8.5" />
         </>
       );
+    case "image":
+      return (
+        <>
+          <rect height="14" rx="2" width="16" x="4" y="5" />
+          <path d="m7 16 3.2-3.2 2.3 2.3 2.1-2.1L18 16" />
+          <circle cx="9" cy="9" r="1.2" />
+        </>
+      );
     case "list":
       return (
         <>
@@ -137,6 +171,13 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="M5 7h.01" />
           <path d="M5 12h.01" />
           <path d="M5 17h.01" />
+        </>
+      );
+    case "play":
+      return (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="m10 8 6 4-6 4Z" />
         </>
       );
     case "search":

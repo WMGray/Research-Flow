@@ -1,7 +1,11 @@
 import { RouterProvider } from "react-router-dom";
+import { DialogProvider } from "@/components/ui/DialogProvider";
 import { router } from "@/router";
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <DialogProvider>
+      <RouterProvider router={router} />
+    </DialogProvider>
+  );
 }
-
