@@ -1,0 +1,15 @@
+# Ignore all real data payloads under data/
+**
+
+# Keep repository structure and templates
+!.gitignore
+!README.md
+!Acquire/
+!Acquire/.gitkeep
+!Discover/
+!Discover/.gitkeep
+!Library/
+!Library/.gitkeep
+!templates/
+!templates/.gitkeep
+!templates/paper-note-template.md
