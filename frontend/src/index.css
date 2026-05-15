@@ -1111,7 +1111,7 @@ button {
 }
 
 .data-row {
-  min-width: 1060px;
+  min-width: 0;
   display: grid;
   grid-template-columns: 2.2fr 0.9fr 0.9fr 0.9fr 1fr 1.5fr;
   align-items: center;
@@ -1121,19 +1121,21 @@ button {
 }
 
 .discover-table .data-row {
+  min-width: 0;
   grid-template-columns: 2.2fr 0.7fr 0.8fr 0.8fr 2.2fr 1.2fr;
 }
 
 .batch-table .data-row {
+  min-width: 0;
   grid-template-columns: 2.5fr 1fr 0.9fr 0.7fr 1fr;
 }
 
 .acquire-table .data-row {
-  min-width: 1040px;
+  min-width: 0;
   grid-template-columns:
-    minmax(260px, 1.4fr)
-    minmax(400px, 1.6fr)
-    minmax(300px, 1.25fr);
+    1.4fr
+    1.6fr
+    1.25fr;
   align-items: start;
   gap: 12px;
   padding: 12px 10px;
