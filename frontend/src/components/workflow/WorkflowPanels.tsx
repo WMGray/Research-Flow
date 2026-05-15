@@ -257,7 +257,6 @@ export function AcquireWorkflowView(props: AcquireWorkflowViewProps) {
       <div className="data-table acquire-table">
         <div className="data-row data-head">
           <span>Paper</span>
-          <span>Classification</span>
           <span>Pipeline Status</span>
           <span>Actions</span>
         </div>
@@ -270,14 +269,6 @@ export function AcquireWorkflowView(props: AcquireWorkflowViewProps) {
               <span className="data-cell-stack acquire-paper-cell">
                 <strong>{paper.title}</strong>
                 <small>{paperSummary(paper)}</small>
-              </span>
-              <span className="classification-cell">
-                {buildClassificationItems(paper).map((item) => (
-                  <span className="classification-item" key={item.label}>
-                    <span className="classification-label">{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </span>
-                ))}
               </span>
               <span className="acquire-pipeline-cell">
                 <span className="acquire-pipeline-badges">
@@ -388,11 +379,6 @@ function buildPipelineBadges(paper: PaperRecord) {
       label: "Note",
       icon: "document",
       tone: paper.note_status !== "missing" ? "success" : "muted",
-    },
-    {
-      label: "Confirm",
-      icon: "shield-check",
-      tone: paper.review_status === "accepted" ? "success" : "muted",
     },
   ] as const;
 }

@@ -1129,12 +1129,11 @@ button {
 }
 
 .acquire-table .data-row {
-  min-width: 1280px;
+  min-width: 1040px;
   grid-template-columns:
-    minmax(280px, 1.4fr)
-    minmax(180px, 0.9fr)
-    minmax(420px, 1.45fr)
-    minmax(340px, 1.25fr);
+    minmax(260px, 1.4fr)
+    minmax(400px, 1.6fr)
+    minmax(300px, 1.25fr);
   align-items: start;
   gap: 12px;
   padding: 12px 10px;
