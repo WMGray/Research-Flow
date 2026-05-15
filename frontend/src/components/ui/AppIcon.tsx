@@ -6,20 +6,25 @@ export type AppIconName =
   | "book"
   | "calendar"
   | "check"
+  | "check-circle"
   | "close"
   | "clock"
   | "document"
   | "download"
+  | "file-text"
   | "filter"
   | "folder"
   | "help"
   | "home"
   | "image"
   | "list"
+  | "more-vertical"
   | "play"
   | "search"
   | "settings"
+  | "shield-check"
   | "spark"
+  | "sparkles"
   | "sun";
 
 type AppIconProps = SVGProps<SVGSVGElement> & {
@@ -94,6 +99,13 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="m8.7 12.3 2.1 2.1 4.6-4.8" />
         </>
       );
+    case "check-circle":
+      return (
+        <>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M8.5 12.5l2 2 5-5" />
+        </>
+      );
     case "close":
       return (
         <>
@@ -123,6 +135,16 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="M12 4v10" />
           <path d="m8 10 4 4 4-4" />
           <path d="M5 18h14" />
+        </>
+      );
+    case "file-text":
+      return (
+        <>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M16 13H8" />
+          <path d="M16 17H8" />
+          <path d="M10 9H8" />
         </>
       );
     case "filter":
@@ -173,6 +195,14 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="M5 17h.01" />
         </>
       );
+    case "more-vertical":
+      return (
+        <>
+          <path d="M12 6h.01" />
+          <path d="M12 12h.01" />
+          <path d="M12 18h.01" />
+        </>
+      );
     case "play":
       return (
         <>
@@ -194,11 +224,28 @@ function renderIcon(name: AppIconName): ReactNode {
           <path d="M19 12a7 7 0 0 0-.1-1.1l2-1.5-2-3.4-2.3.8A7.7 7.7 0 0 0 15 5.3L14.6 3H9.4L9 5.3c-.6.2-1.1.5-1.6.9l-2.3-.8-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.5 2 3.4 2.3-.8c.5.4 1 .7 1.6.9l.4 2.3h5.2l.4-2.3c.6-.2 1.1-.5 1.6-.9l2.3.8 2-3.4-2-1.5c.1-.3.1-.7.1-1.1Z" />
         </>
       );
+    case "shield-check":
+      return (
+        <>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="m9 12 2 2 4-4" />
+        </>
+      );
     case "spark":
       return (
         <>
           <path d="m12 4 1.8 4.2L18 10l-4.2 1.8L12 16l-1.8-4.2L6 10l4.2-1.8L12 4Z" />
           <path d="m18.5 4.5.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7.7-1.6Z" />
+        </>
+      );
+    case "sparkles":
+      return (
+        <>
+          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+          <path d="M5 3v4" />
+          <path d="M19 17v4" />
+          <path d="M3 5h4" />
+          <path d="M17 19h4" />
         </>
       );
     case "sun":
