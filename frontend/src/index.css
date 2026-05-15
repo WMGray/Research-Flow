@@ -1133,8 +1133,8 @@ button {
   grid-template-columns:
     minmax(280px, 1.4fr)
     minmax(180px, 0.9fr)
-    minmax(330px, 1.3fr)
-    minmax(340px, 1.3fr);
+    minmax(420px, 1.45fr)
+    minmax(340px, 1.25fr);
   align-items: start;
   gap: 12px;
   padding: 12px 10px;
