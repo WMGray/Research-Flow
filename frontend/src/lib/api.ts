@@ -1,6 +1,7 @@
 import { getJson, postJson } from "@/lib/http";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "/").trim();
+const API_BASE_URL = rawApiBaseUrl === "/" ? "" : rawApiBaseUrl.replace(/\/$/, "");
 
 export type APIEnvelope<T> = {
   ok: boolean;
@@ -14,6 +15,8 @@ export type PaperRecord = {
   slug: string;
   stage: string;
   status: string;
+  asset_status: string;
+  review_status: string;
   domain: string;
   area: string;
   topic: string;
@@ -34,6 +37,17 @@ export type PaperRecord = {
   pdf_analysis_path: string;
   parser_status: string;
   note_status: string;
+  parser_artifacts: {
+    text_path: string;
+    sections_path: string;
+    refined_path: string;
+  };
+  capabilities: {
+    parse: boolean;
+    accept: boolean;
+    generate_note: boolean;
+    delete: boolean;
+  };
   read_status: string;
   refined_review_status: string;
   classification_status: string;
@@ -193,6 +207,10 @@ export function markPaperReview(paperId: string): Promise<APIEnvelope<PaperRecor
 
 export function markPaperProcessed(paperId: string): Promise<APIEnvelope<PaperRecord>> {
   return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/mark-processed`);
+}
+
+export function acceptPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {
+  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/accept`, {});
 }
 
 export function rejectPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {

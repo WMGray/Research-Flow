@@ -796,6 +796,14 @@ button {
   gap: 16px;
 }
 
+.workflow-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
 .workflow-page-heading {
   display: grid;
   gap: 6px;
@@ -823,8 +831,7 @@ button {
 }
 
 .workflow-tabs {
-  width: min(540px, 100%);
-  justify-self: center;
+  min-width: 320px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 6px;

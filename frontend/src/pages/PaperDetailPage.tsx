@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+
 import { TopBar } from "@/components/layout/TopBar";
 import { AppIcon } from "@/components/ui/AppIcon";
 import { useDialog } from "@/components/ui/DialogProvider";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import {
+  acceptPaper,
   fetchPaper,
   fetchParserRuns,
   generatePaperNote,
-  markPaperProcessed,
-  markPaperReview,
   parsePaperPdf,
   rejectPaper,
   type PaperRecord,
   type ParserRunRecord,
 } from "@/lib/api";
 import { formatDate, paperSummary } from "@/lib/format";
+import { getAcquireActionState } from "@/lib/paperWorkflow";
 
 export function PaperDetailPage() {
   const { paperId = "" } = useParams();
@@ -36,124 +37,151 @@ export function PaperDetailPage() {
         setRuns(runsPayload.data.items);
         setError("");
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "加载论文详情失败"));
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load paper detail."));
   };
 
   useEffect(load, [paperId]);
 
-  const action = (name: string, request: Promise<unknown>) => {
+  const runAction = (name: string, task: () => Promise<void>) => {
     setBusy(name);
-    void request
-      .then(load)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "执行论文操作失败"))
+    void task()
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to run paper action."))
       .finally(() => setBusy(""));
   };
 
-  const rejectCurrentPaper = async () => {
+  const deleteCurrentPaper = async () => {
     if (!paper) {
       return;
     }
-
     const accepted = await confirm({
-      title: "确认删除该论文？",
-      message: "该操作会删除论文目录及其全部文件，并将该条目从当前队列中移除。此操作不可恢复。",
-      confirmLabel: "确认删除",
-      cancelLabel: "取消",
+      title: "Delete this paper?",
+      message: "This removes the paper directory and all files from the current workflow. This action cannot be undone.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
       danger: true,
     });
-
     if (!accepted) {
       return;
     }
 
-    setBusy("reject");
-    void rejectPaper(paper.paper_id)
-      .then(() => navigate("/discover?view=acquire", { replace: true }))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "删除论文失败"))
-      .finally(() => setBusy(""));
+    runAction("delete", async () => {
+      await rejectPaper(paper.paper_id);
+      navigate("/discover?view=acquire", { replace: true });
+    });
   };
 
   if (!paper) {
     return (
       <>
-        <TopBar current="论文详情" title="论文详情" />
-        <main className="page">{error ? <div className="error-banner">{error}</div> : <div className="queue-empty">正在加载论文详情...</div>}</main>
+        <TopBar current="Paper Detail" title="Paper Detail" />
+        <main className="page">{error ? <div className="error-banner">{error}</div> : <div className="queue-empty">Loading paper detail...</div>}</main>
       </>
     );
   }
 
+  const actionState = getAcquireActionState(paper);
+
   return (
     <>
-      <TopBar current={paper.title} section="研究工作台 > Workflow > 论文详情" title="论文详情" />
+      <TopBar current={paper.title} section="Research Workspace > Workflow > Paper Detail" title="Paper Detail" />
       <main className="page detail-page">
         {error ? <div className="error-banner">{error}</div> : null}
+
         <section className="panel-card detail-hero">
           <div>
-            <Link className="panel-footer-link" to="/discover?view=acquire">
-              返回获取队列
+            <Link className="panel-footer-link" to={paper.stage === "library" ? "/library" : "/discover?view=acquire"}>
+              {paper.stage === "library" ? "Back to Library" : "Back to Acquire"}
             </Link>
             <h1>{paper.title}</h1>
             <p>{paperSummary(paper)}</p>
             <div className="queue-badges">
               <StatusBadge status={paper.status} />
               <span className="badge badge-muted">{paper.parser_status}</span>
-              <span className="badge badge-light">{paper.note_status}</span>
+              <span className="badge badge-light">{paper.review_status}</span>
             </div>
           </div>
+
           <div className="detail-actions">
-            <button disabled={Boolean(busy)} type="button" onClick={() => action("parse", parsePaperPdf(paper.paper_id, false))}>
-              <AppIcon name="play" size={16} /> 解析 PDF
+            <button
+              disabled={Boolean(busy) || !actionState.canParse}
+              type="button"
+              onClick={() =>
+                runAction("parse", async () => {
+                  await parsePaperPdf(paper.paper_id, paper.parser_status === "failed");
+                  load();
+                })
+              }
+            >
+              <AppIcon name={actionState.parseIcon} size={16} /> {paper.parser_status === "failed" ? "Retry Parse" : "Parse PDF"}
             </button>
-            <button disabled={Boolean(busy)} type="button" onClick={() => action("note", generatePaperNote(paper.paper_id, false))}>
-              生成笔记
+            <button
+              disabled={Boolean(busy) || !actionState.canGenerateNote}
+              type="button"
+              onClick={() =>
+                runAction("note", async () => {
+                  await generatePaperNote(paper.paper_id, false);
+                  load();
+                })
+              }
+            >
+              Generate Note
             </button>
-            <button disabled={Boolean(busy)} type="button" onClick={() => action("review", markPaperReview(paper.paper_id))}>
-              标记待审核
+            <button
+              disabled={Boolean(busy) || !actionState.canAccept}
+              type="button"
+              onClick={() =>
+                runAction("accept", async () => {
+                  const response = await acceptPaper(paper.paper_id);
+                  navigate(`/library/${encodeURIComponent(response.data.paper_id)}`, { replace: true });
+                })
+              }
+            >
+              Accept
             </button>
-            <button disabled={Boolean(busy)} type="button" onClick={() => action("processed", markPaperProcessed(paper.paper_id))}>
-              标记已处理
-            </button>
-            <button className="danger-action" disabled={Boolean(busy)} type="button" onClick={rejectCurrentPaper}>
-              删除论文
+            <button className="danger-action" disabled={Boolean(busy) || !actionState.canDelete} type="button" onClick={deleteCurrentPaper}>
+              Delete Paper
             </button>
           </div>
         </section>
+
         <section className="grid-row detail-grid">
           <InfoPanel
-            title="基础信息"
+            title="Workflow State"
             rows={[
+              ["Stage", paper.stage || "-"],
+              ["Asset", paper.asset_status || "-"],
+              ["Parser", paper.parser_status || "-"],
+              ["Review", paper.review_status || "-"],
               ["Domain", paper.domain || "-"],
               ["Area", paper.area || "-"],
               ["Topic", paper.topic || "-"],
-              ["Venue", paper.venue || "-"],
-              ["Year", String(paper.year ?? "-")],
-              ["DOI", paper.doi || "-"],
             ]}
           />
           <InfoPanel
-            title="文件路径"
+            title="Artifacts"
             rows={[
               ["PDF", paper.paper_path || "missing"],
               ["Note", paper.note_path || "missing"],
-              ["Refined", paper.refined_path || "missing"],
-              ["Parsed text", paper.parsed_text_path || "missing"],
-              ["Sections", paper.parsed_sections_path || "missing"],
+              ["Refined", paper.parser_artifacts.refined_path || "missing"],
+              ["Parsed text", paper.parser_artifacts.text_path || "missing"],
+              ["Sections", paper.parser_artifacts.sections_path || "missing"],
               ["State", paper.state_path || "missing"],
             ]}
           />
         </section>
+
         <section className="panel-card table-panel">
           <div className="panel-head">
-            <h2>解析记录</h2>
-            <span className="panel-subtitle">共 {runs.length} 次运行</span>
+            <h2>Parser Runs</h2>
+            <span className="panel-subtitle">{runs.length} run(s)</span>
           </div>
           <div className="data-table">
             <div className="data-row data-head">
-              <span>状态</span>
-              <span>解析器</span>
-              <span>开始时间</span>
-              <span>结束时间</span>
-              <span>错误信息</span>
+              <span>Status</span>
+              <span>Parser</span>
+              <span>Started</span>
+              <span>Finished</span>
+              <span>Error</span>
             </div>
             {runs.map((run) => (
               <div className="data-row" key={run.run_id}>
@@ -166,7 +194,7 @@ export function PaperDetailPage() {
                 <span>{run.error || "-"}</span>
               </div>
             ))}
-            {runs.length === 0 ? <div className="queue-empty">还没有解析记录。</div> : null}
+            {runs.length === 0 ? <div className="queue-empty">No parser runs yet.</div> : null}
           </div>
         </section>
       </main>

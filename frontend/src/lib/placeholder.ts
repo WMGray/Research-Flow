@@ -11,7 +11,7 @@ function defaultPlaceholderHandler(action: string): void {
 let placeholderHandler: PlaceholderHandler = defaultPlaceholderHandler;
 
 export function buildPlaceholderMessage(action: string): string {
-  return `已点击 ${action}，当前按钮已经绑定交互，后续可以继续接入对应功能。`;
+  return `已点击「${action}」。当前按钮已经绑定交互，后续可以继续接入对应功能。`;
 }
 
 export function registerPlaceholderHandler(handler: PlaceholderHandler): () => void {

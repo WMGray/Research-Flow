@@ -67,7 +67,7 @@ export function DialogProvider(props: { children: ReactNode }) {
         kind: "confirm",
         title: options.title,
         message: options.message,
-        confirmLabel: options.confirmLabel ?? "确认删除",
+        confirmLabel: options.confirmLabel ?? "确认",
         cancelLabel: options.cancelLabel ?? "取消",
         danger: options.danger ?? false,
         resolve,
@@ -78,7 +78,7 @@ export function DialogProvider(props: { children: ReactNode }) {
   useEffect(() => {
     return registerPlaceholderHandler((action) => {
       notify({
-        title: `已点击 ${action}`,
+        title: `已点击「${action}」`,
         message: buildPlaceholderMessage(action),
       });
     });

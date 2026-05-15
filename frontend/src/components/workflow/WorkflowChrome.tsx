@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { AppIcon, type AppIconName } from "@/components/ui/AppIcon";
 
 export type WorkflowView = "search" | "acquire";
@@ -7,13 +8,16 @@ export function WorkflowTabs(props: {
   onChange: (nextView: WorkflowView) => void;
 }) {
   return (
-    <div className="workflow-tabs workflow-tabbar workflow-tabbar-dual">
+    <div className="workflow-tabs workflow-tabbar">
       <button className={props.currentView === "search" ? "active" : ""} type="button" onClick={() => props.onChange("search")}>
-        检索筛选
+        Search
       </button>
       <button className={props.currentView === "acquire" ? "active" : ""} type="button" onClick={() => props.onChange("acquire")}>
-        获取入库
+        Acquire
       </button>
+      <Link className="workflow-tab-link" to="/library">
+        Library
+      </Link>
     </div>
   );
 }
@@ -23,22 +27,32 @@ export function WorkflowHero(props: { view: WorkflowView }) {
 
   return (
     <section className={`workflow-hero ${isSearch ? "search-hero" : "acquire-hero"}`}>
-      <div className="workflow-hero-icon">
-        <AppIcon name={isSearch ? "search" : "download"} size={40} />
-      </div>
-      <div className="workflow-hero-copy">
-        <h1>{isSearch ? "更快找到值得跟进的论文" : "集中推进论文获取与入库"}</h1>
-        <p>
-          {isSearch
-            ? "统一查看检索批次、候选质量和 Gate 1 决策，把真正值得继续投入的论文推进到获取队列。"
-            : "统一处理手动入库、PDF 获取、解析状态和人工审核，把保留论文稳定推进到库内。"}
-        </p>
+      <div className="workflow-hero-main">
+        <div className="workflow-hero-icon">
+          <AppIcon name={isSearch ? "search" : "download"} size={40} />
+        </div>
+        <div className="workflow-hero-copy">
+          <span className="workflow-hero-kicker">{isSearch ? "Discovery Workflow" : "Acquire Workflow"}</span>
+          <h1>{isSearch ? "Focus on the papers worth keeping" : "Accelerate paper acquisition"}</h1>
+          <p>
+            {isSearch
+              ? "Review search batches, AI scores, and recommendation reasons in one place before promoting papers into the acquire queue."
+              : "Track curated papers, acquire full texts, and move them through parsing, review, and confirmation with visible stage status."}
+          </p>
+        </div>
       </div>
       <div className="workflow-hero-art" aria-hidden="true">
-        <div className="workflow-art-disc" />
-        <div className="workflow-art-card workflow-art-card-a" />
-        <div className="workflow-art-card workflow-art-card-b" />
-        <div className="workflow-art-card workflow-art-card-c" />
+        <div className="workflow-art-grid" />
+        <div className="workflow-art-stack">
+          <span className="workflow-art-stack-card stack-card-a" />
+          <span className="workflow-art-stack-card stack-card-b" />
+          <span className="workflow-art-stack-card stack-card-c" />
+          <span className="workflow-art-stack-card stack-card-d" />
+        </div>
+        <div className="workflow-art-cloud" />
+        <div className="workflow-art-server" />
+        <div className="workflow-art-cube cube-a" />
+        <div className="workflow-art-cube cube-b" />
       </div>
     </section>
   );
@@ -55,24 +69,9 @@ export function WorkflowMetricCard(props: {
       <span className="stat-tile-icon">
         <AppIcon name={props.icon} size={18} />
       </span>
-      <div>
-        <span>{props.label}</span>
-        <strong>{props.value}</strong>
-        <small>{props.note}</small>
-      </div>
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+      <small>{props.note}</small>
     </div>
-  );
-}
-
-export function Progress({ value }: { value: number }) {
-  const safeValue = Math.max(0, Math.min(100, value));
-
-  return (
-    <span className="progress-cell">
-      <em>{safeValue}%</em>
-      <i>
-        <b style={{ width: `${safeValue}%` }} />
-      </i>
-    </span>
   );
 }

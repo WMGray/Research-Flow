@@ -1,32 +1,48 @@
 import type { PaperRecord } from "@/lib/api";
 
 export function humanizeStatus(status: string): string {
-  if (status === "needs-review") {
-    return "待审核";
+  switch (status) {
+    case "needs-review":
+      return "待审核";
+    case "needs-pdf":
+      return "缺少 PDF";
+    case "parse-pending":
+      return "待解析";
+    case "parse-failed":
+      return "解析失败";
+    case "processed":
+      return "已处理";
+    case "rejected":
+      return "已删除";
+    case "reviewed":
+      return "已审核";
+    case "pending":
+      return "待处理";
+    case "active":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "queued":
+      return "已排队";
+    case "template":
+      return "已生成模板";
+    case "success":
+      return "成功";
+    case "failed":
+      return "失败";
+    default:
+      return status || "未知";
   }
-  if (status === "needs-pdf") {
-    return "缺少 PDF";
-  }
-  if (status === "parse-failed") {
-    return "解析失败";
-  }
-  if (status === "processed") {
-    return "已处理";
-  }
-  if (status === "rejected") {
-    return "已拒绝";
-  }
-  return status || "未知";
 }
 
 export function statusTone(status: string): string {
-  if (status === "processed") {
+  if (["processed", "completed", "reviewed", "success"].includes(status)) {
     return "success";
   }
-  if (status === "needs-review" || status === "needs-pdf" || status === "parse-pending") {
+  if (["needs-review", "needs-pdf", "parse-pending", "queued", "pending", "active", "template"].includes(status)) {
     return "warning";
   }
-  if (status === "failed" || status === "parse-failed" || status === "rejected") {
+  if (["failed", "parse-failed", "rejected"].includes(status)) {
     return "danger";
   }
   return "muted";

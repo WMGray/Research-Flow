@@ -1,15 +1,17 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+
 import { TopBar } from "@/components/layout/TopBar";
 import { AppIcon } from "@/components/ui/AppIcon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { fetchLibraryDashboard, type LibraryDashboardData, type PaperRecord } from "@/lib/api";
 import { paperSummary } from "@/lib/format";
+import { matchesLibraryFilter, type LibraryFilter } from "@/lib/paperWorkflow";
 
 export function LibraryPage() {
   const [data, setData] = useState<LibraryDashboardData | null>(null);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState<LibraryFilter>("all");
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
@@ -20,7 +22,7 @@ export function LibraryPage() {
   const filtered = useMemo(() => {
     const needle = deferredQuery.trim().toLowerCase();
     return papers.filter((paper) => {
-      const statusMatch = status === "all" || paper.status === status;
+      const statusMatch = matchesLibraryFilter(paper, status);
       const text = `${paper.title} ${paper.domain} ${paper.area} ${paper.topic} ${paper.venue}`.toLowerCase();
       return statusMatch && (!needle || text.includes(needle));
     });
@@ -32,60 +34,69 @@ export function LibraryPage() {
 
   return (
     <>
-      <TopBar current="论文库" section="研究工作台 > 论文库" title="论文库" />
+      <TopBar current="Library" section="Research Workspace > Library" title="Library" />
       <main className="page library-page">
         <section className="workflow-hero library-hero">
           <div className="workflow-hero-icon">
             <AppIcon name="book" size={40} />
           </div>
           <div>
-            <h1>当前论文库总览</h1>
-            <p>查看已入库论文、解析状态和分类结构，支持继续跳转到论文详情页。</p>
+            <h1>Library Overview</h1>
+            <p>Review accepted papers, parse health, and classification coverage from the single library view.</p>
           </div>
         </section>
+
         <section className="metric-strip">
-          <Metric icon="document" label="论文总数" value={summary.library_total ?? 0} />
-          <Metric icon="check" label="已处理" value={summary.processed_total ?? 0} />
-          <Metric icon="clock" label="待审核" value={summary.needs_review_total ?? 0} />
-          <Metric icon="folder" label="未分类" value={summary.unclassified_total ?? 0} />
+          <Metric icon="document" label="Library Papers" value={summary.library_total ?? 0} />
+          <Metric icon="check" label="Accepted" value={summary.processed_total ?? 0} />
+          <Metric icon="clock" label="Pending Review" value={summary.needs_review_total ?? 0} />
+          <Metric icon="folder" label="Unclassified" value={summary.unclassified_total ?? 0} />
         </section>
+
         <section className="grid-row library-insights">
-          <Insight title="按 Domain 分布" rows={domains} />
-          <Insight title="按年份分布" rows={years} />
+          <Insight title="By Domain" rows={domains} />
+          <Insight title="By Year" rows={years} />
           <div className="panel-card compact">
-            <h2>常用操作</h2>
+            <h2>Quick Links</h2>
             <Link className="jump-link" to="/discover?view=acquire">
-              <span>打开获取队列</span>
+              <span>Open Acquire Queue</span>
               <AppIcon name="arrow-right" size={16} />
             </Link>
             <Link className="jump-link" to="/config">
-              <span>查看配置健康度</span>
+              <span>Open Config Health</span>
               <AppIcon name="arrow-right" size={16} />
             </Link>
           </div>
         </section>
+
         <section className="panel-card table-panel">
           <div className="panel-head">
-            <h2>最近论文</h2>
+            <h2>Recent Papers</h2>
             <div className="filter-row">
-              <input aria-label="搜索论文" placeholder="搜索标题、领域、主题..." value={query} onChange={(event) => setQuery(event.target.value)} />
-              <select aria-label="状态筛选" value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="all">全部状态</option>
-                <option value="processed">已处理</option>
-                <option value="needs-review">待审核</option>
-                <option value="needs-pdf">缺少 PDF</option>
-                <option value="parse-failed">解析失败</option>
+              <input
+                aria-label="Search library papers"
+                placeholder="Search title, domain, area, topic, or venue"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <select aria-label="Filter library papers" value={status} onChange={(event) => setStatus(event.target.value as LibraryFilter)}>
+                <option value="all">All Status</option>
+                <option value="accepted">Accepted</option>
+                <option value="pending-review">Pending Review</option>
+                <option value="parsed">Parsed</option>
+                <option value="missing-pdf">Missing PDF</option>
+                <option value="parse-failed">Parse Failed</option>
               </select>
             </div>
           </div>
           <div className="data-table library-table">
             <div className="data-row data-head">
-              <span>论文标题</span>
-              <span>年份</span>
+              <span>Paper</span>
+              <span>Year</span>
               <span>Venue</span>
-              <span>状态</span>
-              <span>标签</span>
-              <span>查看</span>
+              <span>Status</span>
+              <span>Tags</span>
+              <span>Open</span>
             </div>
             {filtered.map((paper) => (
               <PaperRow key={paper.paper_id} paper={paper} />
@@ -110,7 +121,7 @@ function PaperRow({ paper }: { paper: PaperRecord }) {
         <StatusBadge status={paper.status} />
       </span>
       <span className="tag-list">{paper.tags.slice(0, 3).map((tag) => <em key={tag}>{tag}</em>)}</span>
-      <Link to={`/library/${encodeURIComponent(paper.paper_id)}`}>详情</Link>
+      <Link to={`/library/${encodeURIComponent(paper.paper_id)}`}>Detail</Link>
     </div>
   );
 }
