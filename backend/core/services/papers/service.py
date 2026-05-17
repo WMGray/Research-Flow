@@ -12,7 +12,10 @@ from backend.core.services.papers.models import (
     IngestPaperInput,
     ParsePdfInput,
     ParserRunRecord,
+    PaperEventRecord,
     PaperRecord,
+    ReviewDecisionInput,
+    UpdateClassificationInput,
 )
 from backend.core.services.papers.parser import parse_pdf, parser_health
 from backend.core.services.papers.repository import PaperRepository
@@ -23,10 +26,13 @@ class PaperService:
     def __init__(
         self,
         data_root: Path | None = None,
+        data_layout: str | None = None,
         repository: PaperRepository | None = None,
     ) -> None:
-        resolved_root = data_root or get_settings().data_root
-        self.repository = repository or PaperRepository(resolved_root)
+        settings = get_settings()
+        resolved_root = data_root or settings.data_root
+        resolved_layout = data_layout or settings.data_layout
+        self.repository = repository or PaperRepository(resolved_root, data_layout=resolved_layout)
 
     def list_papers(self) -> list[PaperRecord]:
         return self.repository.list_papers()
@@ -106,6 +112,20 @@ class PaperService:
     def generate_note_for_paper(self, paper_id: str, *, overwrite: bool = False) -> PaperRecord:
         return self.repository.generate_note_for_paper(paper_id, overwrite=overwrite)
 
+    def accept_paper(self, paper_id: str) -> PaperRecord:
+        return self.repository.accept_paper(paper_id)
+
+    def update_classification(
+        self,
+        request: UpdateClassificationInput | str,
+        *,
+        domain: str = "",
+        area: str = "",
+        topic: str = "",
+    ) -> PaperRecord:
+        payload = request if isinstance(request, UpdateClassificationInput) else UpdateClassificationInput(paper_id=request, domain=domain, area=area, topic=topic)
+        return self.repository.update_classification(payload)
+
     def parse_pdf(
         self,
         request: ParsePdfInput | str,
@@ -123,6 +143,29 @@ class PaperService:
 
     def list_parser_runs(self, paper_id: str) -> list[ParserRunRecord]:
         return self.repository.list_parser_runs(paper_id)
+
+    def list_paper_events(self, paper_id: str) -> list[PaperEventRecord]:
+        return self.repository.list_paper_events(paper_id)
+
+    def review_refined(
+        self,
+        request: ReviewDecisionInput | str,
+        *,
+        decision: str = "",
+        comment: str = "",
+    ) -> PaperRecord:
+        payload = request if isinstance(request, ReviewDecisionInput) else ReviewDecisionInput(paper_id=request, decision=decision, comment=comment)
+        return self.repository.review_refined(payload)
+
+    def review_note(
+        self,
+        request: ReviewDecisionInput | str,
+        *,
+        decision: str = "",
+        comment: str = "",
+    ) -> PaperRecord:
+        payload = request if isinstance(request, ReviewDecisionInput) else ReviewDecisionInput(paper_id=request, decision=decision, comment=comment)
+        return self.repository.review_note(payload)
 
     def mark_review(self, paper_id: str) -> PaperRecord:
         return self.repository.mark_status(paper_id, "needs-review")
@@ -146,21 +189,22 @@ class PaperService:
             "totals": {
                 "papers": len(papers),
                 "batches": len(batches),
-                "processed": status_counts.get("processed", 0),
+                "processed": len([paper for paper in papers if paper.review_status == "accepted"]),
                 "curated": len([paper for paper in papers if paper.stage == "acquire"]),
                 "library": len([paper for paper in papers if paper.stage == "library"]),
-                "needs_pdf": status_counts.get("needs-pdf", 0),
-                "needs_review": status_counts.get("needs-review", 0),
-                "parse_failed": status_counts.get("parse-failed", 0),
-                "rejected": status_counts.get("rejected", 0),
-                "failed": status_counts.get("failed", 0),
+                "needs_pdf": len([paper for paper in papers if paper.asset_status == "missing_pdf"]),
+                "needs_review": len(
+                    [paper for paper in papers if paper.stage == "acquire" and paper.parser_status == "parsed" and paper.review_status == "pending"]
+                ),
+                "parse_failed": len([paper for paper in papers if paper.parser_status == "failed"]),
+                "failed": len([paper for paper in papers if paper.parser_status == "failed"]),
             },
             "status_counts": status_counts,
             "recent_papers": [paper.to_dict() for paper in papers[:6]],
             "queue_items": [
                 paper.to_dict()
                 for paper in papers
-                if paper.status in {"needs-pdf", "needs-review", "parse-failed", "failed"}
+                if paper.stage == "acquire" and (paper.asset_status == "missing_pdf" or paper.review_status == "pending" or paper.parser_status == "failed")
             ][:8],
             "recent_batches": [batch.to_dict() for batch in batches[:5]],
             "paths": {
@@ -202,19 +246,19 @@ class PaperService:
             "summary": {
                 "curated_total": len(papers),
                 "needs_pdf_total": len(
-                    [paper for paper in papers if paper.status == "needs-pdf"]
+                    [paper for paper in papers if paper.asset_status == "missing_pdf"]
                 ),
                 "needs_review_total": len(
-                    [paper for paper in papers if paper.status == "needs-review"]
+                    [paper for paper in papers if paper.parser_status == "parsed" and paper.review_status == "pending"]
                 ),
-                "failed_total": len([paper for paper in papers if paper.status == "failed"]),
-                "parse_failed_total": len([paper for paper in papers if paper.status == "parse-failed"]),
+                "failed_total": len([paper for paper in papers if paper.parser_status == "failed"]),
+                "parse_failed_total": len([paper for paper in papers if paper.parser_status == "failed"]),
             },
             "queue": [paper.to_dict() for paper in papers],
         }
 
     def dashboard_library(self) -> dict[str, Any]:
-        papers = [paper for paper in self.list_papers() if paper.stage == "library"]
+        papers = [paper for paper in self.list_papers() if paper.stage == "library" and paper.review_status == "accepted"]
         unclassified = [
             paper
             for paper in papers
@@ -225,12 +269,24 @@ class PaperService:
                 "library_total": len(papers),
                 "unclassified_total": len(unclassified),
                 "processed_total": len(
-                    [paper for paper in papers if paper.status == "processed"]
+                    [paper for paper in papers if paper.review_status == "accepted"]
                 ),
-                "needs_review_total": len([paper for paper in papers if paper.status == "needs-review"]),
-                "parse_failed_total": len([paper for paper in papers if paper.status == "parse-failed"]),
+                "needs_review_total": len(
+                    [
+                        paper
+                        for paper in papers
+                        if paper.workflow_status
+                        in {"refine_review_pending", "refine_rejected", "note_review_pending", "note_rejected", "failed"}
+                    ]
+                ),
+                "refine_review_total": len([paper for paper in papers if paper.workflow_status == "refine_review_pending"]),
+                "note_review_total": len([paper for paper in papers if paper.workflow_status == "note_review_pending"]),
+                "parse_failed_total": len([paper for paper in papers if paper.parser_status == "failed"]),
             },
             "papers": [paper.to_dict() for paper in papers],
+            "paths": {
+                "library_root": str(self.repository.library_root),
+            },
         }
 
     def _status_counts(self, papers: list[PaperRecord]) -> dict[str, int]:

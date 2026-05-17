@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parse_parser = subparsers.add_parser("parse-pdf", help="Parse a paper PDF")
     parse_parser.add_argument("--paper-id", required=True)
     parse_parser.add_argument("--force", action="store_true")
-    parse_parser.add_argument("--parser", default="auto", choices=["auto", "mineru", "pymupdf"])
+    parse_parser.add_argument("--parser", default="auto", choices=["auto", "mineru"])
 
     mark_parser = subparsers.add_parser("mark-status", help="Mark a paper workflow status")
     mark_parser.add_argument("--paper-id", required=True)
@@ -56,7 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    library = PaperService(data_root=get_settings().data_root)
+    settings = get_settings()
+    library = PaperService(data_root=settings.data_root, data_layout=settings.data_layout)
 
     if args.command == "scan":
         print(json.dumps(library.dashboard_home(), ensure_ascii=False, indent=2))

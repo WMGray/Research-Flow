@@ -52,6 +52,29 @@ class ParsePdfInput:
     parser: str = "auto"
 
 
+@dataclass(frozen=True, slots=True)
+class UpdateClassificationInput:
+    paper_id: str
+    domain: str = ""
+    area: str = ""
+    topic: str = ""
+    title: str | None = None
+    venue: str | None = None
+    year: int | None = None
+    tags: list[str] | None = None
+    status: str | None = None
+    paper_path: str | None = None
+    note_path: str | None = None
+    refined_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewDecisionInput:
+    paper_id: str
+    decision: str
+    comment: str = ""
+
+
 @dataclass(slots=True)
 class BatchRecord:
     batch_id: str
@@ -110,12 +133,52 @@ class ParserRunRecord:
 
 
 @dataclass(slots=True)
+class PaperEventRecord:
+    timestamp: str
+    event: str
+    actor: str
+    result: str
+    message: str
+    technical_detail: str
+    next_action: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ParserArtifacts:
+    text_path: str
+    sections_path: str
+    refined_path: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class PaperCapabilities:
+    parse: bool
+    accept: bool
+    generate_note: bool
+    review_refined: bool
+    review_note: bool
+    delete: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class PaperRecord:
     paper_id: str
     title: str
     slug: str
     stage: str
     status: str
+    workflow_status: str
+    asset_status: str
+    review_status: str
     domain: str
     area: str
     topic: str
@@ -131,11 +194,15 @@ class PaperRecord:
     metadata_path: str
     metadata_json_path: str
     state_path: str
+    events_path: str
     parsed_text_path: str
     parsed_sections_path: str
     pdf_analysis_path: str
     parser_status: str
     note_status: str
+    note_review_status: str
+    parser_artifacts: ParserArtifacts
+    capabilities: PaperCapabilities
     read_status: str
     refined_review_status: str
     classification_status: str

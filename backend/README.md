@@ -1,20 +1,20 @@
 # Backend
 
-后端当前采用 `FastAPI + 本地文件系统`，只落地 Paper 全流程，不接 Celery、Redis、skills、LLM Provider 或数据库。
+后端当前采用 `FastAPI + 本地文件系统`，聚焦 `Paper` 主流程，不接 `Celery / Redis / skills / LLM Provider / 数据库`。
 
 ## 目录结构
 
 ```text
 backend/
 ├─ app/
-│  ├─ api/          # FastAPI routers
-│  ├─ schemas/      # Pydantic request/response schemas
+│  ├─ api/
+│  ├─ schemas/
 │  ├─ dependencies.py
-│  └─ main.py       # application entry
+│  └─ main.py
 ├─ core/
-│  ├─ config.py     # shared settings
+│  ├─ config.py
 │  └─ services/
-│     └─ papers/    # repository, service, models, utils
+│     └─ papers/
 ├─ scripts/
 │  └─ paper_library.py
 └─ tests/
@@ -22,10 +22,10 @@ backend/
 
 ## 数据真源
 
-- `data/Discover/`：search batch 与 review 结果
-- `data/Acquire/`：待入库论文
-- `data/Library/`：正式本地文献库
-- `data/templates/`：note 模板
+- `data/Discover/`: search batch 与 review 结果
+- `data/Acquire/`: 待入库论文
+- `data/Library/`: 正式本地文献库
+- `data/templates/`: note 模板
 
 ## 运行
 
@@ -50,7 +50,7 @@ python -m backend.scripts.paper_library note-template --title "Example Paper"
 python -m backend.scripts.paper_library parse-pdf --paper-id <paper_id>
 ```
 
-## 已实现接口
+## 当前主流程接口
 
 - `GET /health`
 - `GET /api/dashboard/home`
@@ -63,9 +63,22 @@ python -m backend.scripts.paper_library parse-pdf --paper-id <paper_id>
 - `POST /api/papers/ingest`
 - `POST /api/papers/migrate`
 - `POST /api/papers/generate-note`
-
-## 下一步接口
-
-- `GET /api/config`
+- `POST /api/papers/{paper_id}/generate-note`
 - `POST /api/papers/{paper_id}/parse-pdf`
 - `GET /api/papers/{paper_id}/parser-runs`
+- `POST /api/papers/{paper_id}/accept`
+- `POST /api/papers/{paper_id}/reject`
+
+## Paper 契约
+
+当前 `PaperRecord` 已包含以下主流程真源字段：
+
+- `stage`
+- `asset_status`
+- `parser_status`
+- `review_status`
+- `note_status`
+- `parser_artifacts`
+- `capabilities`
+
+旧 `status` 仍保留一轮兼容，但不再作为主流程真源。

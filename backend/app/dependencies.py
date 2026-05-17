@@ -15,6 +15,7 @@ def get_paper_service(request: Request) -> PaperService:
     if isinstance(service, PaperService):
         return service
 
-    service = PaperService(data_root=get_settings().data_root)
+    settings = get_settings()
+    service = PaperService(data_root=settings.data_root, data_layout=settings.data_layout)
     request.app.state.paper_service = service
     return service

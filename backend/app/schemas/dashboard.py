@@ -33,3 +33,4 @@ class AcquireDashboardData(BaseModel):
 class LibraryDashboardData(BaseModel):
     summary: dict[str, int]
     papers: list[PaperResponse]
+    paths: dict[str, str]

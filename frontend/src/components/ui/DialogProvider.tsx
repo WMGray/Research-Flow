@@ -1,14 +1,16 @@
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import { AppIcon } from "@/components/ui/AppIcon";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { buildPlaceholderMessage, registerPlaceholderHandler } from "@/lib/placeholder";
+import { useEffect } from "react";
 
 type NoticeOptions = {
   title: string;
@@ -56,7 +58,7 @@ export function DialogProvider(props: { children: ReactNode }) {
       kind: "notice",
       title: options.title,
       message: options.message,
-      confirmLabel: options.confirmLabel ?? "我知道了",
+      confirmLabel: options.confirmLabel ?? "知道了",
       danger: options.danger ?? false,
     });
   }, []);
@@ -84,50 +86,30 @@ export function DialogProvider(props: { children: ReactNode }) {
     });
   }, [notify]);
 
-  useEffect(() => {
-    if (!dialog) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeDialog();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDialog, dialog]);
-
-  const value = useMemo<DialogController>(
-    () => ({
-      notify,
-      confirm,
-    }),
-    [confirm, notify],
-  );
+  const value = useMemo<DialogController>(() => ({ confirm, notify }), [confirm, notify]);
 
   return (
     <DialogContext.Provider value={value}>
       {props.children}
-      {dialog ? (
-        <div aria-modal="true" className="dialog-overlay" role="dialog" onClick={closeDialog}>
-          <div className={`dialog-panel${dialog.danger ? " danger" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <button aria-label="关闭弹窗" className="dialog-close" type="button" onClick={closeDialog}>
-              <AppIcon name="close" size={18} />
-            </button>
-            <div className="dialog-kicker">{dialog.kind === "confirm" ? "请确认操作" : "功能提示"}</div>
-            <h2>{dialog.title}</h2>
-            <p>{dialog.message}</p>
-            <div className="dialog-actions">
+      <Dialog open={Boolean(dialog)} onOpenChange={(open) => {
+        if (!open) {
+          closeDialog();
+        }
+      }}>
+        {dialog ? (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{dialog.title}</DialogTitle>
+              <DialogDescription>{dialog.message}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
               {dialog.kind === "confirm" ? (
-                <button className="dialog-secondary-button" type="button" onClick={closeDialog}>
+                <Button variant="outline" onClick={closeDialog}>
                   {dialog.cancelLabel}
-                </button>
+                </Button>
               ) : null}
-              <button
-                className={dialog.danger ? "dialog-danger-button" : "dialog-primary-button"}
-                type="button"
+              <Button
+                variant={dialog.danger ? "destructive" : "default"}
                 onClick={() => {
                   if (dialog.kind === "confirm") {
                     dialog.resolve(true);
@@ -136,11 +118,11 @@ export function DialogProvider(props: { children: ReactNode }) {
                 }}
               >
                 {dialog.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </DialogContext.Provider>
   );
 }

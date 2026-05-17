@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.library import PaperLibrary, slugify, write_text, write_yaml
 from backend.app.main import app
+from backend.core.services.papers.parser import PdfParserResult
 
 
 TMP_ROOT = Path(__file__).resolve().parents[1] / ".pytest_tmp"
@@ -134,12 +135,28 @@ def test_generate_paper_note_endpoint_creates_missing_note(tmp_path: Path) -> No
         paper_id = ingest.json()["data"]["paper_id"]
         note_path = Path(ingest.json()["data"]["note_path"])
         note_path.unlink()
+        paper_dir = Path(ingest.json()["data"]["path"])
+        parsed_dir = paper_dir / "parsed"
+        parsed_dir.mkdir(parents=True, exist_ok=True)
+        write_text(paper_dir / "refined.md", "# Refined\n")
+        write_text(parsed_dir / "text.md", "# Parsed\n")
+        write_text(parsed_dir / "sections.json", "{}\n")
+        app.state.library.repository.update_paper_state(
+            paper_dir,
+            {
+                "parser_status": "parsed",
+                "refined_review_status": "approved",
+                "note_status": "missing",
+                "note_review_status": "missing",
+            },
+        )
         response = test_client.post(f"/api/papers/{paper_id}/generate-note", json={"overwrite": False})
 
     assert response.status_code == 200
     payload = response.json()["data"]
     assert payload["note_path"]
     assert Path(payload["note_path"]).exists()
+    assert payload["note_review_status"] == "pending"
 
 
 def test_ingest_endpoint_creates_needs_pdf_record(tmp_path: Path) -> None:
@@ -179,7 +196,9 @@ def test_migrate_endpoint_moves_source_into_library(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     payload = response.json()["data"]
-    assert payload["status"] == "processed"
+    assert payload["status"] == "parse-pending"
+    assert payload["asset_status"] == "pdf_ready"
+    assert payload["review_status"] == "pending"
     assert Path(payload["path"]).exists()
     assert not source_dir.exists()
 
@@ -210,7 +229,7 @@ def test_parse_and_parser_runs_endpoints(tmp_path: Path) -> None:
         paper_id = ingest.json()["data"]["paper_id"]
         parse_response = test_client.post(
             f"/api/papers/{paper_id}/parse-pdf",
-            json={"force": True, "parser": "pymupdf"},
+            json={"force": True, "parser": "mineru"},
         )
         runs_response = test_client.get(f"/api/papers/{paper_id}/parser-runs")
 
@@ -244,6 +263,171 @@ def test_mark_and_reject_endpoints(tmp_path: Path) -> None:
     assert not Path(rejected.json()["data"]["path"]).exists()
 
 
+def test_accept_endpoint_moves_parsed_acquire_paper_into_library(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        paper_dir = tmp_path / "data" / "Acquire" / "curated" / "accept-api-sample"
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        write_sample_pdf(paper_dir / "paper.pdf")
+        write_text(paper_dir / "note.md", "---\ntitle: Accept API Sample\n---\n")
+        write_yaml(
+            paper_dir / "metadata.yaml",
+            {
+                "title": "Accept API Sample",
+                "domain": "Speech",
+                "area": "TTS",
+                "topic": "Control",
+                "asset_status": "pdf_ready",
+                "parser_status": "parsed",
+                "review_status": "pending",
+                "note_status": "template",
+            },
+        )
+        app.state.library.repository.update_paper_state(paper_dir, {})
+        record = app.state.library.get_paper("Acquire__curated__accept-api-sample")
+        assert record is not None
+
+        response = test_client.post(f"/api/papers/{record.paper_id}/accept", json={})
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["stage"] == "library"
+    assert payload["review_status"] == "accepted"
+    assert payload["status"] == "processed"
+    assert payload["capabilities"]["accept"] is False
+
+
+def test_update_classification_endpoint_moves_library_paper(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        paper_dir = tmp_path / "data" / "Library" / "unclassified" / "classify-api-sample"
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        write_sample_pdf(paper_dir / "paper.pdf")
+        write_text(paper_dir / "note.md", "---\ntitle: Classify API Sample\n---\n")
+        write_yaml(
+            paper_dir / "metadata.yaml",
+            {
+                "title": "Classify API Sample",
+                "asset_status": "pdf_ready",
+                "parser_status": "parsed",
+                "review_status": "accepted",
+                "note_status": "template",
+            },
+        )
+        app.state.library.repository.update_paper_state(paper_dir, {})
+        record = app.state.library.get_paper("Library__unclassified__classify-api-sample")
+        assert record is not None
+
+        response = test_client.patch(
+            f"/api/papers/{record.paper_id}/classification",
+            json={
+                "domain": "Speech",
+                "area": "Voice-Synthesis",
+                "topic": "Singing-Voice-Synthesis",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["domain"] == "Speech"
+    assert payload["area"] == "Voice-Synthesis"
+    assert payload["topic"] == "Singing-Voice-Synthesis"
+    assert payload["paper_id"].endswith("Speech__Voice-Synthesis__Singing-Voice-Synthesis__classify-api-sample")
+    assert Path(payload["path"]).exists()
+    assert not paper_dir.exists()
+
+    with isolated_client(tmp_path) as test_client:
+        clear_response = test_client.patch(
+            f"/api/papers/{payload['paper_id']}/classification",
+            json={"domain": "", "area": "", "topic": ""},
+        )
+
+    assert clear_response.status_code == 200
+    cleared = clear_response.json()["data"]
+    assert cleared["domain"] == ""
+    assert cleared["area"] == ""
+    assert cleared["topic"] == ""
+    assert cleared["paper_id"].endswith("01_Papers__unclassified__classify-api-sample")
+
+
+def test_review_endpoints_and_events(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        paper_dir = tmp_path / "data" / "Library" / "Speech" / "TTS" / "review-api-sample"
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        write_sample_pdf(paper_dir / "paper.pdf")
+        write_text(paper_dir / "refined.md", "# Refined\n")
+        write_yaml(
+            paper_dir / "metadata.yaml",
+            {
+                "title": "Review API Sample",
+                "domain": "Speech",
+                "area": "TTS",
+                "topic": "Control",
+                "asset_status": "pdf_ready",
+                "parser_status": "parsed",
+                "review_status": "accepted",
+                "note_status": "missing",
+                "refined_review_status": "pending",
+                "classification_status": "classified",
+            },
+        )
+        app.state.library.repository.update_paper_state(paper_dir, {})
+        record = app.state.library.get_paper("Library__Speech__TTS__review-api-sample")
+        assert record is not None
+
+        refined = test_client.post(f"/api/papers/{record.paper_id}/review-refined", json={"decision": "approved"})
+        generated = test_client.post(f"/api/papers/{record.paper_id}/generate-note", json={})
+        note = test_client.post(f"/api/papers/{record.paper_id}/review-note", json={"decision": "approved"})
+        events = test_client.get(f"/api/papers/{record.paper_id}/events")
+        invalid = test_client.post(f"/api/papers/{record.paper_id}/review-note", json={"decision": "maybe"})
+        missing = test_client.post("/api/papers/missing-paper/review-refined", json={"decision": "approved"})
+
+    assert refined.status_code == 200
+    assert refined.json()["data"]["capabilities"]["generate_note"] is True
+    assert generated.status_code == 200
+    assert generated.json()["data"]["note_review_status"] == "pending"
+    assert note.status_code == 200
+    assert note.json()["data"]["workflow_status"] == "ready"
+    assert events.status_code == 200
+    event_names = [item["event"] for item in events.json()["data"]["items"]]
+    assert "refined_review_approved" in event_names
+    assert "llm_note_generated" in event_names
+    assert "note_review_approved" in event_names
+    assert invalid.status_code == 400
+    assert missing.status_code == 404
+
+
+def test_dashboard_endpoints_tolerate_invalid_note_front_matter(tmp_path: Path) -> None:
+    source_dir = create_source_paper(tmp_path / "incoming", title="PALM: Predicting Actions through Language Models")
+    write_text(
+        source_dir / "note.md",
+        "---\n"
+        "title: PALM: Predicting Actions through Language Models\n"
+        "year: 2024\n"
+        "venue: arXiv\n"
+        "---\n\n"
+        "# 摘要\n",
+    )
+
+    with isolated_client(tmp_path) as test_client:
+        ingest = test_client.post(
+            "/api/papers/ingest",
+            json={
+                "source": str(source_dir),
+                "domain": "Agents",
+                "area": "Planning",
+                "topic": "Action Prediction",
+            },
+        )
+        assert ingest.status_code == 200
+
+        discover = test_client.get("/api/dashboard/discover")
+        acquire = test_client.get("/api/dashboard/acquire")
+        papers = test_client.get("/api/papers")
+
+    assert discover.status_code == 200
+    assert acquire.status_code == 200
+    assert papers.status_code == 200
+
+
 def test_candidate_decision_endpoint(tmp_path: Path) -> None:
     with isolated_client(tmp_path) as test_client:
         batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-a"
@@ -275,6 +459,177 @@ def test_candidate_decision_endpoint(tmp_path: Path) -> None:
     assert reject_response.json()["data"]["decision"] == "reject"
     assert not artifact_dir.exists()
     assert not batch_dir.exists()
+
+
+def test_keep_parse_accept_flow_moves_candidate_into_library(tmp_path: Path, monkeypatch) -> None:
+    with isolated_client(tmp_path) as test_client:
+        batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-flow"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        candidate_dir = batch_dir / "results" / "candidate-flow"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        write_sample_pdf(candidate_dir / "paper.pdf")
+        write_text(candidate_dir / "note.md", "---\ntitle: Flow Candidate\n---\n")
+        write_yaml(
+            candidate_dir / "metadata.yaml",
+            {
+                "title": "Flow Candidate",
+                "year": 2026,
+                "venue": "ICLR 2026",
+                "domain": "Speech",
+                "area": "Voice-Synthesis",
+                "topic": "Singing-Voice-Synthesis",
+            },
+        )
+        write_text(
+            batch_dir / "candidates.json",
+            '{\n'
+            '  "candidates": [\n'
+            '    {\n'
+            '      "id": "P001",\n'
+            '      "title": "Flow Candidate",\n'
+            '      "year": 2026,\n'
+            '      "venue": "ICLR 2026",\n'
+            '      "domain": "Speech",\n'
+            '      "area": "Voice-Synthesis",\n'
+            '      "topic": "Singing-Voice-Synthesis",\n'
+            '      "result_path": "Discover/search_batches/batch-flow/results/candidate-flow"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n",
+        )
+
+        keep_response = test_client.post(
+            "/api/discover/batches/batch-flow/candidates/P001/decision",
+            json={"decision": "keep"},
+        )
+
+        assert keep_response.status_code == 200
+        assert keep_response.json()["data"]["decision"] == "keep"
+
+        acquire_payload = test_client.get("/api/dashboard/acquire")
+        assert acquire_payload.status_code == 200
+        assert acquire_payload.json()["data"]["queue"] == []
+
+        library_payload = test_client.get("/api/dashboard/library")
+        assert library_payload.status_code == 200
+        library_data = library_payload.json()["data"]
+        library_papers = library_data["papers"]
+        assert library_data["paths"]["library_root"].endswith("01_Papers")
+        assert len(library_papers) == 1
+        paper_id = library_papers[0]["paper_id"]
+        library_path = Path(library_papers[0]["path"])
+        assert library_papers[0]["stage"] == "library"
+        assert library_papers[0]["review_status"] == "accepted"
+        assert library_path.exists()
+
+        paper_dir = Path(app.state.library.repository.get_paper_dir(paper_id) or "")
+        parsed_dir = paper_dir / "parsed"
+        parsed_dir.mkdir(parents=True, exist_ok=True)
+        write_text(paper_dir / "refined.md", "# Parsed\n")
+        write_text(parsed_dir / "text.md", "# Parsed\n")
+        write_text(parsed_dir / "sections.json", "{}\n")
+
+        def fake_parse_pdf(*args, **kwargs) -> PdfParserResult:  # noqa: ANN002, ANN003
+            del args, kwargs
+            return PdfParserResult(
+                status="processed",
+                parser="mineru",
+                refined_path=str(paper_dir / "refined.md"),
+                image_dir=str(paper_dir / "images"),
+                text_path=str(parsed_dir / "text.md"),
+                sections_path=str(parsed_dir / "sections.json"),
+                error="",
+            )
+
+        monkeypatch.setattr("backend.core.services.papers.service.parse_pdf", fake_parse_pdf)
+
+        parse_response = test_client.post(
+            f"/api/papers/{paper_id}/parse-pdf",
+            json={"force": True, "parser": "mineru"},
+        )
+        assert parse_response.status_code == 200
+        parsed_paper = parse_response.json()["data"]
+        assert parsed_paper["parser_status"] == "parsed"
+        assert parsed_paper["error"] == ""
+
+        library_payload = test_client.get("/api/dashboard/library")
+        assert library_payload.status_code == 200
+        library_papers = library_payload.json()["data"]["papers"]
+        assert any(paper["paper_id"] == paper_id for paper in library_papers)
+
+
+def test_candidate_decision_handles_note_and_landing_paths_without_result_path(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-b"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        artifact_dir = tmp_path / "data" / "02_Inbox" / "01_Search" / "batch-b" / "results" / "candidate-b"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        write_text(artifact_dir / "note.md", "---\ntitle: Candidate B\n---\n")
+        write_text(artifact_dir / "metadata.json", '{\n  "title": "Candidate B"\n}\n')
+        write_text(artifact_dir / "pdf_analysis.json", '{\n  "ok": true\n}\n')
+        (artifact_dir / "paper.pdf").write_text("pdf\n", encoding="utf-8")
+        (batch_dir / "candidates.json").write_text(
+            '{\n'
+            '  "candidates": [\n'
+            '    {\n'
+            '      "id": "P010",\n'
+            '      "title": "Candidate B",\n'
+            '      "year": 2026,\n'
+            '      "venue": "AAAI",\n'
+            '      "note_path": "02_Inbox/01_Search/batch-b/results/candidate-b/note.md",\n'
+            '      "metadata_path": "02_Inbox/01_Search/batch-b/results/candidate-b/metadata.json",\n'
+            '      "pdf_analysis_path": "02_Inbox/01_Search/batch-b/results/candidate-b/pdf_analysis.json",\n'
+            '      "landing_path": "02_Inbox/01_Search/batch-b/results/candidate-b/paper.pdf"\n'
+            '    }\n'
+            "  ]\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        keep_response = test_client.post(
+            "/api/discover/batches/batch-b/candidates/P010/decision",
+            json={"decision": "keep"},
+        )
+
+    assert keep_response.status_code == 200
+    assert keep_response.json()["data"]["decision"] == "keep"
+    assert not artifact_dir.exists()
+    promoted = tmp_path / "data" / "01_Papers" / "unclassified" / "candidate-b"
+    assert promoted.exists()
+    assert (promoted / "paper.pdf").exists()
+    assert (promoted / "note.md").exists()
+
+
+def test_candidate_reject_removes_artifact_dir_without_result_path(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-c"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        artifact_dir = tmp_path / "data" / "02_Inbox" / "01_Search" / "batch-c" / "results" / "candidate-c"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        write_text(artifact_dir / "note.md", "---\ntitle: Candidate C\n---\n")
+        write_text(artifact_dir / "metadata.json", '{\n  "title": "Candidate C"\n}\n')
+        (artifact_dir / "paper.pdf").write_text("pdf\n", encoding="utf-8")
+        (batch_dir / "candidates.json").write_text(
+            '{\n'
+            '  "candidates": [\n'
+            '    {\n'
+            '      "id": "P011",\n'
+            '      "title": "Candidate C",\n'
+            '      "note_path": "02_Inbox/01_Search/batch-c/results/candidate-c/note.md",\n'
+            '      "metadata_path": "02_Inbox/01_Search/batch-c/results/candidate-c/metadata.json",\n'
+            '      "landing_path": "02_Inbox/01_Search/batch-c/results/candidate-c/paper.pdf"\n'
+            '    }\n'
+            "  ]\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        reject_response = test_client.post(
+            "/api/discover/batches/batch-c/candidates/P011/decision",
+            json={"decision": "reject"},
+        )
+
+    assert reject_response.status_code == 200
+    assert reject_response.json()["data"]["decision"] == "reject"
+    assert not artifact_dir.exists()
 
 
 def test_batch_deleted_after_last_pending_candidate_is_resolved(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ from backend.core.services.papers.service import PaperService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    app.state.paper_service = PaperService(data_root=settings.data_root)
+    app.state.paper_service = PaperService(data_root=settings.data_root, data_layout=settings.data_layout)
     yield
 
 

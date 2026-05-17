@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from yaml import YAMLError
 
 
 def utc_now() -> str:
@@ -26,7 +27,10 @@ def write_text(path: Path, content: str) -> None:
 def read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    data = yaml.safe_load(read_text(path))
+    try:
+        data = yaml.safe_load(read_text(path))
+    except YAMLError:
+        return {}
     return data if isinstance(data, dict) else {}
 
 
@@ -86,7 +90,10 @@ def split_front_matter(text: str) -> tuple[dict[str, Any], str]:
         header, body = remainder.split("\n---\n", 1)
     except ValueError:
         return {}, text
-    data = yaml.safe_load(header)
+    try:
+        data = yaml.safe_load(header)
+    except YAMLError:
+        return {}, text
     return (data if isinstance(data, dict) else {}), body
 
 

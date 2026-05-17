@@ -25,6 +25,21 @@ export async function postJson<T>(url: string, body: unknown = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function patchJson<T>(url: string, body: unknown = {}): Promise<T> {
+  const response = await safeFetch(url, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(input, init);

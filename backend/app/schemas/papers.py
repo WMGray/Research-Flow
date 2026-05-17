@@ -32,6 +32,29 @@ class ParsePdfRequest(BaseModel):
     parser: str = "auto"
 
 
+class AcceptPaperRequest(BaseModel):
+    pass
+
+
+class ReviewDecisionRequest(BaseModel):
+    decision: str
+    comment: str = ""
+
+
+class UpdateClassificationRequest(BaseModel):
+    domain: str = ""
+    area: str = ""
+    topic: str = ""
+    title: str | None = None
+    venue: str | None = None
+    year: int | None = None
+    tags: list[str] | None = None
+    status: str | None = None
+    paper_path: str | None = None
+    note_path: str | None = None
+    refined_path: str | None = None
+
+
 class CandidateDecisionRequest(BaseModel):
     decision: str
 
@@ -80,12 +103,25 @@ class ParserRunResponse(BaseModel):
     finished_at: str
 
 
+class PaperEventResponse(BaseModel):
+    timestamp: str
+    event: str
+    actor: str
+    result: str
+    message: str
+    technical_detail: str
+    next_action: str
+
+
 class PaperResponse(BaseModel):
     paper_id: str
     title: str
     slug: str
     stage: str
     status: str
+    workflow_status: str
+    asset_status: str
+    review_status: str
     domain: str
     area: str
     topic: str
@@ -101,11 +137,15 @@ class PaperResponse(BaseModel):
     metadata_path: str
     metadata_json_path: str
     state_path: str
+    events_path: str
     parsed_text_path: str
     parsed_sections_path: str
     pdf_analysis_path: str
     parser_status: str
     note_status: str
+    note_review_status: str
+    parser_artifacts: dict[str, str]
+    capabilities: dict[str, bool]
     read_status: str
     refined_review_status: str
     classification_status: str

@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.library import PaperLibrary, slugify, write_json, write_text, write_yaml
+from backend.core.services.papers import parser as paper_parser
+from backend.core.services.papers.parser import PdfParserResult
 from backend.core.services.papers.utils import read_json
 
 
@@ -119,6 +121,7 @@ def test_metadata_priority_prefers_state_over_json_and_yaml(tmp_path: Path) -> N
     library = PaperLibrary(data_root)
     paper_dir = data_root / "Library" / "Speech" / "TTS" / "priority-paper"
     paper_dir.mkdir(parents=True, exist_ok=True)
+    write_sample_pdf(paper_dir / "paper.pdf")
     write_yaml(paper_dir / "metadata.yaml", {"title": "YAML Title", "status": "processed"})
     write_json(paper_dir / "metadata.json", {"title": "JSON Title", "status": "needs-review"})
     write_json(paper_dir / "state.json", {"title": "State Title", "status": "parse-failed"})
@@ -174,7 +177,7 @@ def test_ingest_conflict_marks_existing_target_for_review(tmp_path: Path) -> Non
     data_root = tmp_path / "data"
     library = PaperLibrary(data_root)
 
-    existing_dir = data_root / "Library" / "Speech" / "Voice-Synthesis" / "Singing-Voice-Synthesis" / "conflict-paper"
+    existing_dir = data_root / "01_Papers" / "Speech" / "Voice-Synthesis" / "Singing-Voice-Synthesis" / "conflict-paper"
     existing_dir.mkdir(parents=True, exist_ok=True)
     write_text(existing_dir / "note.md", "# Existing\n")
     write_yaml(
@@ -225,7 +228,10 @@ def test_migrate_moves_source_directory_into_library(tmp_path: Path) -> None:
     )
 
     target_dir = Path(record.path)
-    assert record.status == "processed"
+    assert record.status == "parse-pending"
+    assert record.stage == "library"
+    assert record.asset_status == "pdf_ready"
+    assert record.review_status == "pending"
     assert target_dir.exists()
     assert (target_dir / "paper.pdf").exists()
     assert (target_dir / "extra.txt").exists()
@@ -279,7 +285,7 @@ def test_candidate_reject_deletes_entry_and_artifacts(tmp_path: Path) -> None:
     assert rows[0]["id"] == "P002"
 
 
-def test_candidate_keep_moves_entry_to_acquire_and_removes_from_batch(tmp_path: Path) -> None:
+def test_candidate_keep_moves_entry_to_library_and_removes_from_batch(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     library = PaperLibrary(data_root)
     batch_dir = data_root / "Discover" / "search_batches" / "batch-keep"
@@ -323,11 +329,13 @@ def test_candidate_keep_moves_entry_to_acquire_and_removes_from_batch(tmp_path: 
 
     assert kept.decision == "keep"
     assert not batch_dir.exists()
-    curated_root = data_root / "Acquire" / "curated"
-    curated_dirs = [path for path in curated_root.iterdir() if path.is_dir()]
-    assert len(curated_dirs) == 1
-    assert (curated_dirs[0] / "paper.pdf").exists()
-    assert (curated_dirs[0] / "metadata.yaml").exists()
+    library_target = data_root / "01_Papers" / "Speech" / "Detection" / "Deepfake" / "candidate-keep"
+    assert library_target.exists()
+    assert (library_target / "paper.pdf").exists()
+    assert (library_target / "metadata.yaml").exists()
+    record = next(paper for paper in library.list_papers() if Path(paper.path) == library_target)
+    assert record.stage == "library"
+    assert record.review_status == "accepted"
 
 
 def test_batch_deleted_when_no_pending_candidates_remain(tmp_path: Path) -> None:
@@ -410,7 +418,7 @@ def test_config_health_reports_required_paths(tmp_path: Path) -> None:
     assert "parser" in health
 
 
-def test_parse_pdf_falls_back_to_pymupdf_when_mineru_unavailable(
+def test_parse_pdf_fails_when_mineru_unavailable(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -421,10 +429,12 @@ def test_parse_pdf_falls_back_to_pymupdf_when_mineru_unavailable(
     monkeypatch.delenv("RFLOW_MINERU_API_TOKEN", raising=False)
     monkeypatch.delenv("MINERU__API_TOKEN", raising=False)
     monkeypatch.delenv("MINERU_API_TOKEN", raising=False)
+    monkeypatch.setattr(paper_parser, "_dotenv_payload", lambda: {})
 
     parsed = library.parse_pdf(record.paper_id, parser="auto", force=True)
 
-    assert parsed.status in {"processed", "parse-failed"}
+    assert parsed.parser_status == "failed"
+    assert parsed.status == "parse-failed"
     assert Path(parsed.state_path).exists()
 
 
@@ -434,6 +444,248 @@ def test_parse_pdf_missing_pdf_marks_needs_pdf(tmp_path: Path) -> None:
     source_dir = create_source_paper(tmp_path / "incoming", title="Missing Pdf Sample", with_pdf=False)
     record = library.ingest(source_dir, domain="Speech", area="TTS", topic="Control")
 
-    parsed = library.parse_pdf(record.paper_id, parser="pymupdf", force=True)
+    parsed = library.parse_pdf(record.paper_id, parser="mineru", force=True)
 
     assert parsed.status == "needs-pdf"
+
+
+def test_record_parser_result_clears_stale_error_after_success(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    source_dir = create_source_paper(tmp_path / "incoming", title="Parser Success Sample")
+    record = library.ingest(source_dir, domain="Speech", area="TTS", topic="Control")
+    paper_dir = Path(record.path)
+    parsed_dir = paper_dir / "parsed"
+    parsed_dir.mkdir(parents=True, exist_ok=True)
+    write_text(paper_dir / "refined.md", "# Parsed\n")
+    write_text(parsed_dir / "text.md", "# Parsed\n")
+    write_text(parsed_dir / "sections.json", "{}\n")
+    library.repository.update_paper_state(paper_dir, {"error": "previous failure"})
+
+    updated = library.repository.record_parser_result(
+        record.paper_id,
+        PdfParserResult(
+            status="processed",
+            parser="mineru",
+            refined_path=str(paper_dir / "refined.md"),
+            image_dir=str(paper_dir / "images"),
+            text_path=str(parsed_dir / "text.md"),
+            sections_path=str(parsed_dir / "sections.json"),
+            error="network failure",
+        ),
+        started_at="2026-05-15T00:00:00+00:00",
+    )
+
+    assert updated.parser_status == "parsed"
+    assert updated.error == ""
+    assert updated.refined_review_status == "pending"
+    assert updated.capabilities.generate_note is False
+    runs = read_json(paper_dir / "parser_runs.json")
+    assert runs[-1]["error"] == "network failure"
+    events = library.list_paper_events(record.paper_id)
+    assert [event.event for event in events][-2:] == ["parse_succeeded", "refined_generated"]
+
+
+def test_refined_and_note_reviews_gate_ready_workflow(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    source_dir = create_source_paper(tmp_path / "incoming", title="Review Gate Sample", with_note=False)
+    record = library.ingest(source_dir, domain="Speech", area="TTS", topic="Control")
+    paper_dir = Path(record.path)
+    Path(record.note_path).unlink()
+    library.repository.update_paper_state(paper_dir, {"classification_status": "classified", "note_status": "missing", "note_review_status": "missing"})
+    parsed_dir = paper_dir / "parsed"
+    parsed_dir.mkdir(parents=True, exist_ok=True)
+    write_text(paper_dir / "refined.md", "# Refined\n")
+    write_text(parsed_dir / "text.md", "# Parsed\n")
+    write_text(parsed_dir / "sections.json", "{}\n")
+
+    parsed = library.repository.record_parser_result(
+        record.paper_id,
+        PdfParserResult(
+            status="processed",
+            parser="mineru",
+            refined_path=str(paper_dir / "refined.md"),
+            image_dir=str(paper_dir / "images"),
+            text_path=str(parsed_dir / "text.md"),
+            sections_path=str(parsed_dir / "sections.json"),
+            error="",
+        ),
+        started_at="2026-05-15T00:00:00+00:00",
+    )
+
+    assert parsed.workflow_status == "refine_review_pending"
+    assert parsed.capabilities.generate_note is False
+
+    approved_refined = library.review_refined(parsed.paper_id, decision="approved")
+    assert approved_refined.refined_review_status == "approved"
+    assert approved_refined.workflow_status == "note_missing"
+    assert approved_refined.capabilities.generate_note is True
+
+    generated = library.generate_note_for_paper(parsed.paper_id)
+    assert generated.note_status == "review_pending"
+    assert generated.note_review_status == "pending"
+    assert generated.workflow_status == "note_review_pending"
+    assert generated.capabilities.review_note is True
+
+    approved_note = library.review_note(parsed.paper_id, decision="approved")
+    assert approved_note.note_review_status == "approved"
+    assert approved_note.workflow_status == "ready"
+
+    events = [event.event for event in library.list_paper_events(parsed.paper_id)]
+    assert "refined_review_approved" in events
+    assert "llm_note_generated" in events
+    assert "note_review_approved" in events
+    assert "workflow_ready" in events
+
+
+def test_rejected_reviews_block_workflow(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    paper_dir = data_root / "Library" / "Speech" / "TTS" / "rejected-review"
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    write_sample_pdf(paper_dir / "paper.pdf")
+    write_text(paper_dir / "refined.md", "# Refined\n")
+    write_text(paper_dir / "note.md", "# Note\n")
+    write_yaml(
+        paper_dir / "metadata.yaml",
+        {
+            "title": "Rejected Review",
+            "asset_status": "pdf_ready",
+            "parser_status": "parsed",
+            "review_status": "accepted",
+            "note_status": "review_pending",
+            "refined_review_status": "approved",
+            "note_review_status": "pending",
+            "classification_status": "classified",
+        },
+    )
+    library.repository.update_paper_state(paper_dir, {})
+    record = library.get_paper("Library__Speech__TTS__rejected-review")
+    assert record is not None
+
+    rejected_note = library.review_note(record.paper_id, decision="rejected")
+    assert rejected_note.workflow_status == "note_rejected"
+    assert rejected_note.capabilities.review_note is True
+
+    rejected_refined = library.review_refined(record.paper_id, decision="rejected")
+    assert rejected_refined.workflow_status == "refine_rejected"
+    assert rejected_refined.capabilities.generate_note is False
+
+
+def test_accept_moves_acquire_paper_into_library_and_exposes_new_capabilities(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    paper_dir = data_root / "Acquire" / "curated" / "accept-sample"
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    write_sample_pdf(paper_dir / "paper.pdf")
+    write_text(paper_dir / "note.md", "---\ntitle: Accept Sample\n---\n")
+    write_yaml(
+        paper_dir / "metadata.yaml",
+        {
+            "title": "Accept Sample",
+            "domain": "Speech",
+            "area": "TTS",
+            "topic": "Control",
+            "asset_status": "pdf_ready",
+            "parser_status": "parsed",
+            "review_status": "pending",
+            "note_status": "template",
+        },
+    )
+    library.repository.update_paper_state(paper_dir, {})
+
+    record = library.get_paper("Acquire__curated__accept-sample")
+    assert record is not None
+    assert record.capabilities.accept is True
+    accepted = library.accept_paper(record.paper_id)
+
+    assert accepted.stage == "library"
+    assert accepted.review_status == "accepted"
+    assert accepted.status == "processed"
+    assert Path(accepted.path).exists()
+    assert not paper_dir.exists()
+
+
+def test_update_classification_moves_library_paper(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    paper_dir = data_root / "Library" / "unclassified" / "classification-sample"
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    write_sample_pdf(paper_dir / "paper.pdf")
+    write_text(paper_dir / "note.md", "---\ntitle: Classification Sample\n---\n")
+    write_yaml(
+        paper_dir / "metadata.yaml",
+        {
+            "title": "Classification Sample",
+            "asset_status": "pdf_ready",
+            "parser_status": "parsed",
+            "review_status": "accepted",
+        },
+    )
+    library.repository.update_paper_state(paper_dir, {})
+    record = library.get_paper("Library__unclassified__classification-sample")
+    assert record is not None
+
+    updated = library.update_classification(
+        record.paper_id,
+        domain="Computer-Vision",
+        area="Video-Understanding",
+        topic="Action-Anticipation",
+    )
+
+    target_dir = data_root / "01_Papers" / "Computer-Vision" / "Video-Understanding" / "Action-Anticipation" / "classification-sample"
+    assert updated.stage == "library"
+    assert updated.status == "processed"
+    assert updated.domain == "Computer-Vision"
+    assert updated.area == "Video-Understanding"
+    assert updated.topic == "Action-Anticipation"
+    assert Path(updated.path) == target_dir
+    assert target_dir.exists()
+    assert not paper_dir.exists()
+
+    cleared = library.update_classification(updated.paper_id, domain="", area="", topic="")
+    cleared_dir = data_root / "01_Papers" / "unclassified" / "classification-sample"
+
+    assert cleared.domain == ""
+    assert cleared.area == ""
+    assert cleared.topic == ""
+    assert cleared.classification_status == "pending"
+    assert Path(cleared.path) == cleared_dir
+    assert cleared_dir.exists()
+    assert not target_dir.exists()
+
+
+def test_native_layout_reads_legacy_library_but_writes_to_01_papers(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    legacy_dir = data_root / "Library" / "Legacy" / "legacy-paper"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    write_sample_pdf(legacy_dir / "paper.pdf")
+    write_text(legacy_dir / "note.md", "---\ntitle: Legacy Paper\n---\n")
+    write_yaml(
+        legacy_dir / "metadata.yaml",
+        {
+            "title": "Legacy Paper",
+            "asset_status": "pdf_ready",
+            "parser_status": "parsed",
+            "review_status": "accepted",
+        },
+    )
+    library.repository.update_paper_state(legacy_dir, {})
+
+    record = library.get_paper("Library__Legacy__legacy-paper")
+    assert record is not None
+    assert record.stage == "library"
+
+    updated = library.update_classification(
+        record.paper_id,
+        domain="Computer-Vision",
+        area="Tracking",
+        topic="MOT",
+    )
+
+    target_dir = data_root / "01_Papers" / "Computer-Vision" / "Tracking" / "MOT" / "legacy-paper"
+    assert Path(updated.path) == target_dir
+    assert target_dir.exists()
+    assert not legacy_dir.exists()

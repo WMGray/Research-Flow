@@ -1,73 +1,53 @@
-import { NavLink, useNavigate } from "react-router-dom";
-import { AppIcon, type AppIconName } from "@/components/ui/AppIcon";
-import { showPlaceholderAction } from "@/lib/placeholder";
+import { Archive, BookOpen, Compass, LayoutDashboard, Settings } from "lucide-react";
+import { NavLink } from "react-router-dom";
 
-const items = [
-  { to: "/", label: "首页", icon: "home" },
-  { to: "/discover", label: "Workflow", icon: "search" },
-  { to: "/config", label: "配置", icon: "settings" },
-] as const satisfies ReadonlyArray<{
-  to: string;
-  label: string;
-  icon: AppIconName;
-}>;
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
-const utilityItems = [
-  { label: "设置", icon: "settings", to: "/config" },
-  { label: "帮助", icon: "help" },
-] as const satisfies ReadonlyArray<{
-  label: string;
-  icon: AppIconName;
-  to?: string;
-}>;
+const navItems = [
+  { to: "/", label: "概览", icon: LayoutDashboard },
+  { to: "/discover", label: "发现", icon: Compass },
+  { to: "/library", label: "文库", icon: BookOpen },
+  { to: "/archive", label: "归档", icon: Archive },
+  { to: "/settings", label: "设置", icon: Settings },
+] as const;
 
 export function Sidebar() {
-  const navigate = useNavigate();
-
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div className="brand-gem" />
-      </div>
-      <nav className="sidebar-nav">
-        {items.map((item) => (
-          <NavLink
-            aria-label={item.label}
-            key={item.to}
-            title={item.label}
-            to={item.to}
-            className={({ isActive }) => `sidebar-link${isActive ? " active" : ""}`}
-          >
-            <span className="sidebar-icon">
-              <AppIcon name={item.icon} size={20} />
-            </span>
-            <span className="sidebar-label">{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
-      <div className="sidebar-footer">
-        {utilityItems.map((item) => (
-          <button
-            aria-label={item.label}
-            className="sidebar-utility"
-            key={item.label}
-            title={item.label}
-            type="button"
-            onClick={() => {
-              if ("to" in item && item.to) {
-                navigate(item.to);
-                return;
-              }
-              showPlaceholderAction(item.label);
-            }}
-          >
-            <AppIcon name={item.icon} size={18} />
-          </button>
-        ))}
-        <div className="sidebar-avatar" title="工作区所有者">
-          WG
+    <aside className="hidden h-screen w-14 shrink-0 border-r bg-background/95 lg:sticky lg:top-0 lg:flex lg:flex-col lg:items-center">
+      <div className="grid h-14 w-full place-items-center border-b">
+        <div className="grid h-8 w-8 place-items-center rounded-md border bg-card text-[12px] font-semibold" aria-label="Research Flow">
+          RF
         </div>
       </div>
+
+      <TooltipProvider>
+        <nav className="flex flex-1 flex-col items-center gap-1 py-3">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Tooltip key={item.to}>
+                <TooltipTrigger asChild>
+                  <NavLink
+                    aria-label={item.label}
+                    className={({ isActive }) =>
+                      cn(
+                        "grid h-10 w-10 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                        isActive && "bg-muted text-foreground",
+                      )
+                    }
+                    end={item.to === "/"}
+                    to={item.to}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </NavLink>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+      </TooltipProvider>
     </aside>
   );
 }

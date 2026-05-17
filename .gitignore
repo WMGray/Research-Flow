@@ -40,6 +40,8 @@ ENV/
 
 # Node / frontend
 node_modules/
+dist-electron/
+frontend/.test-dist/
 .npm/
 .pnpm-store/
 .yarn/

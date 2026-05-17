@@ -29,7 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    service = PaperService(data_root=get_settings().data_root)
+    settings = get_settings()
+    service = PaperService(data_root=settings.data_root, data_layout=settings.data_layout)
 
     if args.command == "restore":
         candidates = service.restore_batch_candidates(args.batch_id)

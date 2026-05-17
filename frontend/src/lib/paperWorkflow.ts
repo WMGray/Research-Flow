@@ -4,6 +4,8 @@ type PaperCapabilities = {
   parse: boolean;
   accept: boolean;
   generate_note: boolean;
+  review_refined: boolean;
+  review_note: boolean;
   delete: boolean;
 };
 

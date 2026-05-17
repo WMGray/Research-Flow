@@ -1,4 +1,4 @@
-import { getJson, postJson } from "@/lib/http";
+import { getJson, patchJson, postJson } from "@/lib/http";
 
 const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "/").trim();
 const API_BASE_URL = rawApiBaseUrl === "/" ? "" : rawApiBaseUrl.replace(/\/$/, "");
@@ -15,6 +15,7 @@ export type PaperRecord = {
   slug: string;
   stage: string;
   status: string;
+  workflow_status: string;
   asset_status: string;
   review_status: string;
   domain: string;
@@ -32,11 +33,13 @@ export type PaperRecord = {
   metadata_path: string;
   metadata_json_path: string;
   state_path: string;
+  events_path: string;
   parsed_text_path: string;
   parsed_sections_path: string;
   pdf_analysis_path: string;
   parser_status: string;
   note_status: string;
+  note_review_status: string;
   parser_artifacts: {
     text_path: string;
     sections_path: string;
@@ -46,6 +49,8 @@ export type PaperRecord = {
     parse: boolean;
     accept: boolean;
     generate_note: boolean;
+    review_refined: boolean;
+    review_note: boolean;
     delete: boolean;
   };
   read_status: string;
@@ -54,6 +59,16 @@ export type PaperRecord = {
   rejected: boolean;
   error: string;
   updated_at: string;
+};
+
+export type PaperEventRecord = {
+  timestamp: string;
+  event: string;
+  actor: string;
+  result: string;
+  message: string;
+  technical_detail: string;
+  next_action: string;
 };
 
 export type BatchRecord = {
@@ -124,35 +139,59 @@ export type AcquireDashboardData = {
 export type LibraryDashboardData = {
   summary: Record<string, number>;
   papers: PaperRecord[];
+  paths: {
+    library_root: string;
+  };
 };
+
+/*
+TODO(coming-soon): Re-enable with fetchPaperList when a direct paper list
+screen is restored.
 
 export type PaperListData = {
   items: PaperRecord[];
   total: number;
 };
+*/
 
 export type ParserRunsData = {
   items: ParserRunRecord[];
   total: number;
 };
 
+export type PaperEventsData = {
+  items: PaperEventRecord[];
+  total: number;
+};
+
+export type ReviewDecisionPayload = {
+  decision: "approved" | "rejected";
+  comment?: string;
+};
+
+export type UpdateClassificationPayload = {
+  domain: string;
+  area: string;
+  topic: string;
+  title?: string;
+  venue?: string;
+  year?: number | null;
+  tags?: string[];
+  status?: string;
+  paper_path?: string;
+  note_path?: string;
+  refined_path?: string;
+};
+
 export type ConfigHealthData = {
+  data_layout: string;
   data_root: string;
+  write_policy: string;
   paths: Record<string, { path: string; exists: boolean; is_dir: boolean }>;
   parser: {
     mineru_sdk_available: boolean;
     mineru_token_configured: boolean;
-    pymupdf_available: boolean;
   };
-};
-
-export type IngestPaperPayload = {
-  source: string;
-  domain?: string;
-  area?: string;
-  topic?: string;
-  target_path?: string;
-  move?: boolean;
 };
 
 export function fetchHomeDashboard(): Promise<APIEnvelope<HomeDashboardData>> {
@@ -171,9 +210,14 @@ export function fetchLibraryDashboard(): Promise<APIEnvelope<LibraryDashboardDat
   return getJson<APIEnvelope<LibraryDashboardData>>(`${API_BASE_URL}/api/dashboard/library`);
 }
 
+/*
+TODO(coming-soon): Re-enable when a generic paper list view uses
+GET /api/papers directly. Current pages use dashboard-scoped payloads.
+
 export function fetchPaperList(): Promise<APIEnvelope<PaperListData>> {
   return getJson<APIEnvelope<PaperListData>>(`${API_BASE_URL}/api/papers`);
 }
+*/
 
 export function fetchPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {
   return getJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}`);
@@ -181,6 +225,10 @@ export function fetchPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {
 
 export function fetchParserRuns(paperId: string): Promise<APIEnvelope<ParserRunsData>> {
   return getJson<APIEnvelope<ParserRunsData>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/parser-runs`);
+}
+
+export function fetchPaperEvents(paperId: string): Promise<APIEnvelope<PaperEventsData>> {
+  return getJson<APIEnvelope<PaperEventsData>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/events`);
 }
 
 export function fetchConfigHealth(): Promise<APIEnvelope<ConfigHealthData>> {
@@ -197,20 +245,16 @@ export function setCandidateDecision(batchId: string, candidateId: string, decis
 export function parsePaperPdf(paperId: string, force = false): Promise<APIEnvelope<PaperRecord>> {
   return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/parse-pdf`, {
     force,
-    parser: "auto"
+    parser: "mineru"
   });
-}
-
-export function markPaperReview(paperId: string): Promise<APIEnvelope<PaperRecord>> {
-  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/mark-review`);
-}
-
-export function markPaperProcessed(paperId: string): Promise<APIEnvelope<PaperRecord>> {
-  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/mark-processed`);
 }
 
 export function acceptPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {
   return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/accept`, {});
+}
+
+export function updatePaperClassification(paperId: string, payload: UpdateClassificationPayload): Promise<APIEnvelope<PaperRecord>> {
+  return patchJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/classification`, payload);
 }
 
 export function rejectPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {
@@ -223,10 +267,10 @@ export function generatePaperNote(paperId: string, overwrite = false): Promise<A
   });
 }
 
-export function ingestPaper(payload: IngestPaperPayload): Promise<APIEnvelope<PaperRecord>> {
-  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/ingest`, payload);
+export function reviewPaperRefined(paperId: string, payload: ReviewDecisionPayload): Promise<APIEnvelope<PaperRecord>> {
+  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/review-refined`, payload);
 }
 
-export function migratePaper(payload: IngestPaperPayload): Promise<APIEnvelope<PaperRecord>> {
-  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/migrate`, payload);
+export function reviewPaperNote(paperId: string, payload: ReviewDecisionPayload): Promise<APIEnvelope<PaperRecord>> {
+  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/review-note`, payload);
 }

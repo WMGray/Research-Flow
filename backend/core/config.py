@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     app_name: str = "Research-Flow"
     api_prefix: str = "/api"
+    data_layout: str = "native"
     data_root: Path = Field(
         default_factory=lambda: Path(__file__).resolve().parents[2] / "data"
     )

@@ -4,12 +4,15 @@ import os
 import re
 import shutil
 import tempfile
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from backend.core.services.papers.utils import read_yaml, write_json, write_text
+from dotenv import dotenv_values
+
+from backend.core.services.papers.utils import read_yaml, write_text
 
 
 FRONTMATTER_KEYS = (
@@ -40,25 +43,23 @@ class PdfParserResult:
 def parse_pdf(paper_dir: Path, *, force: bool = False, parser: str = "auto") -> PdfParserResult:
     pdf_path = paper_dir / "paper.pdf"
     if not pdf_path.exists():
-        return _result("needs-pdf", parser, paper_dir, f"PDF 不存在：{pdf_path}")
+        return _result("needs-pdf", "mineru", paper_dir, f"PDF 不存在：{pdf_path}")
 
-    if parser in {"auto", "mineru"}:
-        mineru_result = _parse_with_mineru(pdf_path, paper_dir, force=force)
-        if mineru_result.status == "processed" or parser == "mineru":
-            return mineru_result
+    if parser not in {"auto", "mineru"}:
+        return _result("failed", "mineru", paper_dir, f"Unsupported parser: {parser}")
 
-    return _parse_with_pymupdf(pdf_path, paper_dir, force=force, prior_error="")
+    return _parse_with_mineru(pdf_path, paper_dir, force=force)
 
 
 def parser_health() -> dict[str, Any]:
     return {
         "mineru_sdk_available": _mineru_sdk_available(),
         "mineru_token_configured": bool(_first_env("RFLOW_MINERU_API_TOKEN", "MINERU__API_TOKEN", "MINERU_API_TOKEN")),
-        "pymupdf_available": _pymupdf_available(),
     }
 
 
 def _parse_with_mineru(pdf_path: Path, paper_dir: Path, *, force: bool) -> PdfParserResult:
+    _apply_proxy_env()
     refined_path = paper_dir / "refined.md"
     image_dir = paper_dir / "images"
     if _body_is_nonempty(refined_path) and not force:
@@ -74,7 +75,7 @@ def _parse_with_mineru(pdf_path: Path, paper_dir: Path, *, force: bool) -> PdfPa
 
     token = _first_env("RFLOW_MINERU_API_TOKEN", "MINERU__API_TOKEN", "MINERU_API_TOKEN")
     if not token:
-        return _write_pending(paper_dir, "未配置 MinerU token，转入本地解析兜底。")
+        return _result("failed", "mineru", paper_dir, "未配置 MinerU token。")
 
     try:
         MinerU, exceptions = _load_mineru_sdk()
@@ -103,81 +104,8 @@ def _parse_with_mineru(pdf_path: Path, paper_dir: Path, *, force: bool) -> PdfPa
                 markdown_path.write_text(str(getattr(result, "markdown", "") or ""), encoding="utf-8")
             _write_refined(markdown_path, artifact_dir / "images", paper_dir)
         return _result("processed", "mineru", paper_dir, "")
-    except Exception as error:  # noqa: BLE001 - parser 失败必须回写到状态。
-        _write_pending(paper_dir, str(error))
-        return PdfParserResult(
-            status="failed",
-            parser="mineru",
-            refined_path=str(refined_path),
-            image_dir=str(image_dir),
-            text_path=str(paper_dir / "parsed" / "text.md"),
-            sections_path=str(paper_dir / "parsed" / "sections.json"),
-            error=str(error),
-        )
-
-
-def _parse_with_pymupdf(pdf_path: Path, paper_dir: Path, *, force: bool, prior_error: str) -> PdfParserResult:
-    try:
-        import fitz
-    except ModuleNotFoundError as error:
-        return _result("failed", "pymupdf", paper_dir, f"未安装 PyMuPDF：{error}")
-
-    parsed_dir = paper_dir / "parsed"
-    text_path = parsed_dir / "text.md"
-    sections_path = parsed_dir / "sections.json"
-    analysis_path = paper_dir / "pdf_analysis.json"
-    if text_path.exists() and sections_path.exists() and not force:
-        return PdfParserResult("skipped", "pymupdf", str(paper_dir / "refined.md"), str(paper_dir / "images"), str(text_path), str(sections_path), "")
-
-    try:
-        parsed_dir.mkdir(parents=True, exist_ok=True)
-        sections: list[dict[str, Any]] = []
-        text_parts: list[str] = []
-        with fitz.open(pdf_path) as document:
-            for page_index, page in enumerate(document, start=1):
-                text = page.get_text("text").strip()
-                text_parts.append(f"\n\n## Page {page_index}\n\n{text}" if text else f"\n\n## Page {page_index}\n")
-                sections.extend(_section_candidates(page_index, text))
-        body = "# Parsed PDF Text\n" + "".join(text_parts).strip() + "\n"
-        write_text(text_path, body)
-        write_json(sections_path, {"sections": sections})
-        write_json(
-            analysis_path,
-            {
-                "parser": "pymupdf",
-                "status": "processed",
-                "text_path": str(text_path),
-                "sections_path": str(sections_path),
-                "prior_error": prior_error,
-                "updated_at": _now_utc(),
-            },
-        )
-        return PdfParserResult("processed", "pymupdf", str(paper_dir / "refined.md"), str(paper_dir / "images"), str(text_path), str(sections_path), "")
-    except Exception as error:  # noqa: BLE001 - PDF 损坏等情况要返回给前端。
-        return _result("failed", "pymupdf", paper_dir, str(error))
-
-
-def _section_candidates(page_index: int, text: str) -> list[dict[str, Any]]:
-    sections: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        candidate = line.strip()
-        if not candidate:
-            continue
-        is_numbered = bool(re.match(r"^\d+(?:\.\d+)*\s+[A-Z]", candidate))
-        is_known = candidate.lower() in {"abstract", "introduction", "related work", "method", "methods", "experiments", "results", "conclusion", "references"}
-        if is_numbered or is_known:
-            sections.append({"page": page_index, "title": candidate[:180]})
-    return sections
-
-
-def _write_pending(paper_dir: Path, error: str) -> PdfParserResult:
-    metadata = read_yaml(paper_dir / "metadata.yaml")
-    refined_path = paper_dir / "refined.md"
-    image_dir = paper_dir / "images"
-    image_dir.mkdir(parents=True, exist_ok=True)
-    if not refined_path.exists() or not _body_is_nonempty(refined_path):
-        write_text(refined_path, _render_frontmatter(metadata) + "\n")
-    return _result("pending", "mineru", paper_dir, error)
+    except Exception as error:  # noqa: BLE001
+        return _result("failed", "mineru", paper_dir, str(error))
 
 
 def _write_refined(markdown_path: Path, source_images: Path, paper_dir: Path) -> None:
@@ -256,7 +184,7 @@ def _scalar_yaml(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     text = str(value)
-    if re.fullmatch(r"[A-Za-z0-9_.:/+\-]+", text):
+    if re.fullmatch(r"[A-Za-z0-9_.:/+\\-]+", text):
         return text
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -323,21 +251,33 @@ def _first_env(*names: str) -> str | None:
         value = os.environ.get(name)
         if value:
             return value
+    payload = _dotenv_payload()
+    for name in names:
+        value = payload.get(name)
+        if value:
+            return str(value)
     return None
+
+
+@lru_cache(maxsize=1)
+def _dotenv_payload() -> dict[str, str]:
+    env_path = Path(__file__).resolve().parents[3] / ".env"
+    if not env_path.exists():
+        return {}
+    return {key: str(value) for key, value in dotenv_values(env_path).items() if key and value}
+
+
+def _apply_proxy_env() -> None:
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
+        value = _first_env(name)
+        if value and not os.environ.get(name):
+            os.environ[name] = value
 
 
 def _mineru_sdk_available() -> bool:
     try:
         _load_mineru_sdk()
     except RuntimeError:
-        return False
-    return True
-
-
-def _pymupdf_available() -> bool:
-    try:
-        import fitz  # noqa: F401
-    except ModuleNotFoundError:
         return False
     return True
 

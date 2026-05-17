@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -9,7 +10,20 @@ from pathlib import Path
 from string import Template
 from typing import Any
 
-from backend.core.services.papers.models import BatchRecord, CandidateRecord, GenerateNoteInput, IngestPaperInput, ParserRunRecord, PaperRecord
+from backend.core.services.papers.models import (
+    BatchRecord,
+    CandidateRecord,
+    GenerateNoteInput,
+    IngestPaperInput,
+    PaperCapabilities,
+    PaperEventRecord,
+    PaperRecord,
+    ParserArtifacts,
+    ParserRunRecord,
+    ReviewDecisionInput,
+    UpdateClassificationInput,
+)
+from backend.core.services.papers.layouts import PaperDataLayout, resolve_data_layout
 from backend.core.services.papers.parser import PdfParserResult
 from backend.core.services.papers.utils import load_markdown_front_matter, merge_metadata, read_json, read_text, read_yaml, slugify, utc_now, write_json, write_text, write_yaml
 
@@ -44,26 +58,27 @@ $tags
 
 
 class PaperRepository:
-    def __init__(self, data_root: Path) -> None:
-        self.data_root = data_root
-        self.discover_root = data_root / "Discover"
-        self.acquire_root = data_root / "Acquire"
-        self.library_root = data_root / "Library"
-        self.template_root = data_root / "templates"
+    def __init__(self, data_root: Path, data_layout: str = "native") -> None:
+        self.layout: PaperDataLayout = resolve_data_layout(data_root, data_layout)
+        self.data_root = self.layout.data_root
+        self.data_layout = self.layout.name
+        self.discover_root = self.layout.discover_root
+        self.search_batches_root = self.layout.search_batches_root
+        self.acquire_root = self.layout.acquire_root
+        self.curated_root = self.layout.curated_root
+        self.library_root = self.layout.library_root
+        self.legacy_library_roots = tuple(root for root in self.layout.legacy_library_roots if root != self.library_root)
+        self.archive_root = self.layout.archive_root
+        self.template_root = self.layout.template_root
         self.ensure_layout()
 
     def ensure_layout(self) -> None:
-        for path in (
-            self.discover_root / "search_batches",
-            self.acquire_root / "curated",
-            self.library_root / "unclassified",
-            self.template_root,
-        ):
+        for path in self.layout.ensure_paths():
             path.mkdir(parents=True, exist_ok=True)
 
     def list_papers(self) -> list[PaperRecord]:
         paper_dirs: set[Path] = set()
-        for root in (self.acquire_root, self.library_root):
+        for root in (self.curated_root, self.library_root, *self.legacy_library_roots):
             if not root.exists():
                 continue
             for name in ("metadata.yaml", "metadata.json", "state.json", "paper.pdf", "note.md"):
@@ -72,7 +87,7 @@ class PaperRepository:
         return sorted(records, key=lambda item: (item.updated_at, item.title), reverse=True)
 
     def list_batches(self) -> list[BatchRecord]:
-        batches_root = self.discover_root / "search_batches"
+        batches_root = self.search_batches_root
         if not batches_root.exists():
             return []
 
@@ -105,7 +120,7 @@ class PaperRepository:
     def set_candidate_decision(self, batch_id: str, candidate_id: str, decision: str) -> CandidateRecord:
         if decision not in {"keep", "reject", "reset"}:
             raise ValueError(f"Unsupported decision: {decision}")
-        batch_dir = self.discover_root / "search_batches" / batch_id
+        batch_dir = self.search_batches_root / batch_id
         candidates_path = batch_dir / "candidates.json"
         data = read_json(candidates_path)
         rows = self._rows_from_candidate_data(data)
@@ -115,7 +130,7 @@ class PaperRepository:
         if decision == "reset":
             row.pop("gate1_decision", None)
         elif decision == "keep":
-            self._promote_candidate_to_acquire(batch_dir, row)
+            self._promote_candidate_to_library(batch_dir, row)
             rows.pop(target_index)
             self._write_candidate_data(candidates_path, data, rows)
             self._cleanup_batch_if_complete(batch_dir, rows)
@@ -134,7 +149,7 @@ class PaperRepository:
         return self._candidate_record(batch_id, target_index, row, utc_now())
 
     def restore_batch_candidates(self, batch_id: str) -> list[dict[str, Any]]:
-        batch_dir = self.discover_root / "search_batches" / batch_id
+        batch_dir = self.search_batches_root / batch_id
         if not batch_dir.exists():
             raise FileNotFoundError(batch_id)
 
@@ -144,7 +159,7 @@ class PaperRepository:
 
     def cleanup_batches(self) -> list[str]:
         removed: list[str] = []
-        batches_root = self.discover_root / "search_batches"
+        batches_root = self.search_batches_root
         if not batches_root.exists():
             return removed
 
@@ -159,7 +174,7 @@ class PaperRepository:
         return removed
 
     def cleanup_batch(self, batch_id: str) -> bool:
-        batch_dir = self.discover_root / "search_batches" / batch_id
+        batch_dir = self.search_batches_root / batch_id
         if not batch_dir.exists():
             return False
         candidates = self._candidate_rows(batch_dir / "candidates.json")
@@ -206,11 +221,10 @@ class PaperRepository:
         if not (target / "note.md").exists():
             write_text(target / "note.md", self._render_note_template(metadata))
 
-        status = "processed" if (target / "paper.pdf").exists() else "needs-pdf"
+        asset_status = "pdf_ready" if (target / "paper.pdf").exists() else "missing_pdf"
         metadata_to_write = merge_metadata(
             metadata,
             {
-                "status": status,
                 "updated_at": utc_now(),
                 "path": str(target),
                 "paper_path": str(target / "paper.pdf") if (target / "paper.pdf").exists() else "",
@@ -218,17 +232,20 @@ class PaperRepository:
                 "refined_path": str(target / "refined.md") if (target / "refined.md").exists() else "",
                 "images_path": str(target / "images") if (target / "images").exists() else "",
                 "tags": metadata.get("tags") or ["paper"],
+                "asset_status": asset_status,
+                "parser_status": "not_started",
+                "review_status": "pending",
+                "note_status": "template" if (target / "note.md").exists() else "missing",
             },
         )
         write_yaml(target / "metadata.yaml", metadata_to_write)
         self.update_paper_state(
             target,
             {
-                "status": status,
-                "workflow_status": status,
-                "refine_status": "queued" if status == "processed" else "needs-pdf",
-                "parser_status": "parse-pending" if status == "processed" else "needs-pdf",
-                "note_status": "template",
+                "asset_status": asset_status,
+                "parser_status": "not_started",
+                "review_status": "pending",
+                "note_status": "template" if (target / "note.md").exists() else "missing",
                 "read_status": "unread",
                 "classification_status": "pending",
                 "error": "",
@@ -248,15 +265,38 @@ class PaperRepository:
         if note_path.exists() and not overwrite:
             return self._paper_record_from_dir(paper_dir)
 
+        record = self._paper_record_from_dir(paper_dir)
+        if record.parser_status != "parsed":
+            raise ValueError("Paper must be parsed before generating note")
+        if record.refined_review_status != "approved":
+            raise ValueError("Refined document must be approved before generating note")
+
+        self._append_event(
+            paper_dir,
+            "llm_note_started",
+            actor="system",
+            result="pending",
+            message="开始生成 LLM note。",
+            next_action="等待 note 生成完成。",
+        )
         content = self._render_note_template(self._paper_metadata(paper_dir))
         write_text(note_path, content)
         self.update_paper_state(
             paper_dir,
             {
-                "note_status": "template",
+                "note_status": "review_pending",
+                "note_review_status": "pending",
                 "note_path": str(note_path),
                 "error": "",
             },
+        )
+        self._append_event(
+            paper_dir,
+            "llm_note_generated",
+            actor="llm",
+            result="pending",
+            message="LLM note 已生成，等待人工审核。",
+            next_action="请审核 note 内容。",
         )
         return self._paper_record_from_dir(paper_dir)
 
@@ -266,20 +306,100 @@ class PaperRepository:
         state = self._safe_json_object(state_path)
         metadata = self._safe_json_object(metadata_json_path)
         payload = merge_metadata(self._source_metadata(paper_dir), metadata, state, updates, {"updated_at": utc_now()})
-        write_json(state_path, merge_metadata(state, updates, {"updated_at": payload["updated_at"]}))
+        payload = self._normalize_paper_payload(paper_dir, payload)
+        payload = self._apply_explicit_clears(payload, updates)
+        state_payload = merge_metadata(state, updates, {"updated_at": payload["updated_at"]})
+        state_payload = self._apply_explicit_clears(state_payload, updates)
+        write_json(state_path, state_payload)
         write_json(metadata_json_path, payload)
         if (paper_dir / "metadata.yaml").exists():
-            write_yaml(paper_dir / "metadata.yaml", merge_metadata(read_yaml(paper_dir / "metadata.yaml"), updates, {"updated_at": payload["updated_at"]}))
+            yaml_payload = merge_metadata(read_yaml(paper_dir / "metadata.yaml"), payload)
+            yaml_payload = self._apply_explicit_clears(yaml_payload, updates)
+            write_yaml(paper_dir / "metadata.yaml", yaml_payload)
         return payload
 
     def mark_status(self, paper_id: str, status: str) -> PaperRecord:
         paper_dir = self._require_paper_dir(paper_id)
-        self.update_paper_state(paper_dir, {"status": status, "workflow_status": status, "error": ""})
+        updates = self._legacy_status_updates(status)
+        updates["error"] = ""
+        self.update_paper_state(paper_dir, updates)
+        return self._paper_record_from_dir(paper_dir)
+
+    def accept_paper(self, paper_id: str) -> PaperRecord:
+        paper_dir = self._require_paper_dir(paper_id)
+        record = self._paper_record_from_dir(paper_dir)
+        if record.stage != "acquire":
+            raise ValueError("Only acquire papers can be accepted")
+        if record.parser_status != "parsed":
+            raise ValueError("Paper must be parsed before accept")
+        return self.promote_to_library(paper_dir)
+
+    def promote_to_library(self, source_dir: Path) -> PaperRecord:
+        metadata = self._paper_metadata(source_dir)
+        slug = slugify(str(metadata.get("title") or source_dir.name), fallback=source_dir.name)
+        target_dir = self._resolve_target_path(metadata, slug)
+        target_dir = self._unique_library_target(target_dir)
+        self._transfer_tree(source_dir, target_dir, move=True)
+        self._prune_empty_parents(source_dir.parent, stop_at=self.data_root)
+        self.update_paper_state(
+            target_dir,
+            {
+                "review_status": "accepted",
+                "error": "",
+            },
+        )
+        self._append_event(
+            target_dir,
+            "accepted_to_library",
+            actor="user",
+            result="success",
+            message="文献已进入 Library。",
+            next_action="继续完成 refined 和 note 审核流程。",
+        )
+        return self._paper_record_from_dir(target_dir)
+
+    def update_classification(self, request: UpdateClassificationInput) -> PaperRecord:
+        paper_dir = self._require_paper_dir(request.paper_id)
+        record = self._paper_record_from_dir(paper_dir)
+        if record.stage != "library":
+            raise ValueError("Only library papers can be reclassified")
+
+        updates = self._metadata_updates(request)
+        metadata = self._apply_explicit_clears(merge_metadata(self._paper_metadata(paper_dir), updates), updates)
+        slug = slugify(str(metadata.get("title") or paper_dir.name), fallback=paper_dir.name)
+        target_dir = self._resolve_target_path(metadata, slug)
+        if target_dir.resolve(strict=False) != paper_dir.resolve(strict=False):
+            if target_dir.exists():
+                target_dir = self._unique_library_target(target_dir)
+            source_parent = paper_dir.parent
+            self._transfer_tree(paper_dir, target_dir, move=True)
+            self._prune_empty_parents(source_parent, stop_at=self.library_root)
+            paper_dir = target_dir
+
+        self.update_paper_state(
+            paper_dir,
+            self._apply_explicit_clears(merge_metadata(updates, {"error": ""}), updates),
+        )
+        self._append_event(
+            paper_dir,
+            "classification_updated",
+            actor="user",
+            result="success",
+            message="文献分类已更新。",
+            technical_detail=f"domain={updates.get('domain', '')}; area={updates.get('area', '')}; topic={updates.get('topic', '')}",
+            next_action="检查文献是否已就绪。",
+        )
         return self._paper_record_from_dir(paper_dir)
 
     def reject_paper(self, paper_id: str) -> PaperRecord:
         paper_dir = self._require_paper_dir(paper_id)
         record = self._paper_record_from_dir(paper_dir)
+        if self.layout.reject_policy == "archive":
+            target_dir = self._unique_archive_target(paper_dir.name)
+            self._transfer_tree(paper_dir, target_dir, move=True)
+            self._prune_empty_parents(paper_dir.parent, stop_at=self.data_root)
+            self._write_archive_state(target_dir, record)
+            return replace(record, path=str(target_dir), status="rejected", rejected=True, updated_at=utc_now())
         self._delete_tree(paper_dir)
         self._prune_empty_parents(paper_dir.parent, stop_at=self.data_root)
         return replace(record, status="rejected", rejected=True, updated_at=utc_now())
@@ -289,9 +409,83 @@ class PaperRepository:
         runs = self._parser_runs(paper_dir)
         return [self._parser_run_record(item, self._relative_id(paper_dir)) for item in runs]
 
+    def list_paper_events(self, paper_id: str) -> list[PaperEventRecord]:
+        paper_dir = self._require_paper_dir(paper_id)
+        return [self._event_record(item) for item in self._paper_events(paper_dir)]
+
+    def review_refined(self, request: ReviewDecisionInput) -> PaperRecord:
+        paper_dir = self._require_paper_dir(request.paper_id)
+        decision = self._review_decision(request.decision)
+        record = self._paper_record_from_dir(paper_dir)
+        if record.parser_status != "parsed":
+            raise ValueError("Paper must be parsed before refined review")
+        if not record.refined_path and not record.parser_artifacts.refined_path:
+            raise ValueError("Refined document is missing")
+
+        updates: dict[str, Any] = {
+            "refined_review_status": decision,
+            "error": "",
+        }
+        if decision == "rejected":
+            updates["note_review_status"] = "pending" if record.note_path else "missing"
+            updates["note_status"] = "review_pending" if record.note_path else "missing"
+
+        self.update_paper_state(paper_dir, updates)
+        self._append_event(
+            paper_dir,
+            f"refined_review_{decision}",
+            actor="user",
+            result="success" if decision == "approved" else "rejected",
+            message="refined 文档已人工批准。" if decision == "approved" else "refined 文档已被驳回，需要修改后重新审核。",
+            technical_detail=request.comment,
+            next_action="生成 LLM note。" if decision == "approved" else "修正 refined 文档后重新提交审核。",
+        )
+        return self._paper_record_from_dir(paper_dir)
+
+    def review_note(self, request: ReviewDecisionInput) -> PaperRecord:
+        paper_dir = self._require_paper_dir(request.paper_id)
+        decision = self._review_decision(request.decision)
+        record = self._paper_record_from_dir(paper_dir)
+        if not record.note_path:
+            raise ValueError("Note is missing")
+        if record.refined_review_status != "approved":
+            raise ValueError("Refined document must be approved before note review")
+
+        self.update_paper_state(
+            paper_dir,
+            {
+                "note_review_status": decision,
+                "note_status": "ready" if decision == "approved" else "review_pending",
+                "error": "",
+            },
+        )
+        self._append_event(
+            paper_dir,
+            f"note_review_{decision}",
+            actor="user",
+            result="success" if decision == "approved" else "rejected",
+            message="LLM note 已人工批准。" if decision == "approved" else "LLM note 已被驳回，需要修改后重新审核。",
+            technical_detail=request.comment,
+            next_action="补全分类并进入已就绪。" if decision == "approved" else "修正 note 后重新提交审核。",
+        )
+        updated = self._paper_record_from_dir(paper_dir)
+        if updated.workflow_status == "ready":
+            self._append_event(
+                paper_dir,
+                "workflow_ready",
+                actor="system",
+                result="success",
+                message="文献关键材料和人工审核都已完成。",
+                next_action="可用于阅读、引用和项目复用。",
+            )
+            updated = self._paper_record_from_dir(paper_dir)
+        return updated
+
     def record_parser_result(self, paper_id: str, result: PdfParserResult, *, started_at: str) -> PaperRecord:
         paper_dir = self._require_paper_dir(paper_id)
         finished_at = utc_now()
+        parser_status = self._normalized_parser_status(result.status)
+        persisted_error = result.error if parser_status == "failed" else ""
         run = {
             "run_id": f"run-{finished_at.replace(':', '').replace('+', 'Z')}",
             "paper_id": self._relative_id(paper_dir),
@@ -310,34 +504,66 @@ class PaperRepository:
         runs.append(run)
         write_json(paper_dir / "parser_runs.json", runs)
 
-        status = self._status_from_parser(result.status)
         self.update_paper_state(
             paper_dir,
             {
-                "status": status,
-                "workflow_status": status,
-                "refine_status": result.status,
-                "parser_status": status,
+                "parser_status": parser_status,
+                "refined_review_status": "pending" if parser_status == "parsed" else "",
+                "note_review_status": "pending" if parser_status == "parsed" else "",
                 "refined_path": result.refined_path,
                 "images_path": result.image_dir,
                 "parsed_text_path": result.text_path,
                 "parsed_sections_path": result.sections_path,
                 "pdf_analysis_path": str(paper_dir / "pdf_analysis.json"),
-                "error": result.error,
+                "error": persisted_error,
             },
         )
+        if parser_status == "parsed":
+            self._append_event(
+                paper_dir,
+                "parse_succeeded",
+                actor="system",
+                result="success",
+                message="PDF 解析完成，并写出解析产物。",
+                technical_detail=f"parser={result.parser}; refined_path={result.refined_path}",
+                next_action="请人工审核 refined 文档。",
+            )
+            self._append_event(
+                paper_dir,
+                "refined_generated",
+                actor="system",
+                result="pending",
+                message="refined 文档已生成，等待人工审核。",
+                technical_detail=result.refined_path,
+                next_action="请审核 refined 文档。",
+            )
+        elif parser_status == "failed":
+            self._append_event(
+                paper_dir,
+                "parse_failed",
+                actor="system",
+                result="failed",
+                message="PDF 解析失败。",
+                technical_detail=result.error,
+                next_action="检查错误详情后重试解析。",
+            )
         return self._paper_record_from_dir(paper_dir)
 
     def config_health(self) -> dict[str, Any]:
         paths = {
             "data_root": self.data_root,
             "discover_root": self.discover_root,
+            "search_batches_root": self.search_batches_root,
             "acquire_root": self.acquire_root,
+            "curated_root": self.curated_root,
             "library_root": self.library_root,
+            "archive_root": self.archive_root,
             "template_root": self.template_root,
         }
         return {
+            "data_layout": self.data_layout,
             "data_root": str(self.data_root),
+            "write_policy": self.layout.write_policy,
             "paths": {key: {"path": str(path), "exists": path.exists(), "is_dir": path.is_dir()} for key, path in paths.items()},
         }
 
@@ -351,17 +577,52 @@ class PaperRepository:
         metadata_yaml = paper_dir / "metadata.yaml"
         metadata_json = paper_dir / "metadata.json"
         state_path = paper_dir / "state.json"
+        events_path = paper_dir / "events.jsonl"
         parsed_text = paper_dir / "parsed" / "text.md"
         parsed_sections = paper_dir / "parsed" / "sections.json"
         pdf_analysis = paper_dir / "pdf_analysis.json"
-        status = self._resolved_status(metadata, paper_path)
+        stage = self._paper_stage(paper_dir, metadata)
+        asset_status = self._asset_status(metadata, paper_path)
+        parser_status = self._parser_status(metadata, paper_dir)
+        review_status = self._review_status(metadata)
+        note_status = self._note_status(metadata, note_path)
+        refined_review_status = self._refined_review_status(metadata, parser_status)
+        note_review_status = self._note_review_status(metadata, note_status, note_path)
+        classification_status = self._classification_status(metadata)
+        workflow_status = self._workflow_status(
+            asset_status=asset_status,
+            parser_status=parser_status,
+            note_status=note_status,
+            refined_review_status=refined_review_status,
+            note_review_status=note_review_status,
+            classification_status=classification_status,
+            note_path=note_path,
+            error=str(metadata.get("error") or ""),
+        )
+        parser_artifacts = ParserArtifacts(
+            text_path=str(parsed_text) if parsed_text.exists() else str(metadata.get("parsed_text_path") or ""),
+            sections_path=str(parsed_sections) if parsed_sections.exists() else str(metadata.get("parsed_sections_path") or ""),
+            refined_path=str(refined_path) if refined_path.exists() else str(metadata.get("refined_path") or ""),
+        )
+        status = self._compat_status(stage, asset_status, parser_status, review_status)
+        capabilities = self._capabilities_for(
+            stage=stage,
+            asset_status=asset_status,
+            parser_status=parser_status,
+            note_status=note_status,
+            refined_review_status=refined_review_status,
+            note_review_status=note_review_status,
+        )
 
         return PaperRecord(
             paper_id=self._relative_id(paper_dir),
             title=str(metadata.get("title") or paper_dir.name),
             slug=paper_dir.name,
-            stage=self._paper_stage(paper_dir),
+            stage=stage,
             status=status,
+            workflow_status=workflow_status,
+            asset_status=asset_status,
+            review_status=review_status,
             domain=str(metadata.get("domain") or ""),
             area=str(metadata.get("area") or metadata.get("subdomain") or ""),
             topic=str(metadata.get("topic") or ""),
@@ -377,15 +638,19 @@ class PaperRepository:
             metadata_path=str(metadata_yaml) if metadata_yaml.exists() else "",
             metadata_json_path=str(metadata_json) if metadata_json.exists() else "",
             state_path=str(state_path) if state_path.exists() else "",
-            parsed_text_path=str(parsed_text) if parsed_text.exists() else str(metadata.get("parsed_text_path") or ""),
-            parsed_sections_path=str(parsed_sections) if parsed_sections.exists() else str(metadata.get("parsed_sections_path") or ""),
+            events_path=str(events_path) if events_path.exists() else "",
+            parsed_text_path=parser_artifacts.text_path,
+            parsed_sections_path=parser_artifacts.sections_path,
             pdf_analysis_path=str(pdf_analysis) if pdf_analysis.exists() else str(metadata.get("pdf_analysis_path") or ""),
-            parser_status=str(metadata.get("parser_status") or ("parse-pending" if paper_path.exists() else "needs-pdf")),
-            note_status=str(metadata.get("note_status") or "template"),
+            parser_status=parser_status,
+            note_status=note_status,
+            note_review_status=note_review_status,
+            parser_artifacts=parser_artifacts,
+            capabilities=capabilities,
             read_status=str(metadata.get("read_status") or "unread"),
-            refined_review_status=str(metadata.get("refined_review_status") or "pending"),
-            classification_status=str(metadata.get("classification_status") or "pending"),
-            rejected=bool(metadata.get("rejected") or status == "rejected"),
+            refined_review_status=refined_review_status,
+            classification_status=classification_status,
+            rejected=False,
             error=str(metadata.get("error") or ""),
             updated_at=str(metadata.get("updated_at") or utc_now()),
         )
@@ -460,12 +725,17 @@ class PaperRepository:
         return str(row.get("gate1_decision") or row.get("decision") or "pending").lower()
 
     def _delete_candidate_artifacts(self, batch_dir: Path, row: dict[str, Any]) -> None:
-        for key in ("result_path", "landing_path"):
-            raw_path = str(row.get(key) or "").strip()
-            if not raw_path:
-                continue
-            target = self._resolve_managed_path(raw_path, batch_dir)
-            if target is None or not target.exists():
+        artifact_root = self._candidate_artifact_root(batch_dir, row)
+        if artifact_root and artifact_root.exists():
+            if artifact_root.is_dir():
+                self._delete_tree(artifact_root)
+            else:
+                artifact_root.unlink(missing_ok=True)
+            self._prune_empty_parents(artifact_root.parent, stop_at=self.data_root)
+            return
+
+        for target in self._candidate_managed_targets(batch_dir, row):
+            if not target.exists():
                 continue
             if target.is_dir():
                 self._delete_tree(target)
@@ -528,29 +798,12 @@ class PaperRepository:
             candidates.append(row)
         return candidates
 
-    def _promote_candidate_to_acquire(self, batch_dir: Path, row: dict[str, Any]) -> None:
+    def _promote_candidate_to_library(self, batch_dir: Path, row: dict[str, Any]) -> None:
         title = str(row.get("title") or "").strip()
         slug = slugify(title, fallback=str(row.get("candidate_id") or row.get("id") or "candidate"))
-        target_dir = self._unique_acquire_target(slug)
-        target_dir.mkdir(parents=True, exist_ok=True)
 
         source_path = self._resolve_candidate_source_path(batch_dir, row)
         source_metadata = self._source_metadata(source_path) if source_path and source_path.exists() else {}
-        if source_path and source_path.exists():
-            if source_path.is_dir():
-                for item in sorted(source_path.iterdir(), key=lambda path: path.name):
-                    destination = target_dir / item.name
-                    if item.is_dir():
-                        self._transfer_tree(item, destination, move=True)
-                    else:
-                        self._transfer_file(item, destination, move=True)
-                source_path.rmdir()
-                self._prune_empty_parents(source_path.parent, stop_at=self.data_root)
-            elif source_path.is_file():
-                destination = target_dir / ("paper.pdf" if source_path.suffix.lower() == ".pdf" else source_path.name)
-                self._transfer_file(source_path, destination, move=True)
-                self._prune_empty_parents(source_path.parent, stop_at=self.data_root)
-
         metadata = merge_metadata(
             source_metadata,
             {
@@ -576,41 +829,66 @@ class PaperRepository:
                 ],
             },
         )
+        target_dir = self._unique_library_target(self._resolve_target_path(metadata, slug))
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        if source_path and source_path.exists():
+            if source_path.is_dir():
+                for item in sorted(source_path.iterdir(), key=lambda path: path.name):
+                    destination = target_dir / item.name
+                    if item.is_dir():
+                        self._transfer_tree(item, destination, move=True)
+                    else:
+                        self._transfer_file(item, destination, move=True)
+                source_path.rmdir()
+                self._prune_empty_parents(source_path.parent, stop_at=self.data_root)
+            elif source_path.is_file():
+                destination = target_dir / ("paper.pdf" if source_path.suffix.lower() == ".pdf" else source_path.name)
+                self._transfer_file(source_path, destination, move=True)
+                self._prune_empty_parents(source_path.parent, stop_at=self.data_root)
 
         note_path = target_dir / "note.md"
         if not note_path.exists():
             write_text(note_path, self._render_note_template(metadata))
 
         paper_path = target_dir / "paper.pdf"
-        status = "processed" if paper_path.exists() else "needs-pdf"
+        asset_status = "pdf_ready" if paper_path.exists() else "missing_pdf"
+        classification_status = "accepted" if metadata.get("domain") and metadata.get("area") and metadata.get("topic") else "pending"
         metadata_to_write = merge_metadata(
             metadata,
             {
-                "status": status,
                 "updated_at": utc_now(),
                 "path": str(target_dir),
                 "paper_path": str(paper_path) if paper_path.exists() else "",
                 "note_path": str(note_path),
                 "refined_path": str(target_dir / "refined.md") if (target_dir / "refined.md").exists() else "",
                 "images_path": str(target_dir / "images") if (target_dir / "images").exists() else "",
+                "asset_status": asset_status,
+                "parser_status": "not_started",
+                "review_status": "accepted",
+                "note_status": "template" if note_path.exists() else "missing",
+                "read_status": "unread",
+                "classification_status": classification_status,
             },
         )
         write_yaml(target_dir / "metadata.yaml", metadata_to_write)
         self.update_paper_state(
             target_dir,
             {
-                "status": status,
-                "workflow_status": status,
-                "refine_status": "queued" if status == "processed" else "needs-pdf",
-                "parser_status": "parse-pending" if status == "processed" else "needs-pdf",
-                "note_status": "template",
+                "asset_status": asset_status,
+                "parser_status": "not_started",
+                "review_status": "accepted",
+                "note_status": "template" if note_path.exists() else "missing",
                 "read_status": "unread",
-                "classification_status": "pending",
+                "classification_status": classification_status,
                 "error": "",
             },
         )
 
     def _resolve_candidate_source_path(self, batch_dir: Path, row: dict[str, Any]) -> Path | None:
+        artifact_root = self._candidate_artifact_root(batch_dir, row)
+        if artifact_root and artifact_root.exists():
+            return artifact_root
         for key in ("result_path", "landing_path"):
             raw_path = str(row.get(key) or "").strip()
             if not raw_path:
@@ -620,13 +898,47 @@ class PaperRepository:
                 return target
         return None
 
+    def _candidate_artifact_root(self, batch_dir: Path, row: dict[str, Any]) -> Path | None:
+        for key in ("result_path", "note_path", "metadata_path", "pdf_analysis_path", "landing_path"):
+            raw_path = str(row.get(key) or "").strip()
+            if not raw_path:
+                continue
+            target = self._resolve_managed_path(raw_path, batch_dir)
+            if target is None:
+                continue
+            if target.exists() and target.is_dir():
+                return target
+            parent = target.parent
+            if self._looks_like_candidate_artifact_dir(parent):
+                return parent
+        return None
+
+    def _candidate_managed_targets(self, batch_dir: Path, row: dict[str, Any]) -> list[Path]:
+        targets: list[Path] = []
+        seen: set[Path] = set()
+        for key in ("result_path", "landing_path", "note_path", "metadata_path", "pdf_analysis_path"):
+            raw_path = str(row.get(key) or "").strip()
+            if not raw_path:
+                continue
+            target = self._resolve_managed_path(raw_path, batch_dir)
+            if target is None or target in seen:
+                continue
+            seen.add(target)
+            targets.append(target)
+        return targets
+
+    def _looks_like_candidate_artifact_dir(self, path: Path) -> bool:
+        if not self._is_within_root(path) or not path.exists() or not path.is_dir():
+            return False
+        return any((path / name).exists() for name in ("note.md", "metadata.json", "paper.pdf", "pdf_analysis.json"))
+
     def _unique_acquire_target(self, slug: str) -> Path:
-        base = self.acquire_root / "curated" / slug
+        base = self.curated_root / slug
         if not base.exists():
             return base
         index = 2
         while True:
-            candidate = self.acquire_root / "curated" / f"{slug}-{index}"
+            candidate = self.curated_root / f"{slug}-{index}"
             if not candidate.exists():
                 return candidate
             index += 1
@@ -749,6 +1061,8 @@ class PaperRepository:
         current = path
         resolved_stop = stop_at.resolve(strict=False)
         while self._is_within_root(current) and current.resolve(strict=False) != resolved_stop:
+            if self._is_protected_root(current):
+                break
             try:
                 current.rmdir()
             except OSError:
@@ -762,6 +1076,10 @@ class PaperRepository:
         except ValueError:
             return False
 
+    def _is_protected_root(self, path: Path) -> bool:
+        resolved = path.resolve(strict=False)
+        return any(resolved == root.resolve(strict=False) for root in self.layout.protected_roots())
+
     def _render_note_template(self, metadata: dict[str, Any]) -> str:
         template_path = self.template_root / "paper-note-template.md"
         template = read_text(template_path) if template_path.exists() else DEFAULT_NOTE_TEMPLATE
@@ -771,13 +1089,65 @@ class PaperRepository:
 
     def _resolve_target_path(self, metadata: dict[str, Any], slug: str, target_path: str | None = None) -> Path:
         if target_path:
-            return self.library_root / target_path
+            return self._resolve_library_target_path(target_path)
         domain = str(metadata.get("domain") or "").strip()
         area = str(metadata.get("area") or metadata.get("subdomain") or "").strip()
         topic = str(metadata.get("topic") or "").strip()
         if not domain:
             return self.library_root / "unclassified" / slug
         return self.library_root.joinpath(*[part for part in (domain, area, topic, slug) if part])
+
+    def _resolve_library_target_path(self, target_path: str) -> Path:
+        candidate = Path(target_path)
+        if candidate.is_absolute():
+            resolved = candidate.resolve(strict=False)
+        elif candidate.parts and candidate.parts[0] == self.library_root.name:
+            resolved = (self.data_root / candidate).resolve(strict=False)
+        else:
+            resolved = (self.library_root / candidate).resolve(strict=False)
+        if not self._is_within_root(resolved):
+            raise ValueError(f"Target path is outside data root: {target_path}")
+        try:
+            resolved.relative_to(self.library_root.resolve(strict=False))
+        except ValueError as error:
+            raise ValueError(f"Target path is outside library root: {target_path}") from error
+        return resolved
+
+    def _unique_library_target(self, base: Path) -> Path:
+        if not base.exists():
+            return base
+        index = 2
+        while True:
+            candidate = base.parent / f"{base.name}-{index}"
+            if not candidate.exists():
+                return candidate
+            index += 1
+
+    def _unique_archive_target(self, slug: str) -> Path:
+        base = self.archive_root / slug
+        if not base.exists():
+            return base
+        index = 2
+        while True:
+            candidate = self.archive_root / f"{slug}-{index}"
+            if not candidate.exists():
+                return candidate
+            index += 1
+
+    def _write_archive_state(self, paper_dir: Path, record: PaperRecord) -> None:
+        state = self._safe_json_object(paper_dir / "state.json")
+        archived_state = merge_metadata(
+            state,
+            {
+                "status": "rejected",
+                "review_status": "rejected",
+                "rejected": True,
+                "archived_from": record.path,
+                "path": str(paper_dir),
+                "updated_at": utc_now(),
+            },
+        )
+        write_json(paper_dir / "state.json", archived_state)
 
     def _copy_source_assets(self, source: Path, target: Path, *, move: bool) -> None:
         if source.is_file():
@@ -826,25 +1196,309 @@ class PaperRepository:
             return []
         return data if isinstance(data, list) else []
 
+    def _paper_events(self, paper_dir: Path) -> list[dict[str, Any]]:
+        events_path = paper_dir / "events.jsonl"
+        if not events_path.exists():
+            return []
+        events: list[dict[str, Any]] = []
+        for line in events_path.read_text(encoding="utf-8-sig").splitlines():
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(payload, dict):
+                events.append(payload)
+        return events
+
+    def _append_event(
+        self,
+        paper_dir: Path,
+        event: str,
+        *,
+        actor: str,
+        result: str,
+        message: str,
+        technical_detail: str = "",
+        next_action: str = "",
+    ) -> None:
+        events_path = paper_dir / "events.jsonl"
+        payload = {
+            "timestamp": utc_now(),
+            "event": event,
+            "actor": actor,
+            "result": result,
+            "message": message,
+            "technical_detail": technical_detail,
+            "next_action": next_action,
+        }
+        events_path.parent.mkdir(parents=True, exist_ok=True)
+        with events_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
     def _parser_run_record(self, row: dict[str, Any], paper_id: str) -> ParserRunRecord:
         return ParserRunRecord(run_id=str(row.get("run_id") or ""), paper_id=paper_id, status=str(row.get("status") or ""), parser=str(row.get("parser") or ""), source_pdf=str(row.get("source_pdf") or ""), refined_path=str(row.get("refined_path") or ""), image_dir=str(row.get("image_dir") or ""), text_path=str(row.get("text_path") or ""), sections_path=str(row.get("sections_path") or ""), error=str(row.get("error") or ""), started_at=str(row.get("started_at") or ""), finished_at=str(row.get("finished_at") or ""))
 
-    def _resolved_status(self, metadata: dict[str, Any], paper_path: Path) -> str:
-        if metadata.get("rejected"):
-            return "rejected"
-        status = str(metadata.get("workflow_status") or metadata.get("status") or "").strip()
-        if status:
-            return status
-        return "processed" if paper_path.exists() else "needs-pdf"
+    def _event_record(self, row: dict[str, Any]) -> PaperEventRecord:
+        return PaperEventRecord(
+            timestamp=str(row.get("timestamp") or ""),
+            event=str(row.get("event") or ""),
+            actor=str(row.get("actor") or ""),
+            result=str(row.get("result") or ""),
+            message=str(row.get("message") or ""),
+            technical_detail=str(row.get("technical_detail") or ""),
+            next_action=str(row.get("next_action") or ""),
+        )
 
-    def _status_from_parser(self, parser_status: str) -> str:
-        if parser_status == "processed":
-            return "processed"
+    def _normalize_paper_payload(self, paper_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+        paper_path = paper_dir / "paper.pdf"
+        note_path = paper_dir / "note.md"
+        parsed_text = paper_dir / "parsed" / "text.md"
+        parsed_sections = paper_dir / "parsed" / "sections.json"
+        refined_path = paper_dir / "refined.md"
+        stage = self._paper_stage(paper_dir, payload)
+        asset_status = self._asset_status(payload, paper_path)
+        parser_status = self._parser_status(payload, paper_dir)
+        review_status = self._review_status(payload)
+        note_status = self._note_status(payload, note_path)
+        refined_review_status = self._refined_review_status(payload, parser_status)
+        note_review_status = self._note_review_status(payload, note_status, note_path)
+        classification_status = self._classification_status(payload)
+        compat_status = self._compat_status(stage, asset_status, parser_status, review_status)
+        workflow_status = self._workflow_status(
+            asset_status=asset_status,
+            parser_status=parser_status,
+            note_status=note_status,
+            refined_review_status=refined_review_status,
+            note_review_status=note_review_status,
+            classification_status=classification_status,
+            note_path=note_path,
+            error=str(payload.get("error") or ""),
+        )
+        return merge_metadata(
+            payload,
+            {
+                "stage": stage,
+                "asset_status": asset_status,
+                "parser_status": parser_status,
+                "review_status": review_status,
+                "note_status": note_status,
+                "refined_review_status": refined_review_status,
+                "note_review_status": note_review_status,
+                "classification_status": classification_status,
+                "status": compat_status,
+                "workflow_status": workflow_status,
+                "path": str(paper_dir),
+                "paper_path": str(paper_path) if paper_path.exists() else "",
+                "note_path": str(note_path) if note_path.exists() else "",
+                "parsed_text_path": str(parsed_text) if parsed_text.exists() else str(payload.get("parsed_text_path") or ""),
+                "parsed_sections_path": str(parsed_sections) if parsed_sections.exists() else str(payload.get("parsed_sections_path") or ""),
+                "refined_path": str(refined_path) if refined_path.exists() else str(payload.get("refined_path") or ""),
+            },
+        )
+
+    def _apply_explicit_clears(self, payload: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(payload)
+        for key, value in updates.items():
+            if value in (None, "", [], {}):
+                merged[key] = value
+        return merged
+
+    def _asset_status(self, metadata: dict[str, Any], paper_path: Path) -> str:
+        stored = str(metadata.get("asset_status") or "").strip()
+        if stored in {"missing_pdf", "pdf_ready"}:
+            return stored
+        legacy = str(metadata.get("workflow_status") or metadata.get("status") or "").strip()
+        if legacy == "needs-pdf":
+            return "missing_pdf"
+        if legacy in {"applied", "processed", "needs-review", "parse-failed", "parse-pending"}:
+            return "pdf_ready"
+        return "pdf_ready" if paper_path.exists() else "missing_pdf"
+
+    def _parser_status(self, metadata: dict[str, Any], paper_dir: Path | None = None) -> str:
+        stored = str(metadata.get("parser_status") or "").strip()
+        if stored in {"not_started", "running", "parsed", "failed"}:
+            return stored
+        legacy = str(metadata.get("workflow_status") or metadata.get("status") or "").strip()
+        if legacy == "parse-failed":
+            return "failed"
+        if legacy in {"applied", "needs-review", "processed", "reviewed"}:
+            return "parsed"
+        if legacy in {"parse-pending", "needs-pdf"}:
+            return "not_started"
+        refine_status = str(metadata.get("refine_status") or "").strip()
+        if refine_status in {"processed", "done", "generated", "human_edited"}:
+            return "parsed"
+        if paper_dir is not None and (paper_dir / "refined.md").exists():
+            return "parsed"
+        return self._normalized_parser_status(stored)
+
+    def _review_status(self, metadata: dict[str, Any]) -> str:
+        stored = str(metadata.get("review_status") or "").strip()
+        if stored in {"pending", "accepted"}:
+            return stored
+        legacy = str(metadata.get("workflow_status") or metadata.get("status") or "").strip()
+        classification_status = self._classification_status(metadata)
+        return "accepted" if legacy in {"applied", "processed", "reviewed"} or classification_status in {"applied", "accepted"} else "pending"
+
+    def _classification_status(self, metadata: dict[str, Any]) -> str:
+        stored = str(metadata.get("classification_status") or "").strip()
+        if stored == "applied":
+            return "accepted"
+        return stored or "pending"
+
+    def _refined_review_status(self, metadata: dict[str, Any], parser_status: str) -> str:
+        stored = str(metadata.get("refined_review_status") or "").strip()
+        if stored in {"pending", "approved", "rejected"}:
+            return stored
+        return "pending" if parser_status == "parsed" else "missing"
+
+    def _note_review_status(self, metadata: dict[str, Any], note_status: str, note_path: Path) -> str:
+        stored = str(metadata.get("note_review_status") or "").strip()
+        if stored in {"missing", "pending", "approved", "rejected"}:
+            return stored
+        if note_status in {"ready", "approved"}:
+            return "approved"
+        if note_status == "rejected":
+            return "rejected"
+        if note_status in {"template", "review_pending"} or note_path.exists():
+            return "pending"
+        return "missing"
+
+    def _note_status(self, metadata: dict[str, Any], note_path: Path) -> str:
+        stored = str(metadata.get("note_status") or "").strip()
+        if stored in {"missing", "template", "ready", "generated", "review_pending", "approved", "rejected"}:
+            return stored
+        return "template" if note_path.exists() else "missing"
+
+    def _workflow_status(
+        self,
+        *,
+        asset_status: str,
+        parser_status: str,
+        note_status: str,
+        refined_review_status: str,
+        note_review_status: str,
+        classification_status: str,
+        note_path: Path,
+        error: str,
+    ) -> str:
+        if error or parser_status == "failed":
+            return "failed"
+        if asset_status == "missing_pdf":
+            return "missing_pdf"
+        if asset_status == "downloading":
+            return "downloading"
+        if parser_status == "running":
+            return "running"
+        if parser_status == "not_started":
+            return "not_started"
+        if refined_review_status == "rejected":
+            return "refine_rejected"
+        if parser_status == "parsed" and refined_review_status != "approved":
+            return "refine_review_pending"
+        if note_status in {"missing"} or not note_path.exists():
+            return "note_missing"
+        if note_review_status == "rejected":
+            return "note_rejected"
+        if note_review_status != "approved":
+            return "note_review_pending"
+        if classification_status not in {"classified", "accepted"}:
+            return "unclassified"
+        return "ready"
+
+    def _compat_status(self, stage: str, asset_status: str, parser_status: str, review_status: str) -> str:
+        del stage
+        if asset_status == "missing_pdf":
+            return "needs-pdf"
         if parser_status == "failed":
             return "parse-failed"
-        if parser_status == "needs-pdf":
-            return "needs-pdf"
-        return "needs-review" if parser_status in {"pending", "skipped"} else "parse-pending"
+        if review_status == "accepted":
+            return "processed"
+        if parser_status == "parsed":
+            return "needs-review"
+        return "parse-pending"
+
+    def _status_from_parser(self, parser_status: str) -> str:
+        return self._compat_status("acquire", "pdf_ready", self._normalized_parser_status(parser_status), "pending")
+
+    def _normalized_parser_status(self, parser_status: str) -> str:
+        if parser_status in {"processed", "done", "generated", "human_edited"}:
+            return "parsed"
+        if parser_status == "failed":
+            return "failed"
+        if parser_status in {"pending", "skipped", "parse-pending", "needs-pdf", ""}:
+            return "not_started"
+        if parser_status in {"not_started", "running", "parsed", "failed"}:
+            return parser_status
+        return "not_started"
+
+    def _review_decision(self, decision: str) -> str:
+        normalized = decision.strip().lower()
+        if normalized not in {"approved", "rejected"}:
+            raise ValueError("Review decision must be approved or rejected")
+        return normalized
+
+    def _legacy_status_updates(self, status: str) -> dict[str, Any]:
+        if status == "processed":
+            return {"review_status": "accepted"}
+        if status == "needs-review":
+            return {"review_status": "pending", "parser_status": "parsed"}
+        if status == "needs-pdf":
+            return {"asset_status": "missing_pdf", "parser_status": "not_started", "review_status": "pending"}
+        if status == "parse-failed":
+            return {"asset_status": "pdf_ready", "parser_status": "failed", "review_status": "pending"}
+        return {"review_status": "pending"}
+
+    def _metadata_updates(self, request: UpdateClassificationInput) -> dict[str, Any]:
+        domain = request.domain.strip()
+        area = request.area.strip() if domain else ""
+        topic = request.topic.strip() if area else ""
+        updates: dict[str, Any] = {
+            "domain": domain,
+            "area": area,
+            "topic": topic,
+            "classification_status": "classified" if domain else "pending",
+        }
+        optional_values: dict[str, Any] = {
+            "title": request.title,
+            "venue": request.venue,
+            "year": request.year,
+            "tags": request.tags,
+            "status": request.status,
+            "paper_path": request.paper_path,
+            "note_path": request.note_path,
+            "refined_path": request.refined_path,
+        }
+        for key, value in optional_values.items():
+            if value is not None:
+                updates[key] = value
+        return updates
+
+    def _capabilities_for(
+        self,
+        *,
+        stage: str,
+        asset_status: str,
+        parser_status: str,
+        note_status: str,
+        refined_review_status: str,
+        note_review_status: str,
+    ) -> PaperCapabilities:
+        can_parse = asset_status == "pdf_ready" and parser_status != "running" and stage in {"acquire", "library"}
+        can_accept = stage == "acquire" and parser_status == "parsed"
+        can_review_refined = parser_status == "parsed"
+        can_generate_note = parser_status == "parsed" and refined_review_status == "approved" and note_status == "missing"
+        can_review_note = note_status != "missing" and note_review_status != "approved" and refined_review_status == "approved"
+        return PaperCapabilities(
+            parse=can_parse,
+            accept=can_accept,
+            generate_note=can_generate_note,
+            review_refined=can_review_refined,
+            review_note=can_review_note,
+            delete=True,
+        )
 
     def _require_paper_dir(self, paper_id: str) -> Path:
         paper_dir = self.get_paper_dir(paper_id)
@@ -855,11 +1509,17 @@ class PaperRepository:
     def _relative_id(self, path: Path) -> str:
         return str(path.relative_to(self.data_root)).replace("\\", "__").replace("/", "__")
 
-    def _paper_stage(self, path: Path) -> str:
-        if self.acquire_root in path.parents:
+    def _paper_stage(self, path: Path, metadata: dict[str, Any] | None = None) -> str:
+        if path == self.curated_root or self.curated_root in path.parents:
             return "acquire"
-        if self.library_root in path.parents:
+        if path == self.library_root or self.library_root in path.parents:
             return "library"
+        if any(path == root or root in path.parents for root in self.legacy_library_roots):
+            return "library"
+        if metadata:
+            status = str(metadata.get("status") or metadata.get("ingest_status") or "").strip()
+            if status == "curated":
+                return "acquire"
         return "unknown"
 
     def _mtime(self, path: Path) -> str:
