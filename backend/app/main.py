@@ -9,6 +9,7 @@ from backend.app.api.config import router as config_router
 from backend.app.api.dashboard import router as dashboard_router
 from backend.app.api.discover import router as discover_router
 from backend.app.api.papers import router as papers_router
+from backend.app.api.settings import router as settings_router
 from backend.app.schemas.common import HealthResponse
 from backend.core.config import get_settings
 from backend.core.services.papers.service import PaperService
@@ -49,6 +50,7 @@ app.include_router(dashboard_router)
 app.include_router(papers_router)
 app.include_router(config_router)
 app.include_router(discover_router)
+app.include_router(settings_router)
 
 
 @app.get("/health", response_model=HealthResponse)

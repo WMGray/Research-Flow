@@ -9,6 +9,7 @@ from backend.core.services.papers.models import (
     BatchRecord,
     CandidateRecord,
     GenerateNoteInput,
+    ImportPaperInput,
     IngestPaperInput,
     ParsePdfInput,
     ParserRunRecord,
@@ -51,6 +52,14 @@ class PaperService:
     ) -> CandidateRecord:
         return self.repository.set_candidate_decision(batch_id, candidate_id, decision)
 
+    def set_candidate_batch_decision(
+        self,
+        batch_id: str,
+        candidate_ids: list[str],
+        decision: str,
+    ) -> list[CandidateRecord]:
+        return self.repository.set_candidate_batch_decision(batch_id, candidate_ids, decision)
+
     def restore_batch_candidates(self, batch_id: str) -> list[dict[str, Any]]:
         return self.repository.restore_batch_candidates(batch_id)
 
@@ -82,6 +91,51 @@ class PaperService:
             move=move,
         )
         return self.repository.ingest(request)
+
+    def import_paper(self, request: ImportPaperInput) -> PaperRecord:
+        return self.repository.import_paper(request)
+
+    def refresh_metadata(self, paper_id: str, query: dict[str, Any] | None = None) -> PaperRecord:
+        return self.repository.refresh_metadata(paper_id, query)
+
+    def metadata_sources(self, paper_id: str) -> dict[str, Any]:
+        return self.repository.metadata_sources(paper_id)
+
+    def update_metadata(self, paper_id: str, updates: dict[str, Any]) -> PaperRecord:
+        return self.repository.update_metadata(paper_id, updates)
+
+    def paper_content(self, paper_id: str, *, max_chars: int = 4000) -> dict[str, Any]:
+        return self.repository.paper_content(paper_id, max_chars=max_chars)
+
+    def set_starred(self, paper_id: str, starred: bool) -> PaperRecord:
+        return self.repository.set_starred(paper_id, starred)
+
+    def bind_assets(self, paper_id: str, source: Path, *, move: bool = False) -> PaperRecord:
+        return self.repository.bind_assets(paper_id, source, move=move)
+
+    def list_research_logs(self, paper_id: str) -> list[dict[str, Any]]:
+        return self.repository.list_research_logs(paper_id)
+
+    def create_research_log(self, paper_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.repository.create_research_log(paper_id, payload)
+
+    def update_research_log(self, paper_id: str, log_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.repository.update_research_log(paper_id, log_id, payload)
+
+    def delete_research_log(self, paper_id: str, log_id: str) -> None:
+        self.repository.delete_research_log(paper_id, log_id)
+
+    def get_search_agent_settings(self) -> dict[str, Any]:
+        return self.repository.get_search_agent_settings()
+
+    def update_search_agent_settings(self, updates: dict[str, Any]) -> dict[str, Any]:
+        return self.repository.update_search_agent_settings(updates)
+
+    def create_search_batch(self, request: dict[str, Any]) -> dict[str, Any]:
+        return self.repository.create_search_batch(request)
+
+    def get_search_job(self, job_id: str) -> dict[str, Any]:
+        return self.repository.get_search_job(job_id)
 
     def migrate(
         self,
@@ -125,6 +179,26 @@ class PaperService:
     ) -> PaperRecord:
         payload = request if isinstance(request, UpdateClassificationInput) else UpdateClassificationInput(paper_id=request, domain=domain, area=area, topic=topic)
         return self.repository.update_classification(payload)
+
+    def create_library_folder(self, relative_path: str) -> dict[str, str]:
+        path = self.repository.create_library_folder(relative_path)
+        return {
+            "path": str(path),
+            "relative_path": str(path.relative_to(self.repository.library_root)).replace("\\", "/"),
+        }
+
+    def list_library_folders(self) -> list[str]:
+        root = self.repository.library_root
+        if not root.exists():
+            return []
+        folders: list[str] = []
+        for path in sorted(item for item in root.rglob("*") if item.is_dir()):
+            if self._looks_like_paper_dir(path):
+                continue
+            relative = path.relative_to(root)
+            if 1 <= len(relative.parts) <= 3:
+                folders.append(str(relative).replace("\\", "/"))
+        return folders
 
     def parse_pdf(
         self,
@@ -181,10 +255,18 @@ class PaperService:
         health["parser"] = parser_health()
         return health
 
+    def _workflow_queue(self, papers: list[PaperRecord]) -> list[PaperRecord]:
+        return [
+            paper
+            for paper in papers
+            if paper.workflow_status not in {"ready"} and not paper.rejected
+        ]
+
     def dashboard_home(self) -> dict[str, Any]:
         papers = self.list_papers()
         batches = self.list_batches()
         status_counts = self._status_counts(papers)
+        queue_items = self._workflow_queue(papers)
         return {
             "totals": {
                 "papers": len(papers),
@@ -192,26 +274,20 @@ class PaperService:
                 "processed": len([paper for paper in papers if paper.review_status == "accepted"]),
                 "curated": len([paper for paper in papers if paper.stage == "acquire"]),
                 "library": len([paper for paper in papers if paper.stage == "library"]),
+                "queued": len(queue_items),
                 "needs_pdf": len([paper for paper in papers if paper.asset_status == "missing_pdf"]),
-                "needs_review": len(
-                    [paper for paper in papers if paper.stage == "acquire" and paper.parser_status == "parsed" and paper.review_status == "pending"]
-                ),
+                "needs_review": len([paper for paper in papers if paper.parser_status == "parsed" and paper.refined_review_status != "approved"]),
                 "parse_failed": len([paper for paper in papers if paper.parser_status == "failed"]),
                 "failed": len([paper for paper in papers if paper.parser_status == "failed"]),
             },
             "status_counts": status_counts,
             "recent_papers": [paper.to_dict() for paper in papers[:6]],
-            "queue_items": [
-                paper.to_dict()
-                for paper in papers
-                if paper.stage == "acquire" and (paper.asset_status == "missing_pdf" or paper.review_status == "pending" or paper.parser_status == "failed")
-            ][:8],
+            "queue_items": [paper.to_dict() for paper in queue_items[:8]],
             "recent_batches": [batch.to_dict() for batch in batches[:5]],
             "paths": {
                 "data_root": str(self.repository.data_root),
                 "discover_root": str(self.repository.discover_root),
-                "acquire_root": str(self.repository.acquire_root),
-                "library_root": str(self.repository.library_root),
+                "papers_root": str(self.repository.library_root),
             },
         }
 
@@ -240,24 +316,7 @@ class PaperService:
             "candidates": [candidate.to_dict() for candidate in candidates],
         }
 
-    def dashboard_acquire(self) -> dict[str, Any]:
-        papers = [paper for paper in self.list_papers() if paper.stage == "acquire"]
-        return {
-            "summary": {
-                "curated_total": len(papers),
-                "needs_pdf_total": len(
-                    [paper for paper in papers if paper.asset_status == "missing_pdf"]
-                ),
-                "needs_review_total": len(
-                    [paper for paper in papers if paper.parser_status == "parsed" and paper.review_status == "pending"]
-                ),
-                "failed_total": len([paper for paper in papers if paper.parser_status == "failed"]),
-                "parse_failed_total": len([paper for paper in papers if paper.parser_status == "failed"]),
-            },
-            "queue": [paper.to_dict() for paper in papers],
-        }
-
-    def dashboard_library(self) -> dict[str, Any]:
+    def dashboard_papers(self) -> dict[str, Any]:
         papers = [paper for paper in self.list_papers() if paper.stage == "library" and paper.review_status == "accepted"]
         unclassified = [
             paper
@@ -287,11 +346,15 @@ class PaperService:
             "paths": {
                 "library_root": str(self.repository.library_root),
             },
+            "folders": self.list_library_folders(),
         }
 
     def _status_counts(self, papers: list[PaperRecord]) -> dict[str, int]:
         counts = Counter(paper.status for paper in papers)
         return dict(sorted(counts.items()))
+
+    def _looks_like_paper_dir(self, path: Path) -> bool:
+        return any((path / name).exists() for name in ("metadata.yaml", "metadata.json", "state.json", "paper.pdf", "note.md"))
 
     def _to_ingest_input(
         self,

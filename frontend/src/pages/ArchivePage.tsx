@@ -1,11 +1,10 @@
-import { Archive, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Archive, SlidersHorizontal } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/app/EmptyState";
 import { FilterSearch } from "@/components/app/FilterSearch";
 import { PageShell } from "@/components/app/PageShell";
 import { ResponsivePaperInspector } from "@/components/papers/ResponsivePaperInspector";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -64,14 +63,8 @@ export function ArchivePage() {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] min-w-0">
       <PageShell
-        actions={
-          <Button size="sm" variant="outline" disabled>
-            <RotateCcw className="h-4 w-4" />
-            恢复所选
-          </Button>
-        }
         className="min-w-0 flex-1"
-        description="前端优先展示归档列表、搜索、筛选和恢复入口；恢复能力等待后端契约接入。"
+        description="归档暂不作为本轮工作流重点，仅保留只读列表；后续确认不用后可删除。"
         title="归档"
       >
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -112,23 +105,17 @@ export function ArchivePage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <StatusBadge status={paper.status || "rejected"} />
-                  <Button size="sm" variant="outline" disabled>
-                    <RotateCcw className="h-4 w-4" />
-                    恢复
-                  </Button>
                 </div>
               </Card>
             ))}
           </section>
         ) : (
           <EmptyState
-            description={loading ? "正在读取归档数据。" : "当前没有可展示的归档论文。恢复入口已预留，等待后端契约接入。"}
+            description={loading ? "正在读取归档数据。" : "当前没有可展示的归档论文。"}
             icon={Archive}
             title={loading ? "加载中" : "归档为空"}
           />
         )}
-
-        <Badge className="self-start" variant="muted">恢复动作暂不可用</Badge>
       </PageShell>
 
       <ResponsivePaperInspector paper={selectedPaper} />

@@ -1,7 +1,6 @@
 import { Navigate, createHashRouter } from "react-router-dom";
 
 import { MainLayout } from "@/layouts/MainLayout";
-import { AcquirePage } from "@/pages/AcquirePage";
 import { ArchivePage } from "@/pages/ArchivePage";
 import { ConfigPage } from "@/pages/ConfigPage";
 import { DiscoverPage } from "@/pages/DiscoverPage";
@@ -16,9 +15,8 @@ export const router = createHashRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: "discover", element: <DiscoverPage /> },
-      { path: "acquire", element: <AcquirePage /> },
-      { path: "library", element: <LibraryPage /> },
-      { path: "library/:paperId", element: <LibraryPage /> },
+      { path: "papers", element: <LibraryPage /> },
+      { path: "papers/:paperId", element: <LibraryPage /> },
       { path: "uncategorized", element: <UncategorizedPage /> },
       { path: "archive", element: <ArchivePage /> },
       { path: "settings", element: <ConfigPage /> },

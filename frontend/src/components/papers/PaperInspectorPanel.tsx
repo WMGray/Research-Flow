@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PaperRecord } from "@/lib/api";
-import { formatDate, paperSummary } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type PaperInspectorPanelProps = {
@@ -68,7 +68,11 @@ export function PaperInspectorContent({ onClose, paper }: PaperInspectorPanelPro
           </DetailBlock>
 
           <DetailBlock icon={Sparkles} title="AI Summary">
-            <p className="text-sm leading-6 text-muted-foreground">{paperSummary(paper)}。当前接口未返回完整 AI summary，解析完成后可在笔记或 refined 文档中扩展展示。</p>
+            <p className="text-sm leading-6 text-muted-foreground">{paper.summary || "暂无真实 summary。请生成 note/refined 或手动补充 metadata.summary。"}</p>
+          </DetailBlock>
+
+          <DetailBlock icon={FileText} title="Abstract">
+            <p className="text-sm leading-6 text-muted-foreground">{paper.abstract || "暂无真实 abstract。请刷新元数据或手动补充。"}</p>
           </DetailBlock>
 
           <DetailBlock icon={StickyNote} title="Notes">
@@ -84,7 +88,7 @@ export function PaperInspectorContent({ onClose, paper }: PaperInspectorPanelPro
           </DetailBlock>
 
           <DetailBlock icon={Network} title="Related Papers">
-            <EmptyCopy text="相关论文关系暂未接入。" />
+            <EmptyCopy text="暂无本地相关论文推荐数据。" />
           </DetailBlock>
         </div>
       </div>

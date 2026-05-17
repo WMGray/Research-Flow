@@ -24,6 +24,12 @@ export type PaperRecord = {
   year: number | null;
   venue: string;
   doi: string;
+  authors: string[];
+  abstract: string;
+  summary: string;
+  url: string;
+  arxiv_id: string;
+  starred: boolean;
   tags: string[];
   path: string;
   paper_path: string;
@@ -96,6 +102,11 @@ export type CandidateRecord = {
   quality: number;
   relevance: number;
   recommendation_reason: string;
+  abstract: string;
+  url: string;
+  doi: string;
+  arxiv_id: string;
+  pdf_url: string;
   landing_status: string;
   result_path: string;
   updated_at: string;
@@ -131,17 +142,13 @@ export type DiscoverDashboardData = {
   candidates: CandidateRecord[];
 };
 
-export type AcquireDashboardData = {
-  summary: Record<string, number>;
-  queue: PaperRecord[];
-};
-
-export type LibraryDashboardData = {
+export type PapersDashboardData = {
   summary: Record<string, number>;
   papers: PaperRecord[];
   paths: {
     library_root: string;
   };
+  folders?: string[];
 };
 
 /*
@@ -162,6 +169,88 @@ export type ParserRunsData = {
 export type PaperEventsData = {
   items: PaperEventRecord[];
   total: number;
+};
+
+export type PaperContentData = {
+  paper_id: string;
+  abstract: string;
+  summary: string;
+  note_preview: string;
+  refined_preview: string;
+  parsed_preview: string;
+  sources: Record<string, string>;
+};
+
+export type ResearchLogRecord = {
+  id: string;
+  timestamp: string;
+  updated_at: string;
+  title: string;
+  bullets: string[];
+  next_steps: string[];
+  tasks: Array<{ id: string; label: string; checked: boolean }>;
+};
+
+export type ResearchLogsData = {
+  items: ResearchLogRecord[];
+  total: number;
+};
+
+export type ImportPaperPayload = {
+  title: string;
+  source?: string;
+  domain?: string;
+  area?: string;
+  topic?: string;
+  authors?: string[];
+  year?: number | null;
+  venue?: string;
+  doi?: string;
+  arxiv_id?: string;
+  url?: string;
+  abstract?: string;
+  summary?: string;
+  tags?: string[];
+  refresh_metadata?: boolean;
+};
+
+export type UpdateMetadataPayload = Partial<{
+  title: string;
+  authors: string[];
+  year: number | null;
+  venue: string;
+  doi: string;
+  arxiv_id: string;
+  url: string;
+  abstract: string;
+  summary: string;
+  domain: string;
+  area: string;
+  topic: string;
+  tags: string[];
+}>;
+
+export type SearchAgentSettings = {
+  command_template: string;
+  prompt_template: string;
+  max_results: number;
+  default_source: string;
+  updated_at?: string;
+};
+
+export type CreateSearchBatchPayload = {
+  keywords: string;
+  venue?: string;
+  year_start?: number | null;
+  year_end?: number | null;
+  source?: string;
+  max_results?: number | null;
+};
+
+export type CreateSearchBatchData = {
+  job: Record<string, string | number | boolean>;
+  batch: BatchRecord;
+  candidates: CandidateRecord[];
 };
 
 export type ReviewDecisionPayload = {
@@ -202,12 +291,8 @@ export function fetchDiscoverDashboard(): Promise<APIEnvelope<DiscoverDashboardD
   return getJson<APIEnvelope<DiscoverDashboardData>>(`${API_BASE_URL}/api/dashboard/discover`);
 }
 
-export function fetchAcquireDashboard(): Promise<APIEnvelope<AcquireDashboardData>> {
-  return getJson<APIEnvelope<AcquireDashboardData>>(`${API_BASE_URL}/api/dashboard/acquire`);
-}
-
-export function fetchLibraryDashboard(): Promise<APIEnvelope<LibraryDashboardData>> {
-  return getJson<APIEnvelope<LibraryDashboardData>>(`${API_BASE_URL}/api/dashboard/library`);
+export function fetchPapersDashboard(): Promise<APIEnvelope<PapersDashboardData>> {
+  return getJson<APIEnvelope<PapersDashboardData>>(`${API_BASE_URL}/api/dashboard/papers`);
 }
 
 /*
@@ -231,8 +316,28 @@ export function fetchPaperEvents(paperId: string): Promise<APIEnvelope<PaperEven
   return getJson<APIEnvelope<PaperEventsData>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/events`);
 }
 
+export function fetchPaperContent(paperId: string): Promise<APIEnvelope<PaperContentData>> {
+  return getJson<APIEnvelope<PaperContentData>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/content`);
+}
+
+export function fetchResearchLogs(paperId: string): Promise<APIEnvelope<ResearchLogsData>> {
+  return getJson<APIEnvelope<ResearchLogsData>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/research-logs`);
+}
+
 export function fetchConfigHealth(): Promise<APIEnvelope<ConfigHealthData>> {
   return getJson<APIEnvelope<ConfigHealthData>>(`${API_BASE_URL}/api/config`);
+}
+
+export function fetchSearchAgentSettings(): Promise<APIEnvelope<SearchAgentSettings>> {
+  return getJson<APIEnvelope<SearchAgentSettings>>(`${API_BASE_URL}/api/settings/search-agent`);
+}
+
+export function updateSearchAgentSettings(payload: Partial<SearchAgentSettings>): Promise<APIEnvelope<SearchAgentSettings>> {
+  return patchJson<APIEnvelope<SearchAgentSettings>>(`${API_BASE_URL}/api/settings/search-agent`, payload);
+}
+
+export function createSearchBatch(payload: CreateSearchBatchPayload): Promise<APIEnvelope<CreateSearchBatchData>> {
+  return postJson<APIEnvelope<CreateSearchBatchData>>(`${API_BASE_URL}/api/discover/search-batches`, payload);
 }
 
 export function setCandidateDecision(batchId: string, candidateId: string, decision: string): Promise<APIEnvelope<CandidateRecord>> {
@@ -242,6 +347,17 @@ export function setCandidateDecision(batchId: string, candidateId: string, decis
   );
 }
 
+export function setCandidateBatchDecision(batchId: string, candidateIds: string[], decision: string): Promise<APIEnvelope<{ items: CandidateRecord[]; total: number }>> {
+  return postJson<APIEnvelope<{ items: CandidateRecord[]; total: number }>>(
+    `${API_BASE_URL}/api/discover/batches/${encodeURIComponent(batchId)}/candidates/batch-decision`,
+    { decision, candidate_ids: candidateIds }
+  );
+}
+
+export function importPaper(payload: ImportPaperPayload): Promise<APIEnvelope<PaperRecord>> {
+  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/import`, payload);
+}
+
 export function parsePaperPdf(paperId: string, force = false): Promise<APIEnvelope<PaperRecord>> {
   return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/parse-pdf`, {
     force,
@@ -249,12 +365,39 @@ export function parsePaperPdf(paperId: string, force = false): Promise<APIEnvelo
   });
 }
 
-export function acceptPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {
-  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/accept`, {});
-}
-
 export function updatePaperClassification(paperId: string, payload: UpdateClassificationPayload): Promise<APIEnvelope<PaperRecord>> {
   return patchJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/classification`, payload);
+}
+
+export function updatePaperMetadata(paperId: string, payload: UpdateMetadataPayload): Promise<APIEnvelope<PaperRecord>> {
+  return patchJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/metadata`, payload);
+}
+
+export function refreshPaperMetadata(paperId: string): Promise<APIEnvelope<PaperRecord>> {
+  return postJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/refresh-metadata`, {});
+}
+
+export function updatePaperStar(paperId: string, starred: boolean): Promise<APIEnvelope<PaperRecord>> {
+  return patchJson<APIEnvelope<PaperRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/star`, { starred });
+}
+
+export function createResearchLog(
+  paperId: string,
+  payload: Pick<ResearchLogRecord, "title" | "bullets" | "next_steps" | "tasks">
+): Promise<APIEnvelope<ResearchLogRecord>> {
+  return postJson<APIEnvelope<ResearchLogRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/research-logs`, payload);
+}
+
+export function updateResearchLog(
+  paperId: string,
+  logId: string,
+  payload: Pick<ResearchLogRecord, "title" | "bullets" | "next_steps" | "tasks">
+): Promise<APIEnvelope<ResearchLogRecord>> {
+  return patchJson<APIEnvelope<ResearchLogRecord>>(`${API_BASE_URL}/api/papers/${encodeURIComponent(paperId)}/research-logs/${encodeURIComponent(logId)}`, payload);
+}
+
+export function createLibraryFolder(path: string): Promise<APIEnvelope<{ path: string; relative_path: string }>> {
+  return postJson<APIEnvelope<{ path: string; relative_path: string }>>(`${API_BASE_URL}/api/papers/library-folders`, { path });
 }
 
 export function rejectPaper(paperId: string): Promise<APIEnvelope<PaperRecord>> {

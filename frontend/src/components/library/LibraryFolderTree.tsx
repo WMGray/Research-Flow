@@ -79,14 +79,14 @@ export function LibraryFolderTree({ libraryRoot, onCreateFolder, onDropPaper, on
   };
 
   return (
-    <aside className="hidden shrink-0 border-r bg-card/70 xl:block" style={{ width }}>
+    <aside className="hidden h-screen shrink-0 border-r bg-[#f7f8fa] xl:block" style={{ width }}>
       <div className="border-b px-3 py-3">
         <div className="text-sm font-semibold">{tree.label}</div>
         <div className="mt-1 truncate text-xs text-muted-foreground" title={libraryRoot}>
           {libraryRoot || "按真实文件夹路径管理"}
         </div>
       </div>
-      <ScrollArea className="h-[calc(100vh-7.25rem)]">
+      <ScrollArea className="h-[calc(100vh-4.6rem)]">
         <div className="p-2">
           <TreeNodeRow
             depth={0}

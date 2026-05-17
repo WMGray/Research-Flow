@@ -1,5 +1,5 @@
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, FileText, FolderOpen, RefreshCw, Sparkles, ThumbsDown, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { EmptyState } from "@/components/app/EmptyState";
@@ -15,8 +15,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDialog } from "@/components/ui/DialogProvider";
 import {
-  acceptPaper,
-  fetchLibraryDashboard,
+  fetchPapersDashboard,
   fetchPaperEvents,
   fetchPaper,
   fetchParserRuns,
@@ -32,7 +31,6 @@ import {
 } from "@/lib/api";
 import { formatDate, humanizeStatus, paperSummary } from "@/lib/format";
 import { buildClassificationOptions, derivePaperStatus } from "@/lib/libraryView";
-import { getAcquireActionState } from "@/lib/paperWorkflow";
 
 export function PaperDetailPage() {
   const { paperId = "" } = useParams();
@@ -48,7 +46,7 @@ export function PaperDetailPage() {
 
   const load = () => {
     if (!paperId) return;
-    void Promise.all([fetchPaper(paperId), fetchParserRuns(paperId), fetchPaperEvents(paperId), fetchLibraryDashboard().catch(() => null)])
+    void Promise.all([fetchPaper(paperId), fetchParserRuns(paperId), fetchPaperEvents(paperId), fetchPapersDashboard().catch(() => null)])
       .then(([paperPayload, runsPayload, eventsPayload, libraryPayload]) => {
         setPaper(paperPayload.data);
         setRuns(runsPayload.data.items);
@@ -78,14 +76,13 @@ export function PaperDetailPage() {
     );
   }
 
-  const actionState = getAcquireActionState(paper);
   const reasons = disabledReasons(paper, Boolean(busy));
 
   const deleteCurrentPaper = async () => {
     const accepted = await confirm({
-      title: "删除这篇论文？",
-      message: "当前后端以 reject 能力承接删除/归档语义，本轮不会物理删除文件。",
-      confirmLabel: "删除",
+      title: "物理删除这篇论文？",
+      message: "将删除论文目录和其中的本地产物，此操作不可恢复。",
+      confirmLabel: "物理删除",
       cancelLabel: "取消",
       danger: true,
     });
@@ -93,7 +90,7 @@ export function PaperDetailPage() {
 
     runAction("delete", async () => {
       await rejectPaper(paper.paper_id);
-      navigate("/archive", { replace: true });
+      navigate("/papers", { replace: true });
     });
   };
 
@@ -138,7 +135,7 @@ export function PaperDetailPage() {
     });
     setPaper(response.data);
     if (response.data.paper_id !== paper.paper_id) {
-      navigate(`/library/${encodeURIComponent(response.data.paper_id)}`, { replace: true });
+      navigate(`/papers/${encodeURIComponent(response.data.paper_id)}`, { replace: true });
     } else {
       load();
     }
@@ -177,7 +174,7 @@ export function PaperDetailPage() {
       <PageShell
         actions={
           <Button asChild size="sm" variant="outline">
-            <Link to={paper.stage === "library" ? "/library" : "/discover"}>
+            <Link to={paper.stage === "library" ? "/papers" : "/discover"}>
               <ArrowLeft className="h-4 w-4" />
               返回
             </Link>
@@ -202,7 +199,7 @@ export function PaperDetailPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <ActionButton
-                disabled={Boolean(busy) || !actionState.canParse}
+                disabled={Boolean(busy) || !paper.capabilities.parse}
                 icon={<RefreshCw className="h-4 w-4" />}
                 label={paper.parser_status === "failed" ? "重试解析" : "解析 PDF"}
                 reason={reasons.parse}
@@ -214,7 +211,7 @@ export function PaperDetailPage() {
                 }
               />
               <ActionButton
-                disabled={Boolean(busy) || !actionState.canGenerateNote}
+                disabled={Boolean(busy) || !paper.capabilities.generate_note}
                 icon={<Sparkles className="h-4 w-4" />}
                 label="生成 Note"
                 reason={reasons.note}
@@ -253,19 +250,8 @@ export function PaperDetailPage() {
                 reason={reasons.noteReview}
                 onClick={() => reviewNote("rejected")}
               />
-              <ActionButton
-                disabled={Boolean(busy) || !actionState.canAccept}
-                label="收录"
-                reason={reasons.accept}
-                onClick={() =>
-                  runAction("accept", async () => {
-                    const response = await acceptPaper(paper.paper_id);
-                    navigate(`/library/${encodeURIComponent(response.data.paper_id)}`, { replace: true });
-                  })
-                }
-              />
               <DisabledReasonTooltip reason={reasons.delete}>
-                <Button size="sm" variant="destructive" disabled={Boolean(busy) || !actionState.canDelete} onClick={deleteCurrentPaper}>
+                <Button size="sm" variant="destructive" disabled={Boolean(busy) || !paper.capabilities.delete} onClick={deleteCurrentPaper}>
                   <Trash2 className="h-4 w-4" />
                   删除
                 </Button>
@@ -330,10 +316,11 @@ export function PaperDetailPage() {
         <EventTimelineCard events={events} />
 
         <section className="grid gap-4 xl:grid-cols-2">
-          <TextSection title="AI Summary" text="当前接口未返回完整 AI summary。PDF 解析与 note 生成完成后，可从 refined 文档或 note 中提取摘要展示。" />
+          <TextSection title="AI Summary" text={paper.summary || "暂无真实 summary。请生成 note/refined 或手动补充 metadata.summary。"} />
+          <TextSection title="Abstract" text={paper.abstract || "暂无真实 abstract。请刷新元数据或手动补充。"} />
           <TextSection title="Notes" text={paper.note_path ? paper.note_path : "尚未生成 note。"} />
           <TextSection title="Figures" text={paper.images_path ? paper.images_path : "暂无 figures 路径。"} />
-          <TextSection title="Related Papers" text="相关论文关系暂未接入。" />
+          <TextSection title="Related Papers" text="暂无本地相关论文推荐数据。" />
         </section>
       </PageShell>
 
@@ -396,7 +383,7 @@ function mergeCurrentPaper(papers: PaperRecord[], paper: PaperRecord | null): Pa
   return [...papers, paper];
 }
 
-function ActionButton({ disabled, icon, label, onClick, reason }: { label: string; icon?: React.ReactNode; disabled: boolean; reason?: string; onClick: () => void }) {
+function ActionButton({ disabled, icon, label, onClick, reason }: { label: string; icon?: ReactNode; disabled: boolean; reason?: string; onClick: () => void }) {
   return (
     <DisabledReasonTooltip reason={disabled ? reason : undefined}>
       <Button size="sm" variant="outline" disabled={disabled} onClick={onClick}>

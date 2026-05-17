@@ -36,15 +36,8 @@ def dashboard_discover(
     return envelope(service.dashboard_discover())
 
 
-@router.get("/acquire", response_model=APIEnvelope)
-def dashboard_acquire(
+@router.get("/papers", response_model=APIEnvelope)
+def dashboard_papers(
     service: PaperService = Depends(get_paper_service),
 ) -> APIEnvelope:
-    return envelope(service.dashboard_acquire())
-
-
-@router.get("/library", response_model=APIEnvelope)
-def dashboard_library(
-    service: PaperService = Depends(get_paper_service),
-) -> APIEnvelope:
-    return envelope(service.dashboard_library())
+    return envelope(service.dashboard_papers())

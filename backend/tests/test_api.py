@@ -159,6 +159,103 @@ def test_generate_paper_note_endpoint_creates_missing_note(tmp_path: Path) -> No
     assert payload["note_review_status"] == "pending"
 
 
+def test_import_title_only_refresh_metadata_and_content_endpoints(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        response = test_client.post(
+            "/api/papers/import",
+            json={
+                "title": "LoRA: Low-Rank Adaptation of Large Language Models",
+                "authors": ["Edward Hu"],
+                "url": "https://arxiv.org/abs/2106.09685",
+                "refresh_metadata": True,
+            },
+        )
+        payload = response.json()["data"]
+        paper_id = payload["paper_id"]
+        content = test_client.get(f"/api/papers/{paper_id}/content")
+        sources = test_client.get(f"/api/papers/{paper_id}/metadata/sources")
+
+    assert response.status_code == 200
+    assert payload["title"] == "LoRA: Low-Rank Adaptation of Large Language Models"
+    assert payload["asset_status"] == "missing_pdf"
+    assert payload["stage"] == "library"
+    assert payload["review_status"] == "accepted"
+    assert payload["authors"] == ["Edward Hu"]
+    assert payload["arxiv_id"] == "2106.09685"
+    assert Path(payload["metadata_json_path"]).exists()
+    paper_dir = Path(payload["path"])
+    assert (paper_dir / "metadata_sources.json").exists()
+    assert (paper_dir / "metadata_refresh.jsonl").exists()
+    assert content.status_code == 200
+    assert content.json()["data"]["note_preview"]
+    assert sources.status_code == 200
+    assert sources.json()["data"]["field_provenance"]["arxiv_id"] == "local-refresh"
+
+
+def test_update_metadata_star_and_research_logs_endpoints(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        imported = test_client.post("/api/papers/import", json={"title": "Metadata API Sample"})
+        paper_id = imported.json()["data"]["paper_id"]
+        metadata = test_client.patch(
+            f"/api/papers/{paper_id}/metadata",
+            json={"abstract": "Real abstract.", "summary": "Real summary.", "tags": ["paper", "api"]},
+        )
+        starred = test_client.patch(f"/api/papers/{paper_id}/star", json={"starred": True})
+        log = test_client.post(
+            f"/api/papers/{paper_id}/research-logs",
+            json={"title": "阅读记录", "bullets": ["记录真实结论"], "next_steps": ["复看实验"]},
+        )
+        logs = test_client.get(f"/api/papers/{paper_id}/research-logs")
+        detail = test_client.get(f"/api/papers/{paper_id}")
+
+    assert metadata.status_code == 200
+    assert metadata.json()["data"]["abstract"] == "Real abstract."
+    assert metadata.json()["data"]["summary"] == "Real summary."
+    assert starred.status_code == 200
+    assert starred.json()["data"]["starred"] is True
+    assert log.status_code == 200
+    assert log.json()["data"]["bullets"] == ["记录真实结论"]
+    assert logs.status_code == 200
+    assert logs.json()["data"]["total"] == 1
+    assert detail.json()["data"]["starred"] is True
+
+
+def test_search_agent_settings_and_search_batch_endpoints(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        default_settings = test_client.get("/api/settings/search-agent")
+        invalid_settings = test_client.patch("/api/settings/search-agent", json={"prompt_template": "missing placeholder"})
+        settings = test_client.patch(
+            "/api/settings/search-agent",
+            json={
+                "command_template": "codex --exec \"{keywords}\"",
+                "prompt_template": "Search papers for {keywords} in {venue}",
+                "max_results": 7,
+                "default_source": "arxiv",
+            },
+        )
+        batch = test_client.post(
+            "/api/discover/search-batches",
+            json={"keywords": "test-time scaling", "venue": "ICLR", "year_start": 2024, "year_end": 2026},
+        )
+        job_id = batch.json()["data"]["job"]["job_id"]
+        job = test_client.get(f"/api/discover/search-jobs/{job_id}")
+        discover = test_client.get("/api/dashboard/discover")
+
+    assert default_settings.status_code == 200
+    assert "{keywords}" in default_settings.json()["data"]["prompt_template"]
+    assert invalid_settings.status_code == 400
+    assert settings.status_code == 200
+    assert settings.json()["data"]["max_results"] == 7
+    assert batch.status_code == 200
+    batch_data = batch.json()["data"]
+    assert batch_data["batch"]["candidate_total"] == 1
+    assert batch_data["candidates"][0]["title"] == "test-time scaling"
+    assert Path(batch_data["batch"]["path"], "candidates.json").exists()
+    assert job.status_code == 200
+    assert "test-time scaling" in job.json()["data"]["rendered_prompt"]
+    assert discover.json()["data"]["summary"]["batch_total"] == 1
+
+
 def test_ingest_endpoint_creates_needs_pdf_record(tmp_path: Path) -> None:
     source_dir = create_source_paper(tmp_path / "incoming", title="API Ingest Sample", with_pdf=False)
 
@@ -261,39 +358,6 @@ def test_mark_and_reject_endpoints(tmp_path: Path) -> None:
     assert processed.json()["data"]["status"] == "processed"
     assert rejected.json()["data"]["status"] == "rejected"
     assert not Path(rejected.json()["data"]["path"]).exists()
-
-
-def test_accept_endpoint_moves_parsed_acquire_paper_into_library(tmp_path: Path) -> None:
-    with isolated_client(tmp_path) as test_client:
-        paper_dir = tmp_path / "data" / "Acquire" / "curated" / "accept-api-sample"
-        paper_dir.mkdir(parents=True, exist_ok=True)
-        write_sample_pdf(paper_dir / "paper.pdf")
-        write_text(paper_dir / "note.md", "---\ntitle: Accept API Sample\n---\n")
-        write_yaml(
-            paper_dir / "metadata.yaml",
-            {
-                "title": "Accept API Sample",
-                "domain": "Speech",
-                "area": "TTS",
-                "topic": "Control",
-                "asset_status": "pdf_ready",
-                "parser_status": "parsed",
-                "review_status": "pending",
-                "note_status": "template",
-            },
-        )
-        app.state.library.repository.update_paper_state(paper_dir, {})
-        record = app.state.library.get_paper("Acquire__curated__accept-api-sample")
-        assert record is not None
-
-        response = test_client.post(f"/api/papers/{record.paper_id}/accept", json={})
-
-    assert response.status_code == 200
-    payload = response.json()["data"]
-    assert payload["stage"] == "library"
-    assert payload["review_status"] == "accepted"
-    assert payload["status"] == "processed"
-    assert payload["capabilities"]["accept"] is False
 
 
 def test_update_classification_endpoint_moves_library_paper(tmp_path: Path) -> None:
@@ -420,11 +484,11 @@ def test_dashboard_endpoints_tolerate_invalid_note_front_matter(tmp_path: Path) 
         assert ingest.status_code == 200
 
         discover = test_client.get("/api/dashboard/discover")
-        acquire = test_client.get("/api/dashboard/acquire")
+        papers_dashboard = test_client.get("/api/dashboard/papers")
         papers = test_client.get("/api/papers")
 
     assert discover.status_code == 200
-    assert acquire.status_code == 200
+    assert papers_dashboard.status_code == 200
     assert papers.status_code == 200
 
 
@@ -458,6 +522,37 @@ def test_candidate_decision_endpoint(tmp_path: Path) -> None:
     assert reject_response.status_code == 200
     assert reject_response.json()["data"]["decision"] == "reject"
     assert not artifact_dir.exists()
+    assert not batch_dir.exists()
+
+
+def test_candidate_batch_decision_physically_deletes_candidates(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        batch_dir = tmp_path / "data" / "Discover" / "search_batches" / "batch-delete"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        artifact_a = batch_dir / "results" / "candidate-a"
+        artifact_b = batch_dir / "results" / "candidate-b"
+        artifact_a.mkdir(parents=True, exist_ok=True)
+        artifact_b.mkdir(parents=True, exist_ok=True)
+        write_text(artifact_a / "metadata.json", '{"title": "A"}\n')
+        write_text(artifact_b / "metadata.json", '{"title": "B"}\n')
+        write_text(
+            batch_dir / "candidates.json",
+            '{\n'
+            '  "candidates": [\n'
+            '    {"id": "A", "title": "A", "result_path": "Discover/search_batches/batch-delete/results/candidate-a"},\n'
+            '    {"id": "B", "title": "B", "result_path": "Discover/search_batches/batch-delete/results/candidate-b"}\n'
+            "  ]\n"
+            "}\n",
+        )
+        response = test_client.post(
+            "/api/discover/batches/batch-delete/candidates/batch-decision",
+            json={"decision": "reject", "candidate_ids": ["A", "B"]},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["total"] == 2
+    assert not artifact_a.exists()
+    assert not artifact_b.exists()
     assert not batch_dir.exists()
 
 
@@ -506,13 +601,9 @@ def test_keep_parse_accept_flow_moves_candidate_into_library(tmp_path: Path, mon
         assert keep_response.status_code == 200
         assert keep_response.json()["data"]["decision"] == "keep"
 
-        acquire_payload = test_client.get("/api/dashboard/acquire")
-        assert acquire_payload.status_code == 200
-        assert acquire_payload.json()["data"]["queue"] == []
-
-        library_payload = test_client.get("/api/dashboard/library")
-        assert library_payload.status_code == 200
-        library_data = library_payload.json()["data"]
+        papers_payload = test_client.get("/api/dashboard/papers")
+        assert papers_payload.status_code == 200
+        library_data = papers_payload.json()["data"]
         library_papers = library_data["papers"]
         assert library_data["paths"]["library_root"].endswith("01_Papers")
         assert len(library_papers) == 1
@@ -552,9 +643,9 @@ def test_keep_parse_accept_flow_moves_candidate_into_library(tmp_path: Path, mon
         assert parsed_paper["parser_status"] == "parsed"
         assert parsed_paper["error"] == ""
 
-        library_payload = test_client.get("/api/dashboard/library")
-        assert library_payload.status_code == 200
-        library_papers = library_payload.json()["data"]["papers"]
+        papers_payload = test_client.get("/api/dashboard/papers")
+        assert papers_payload.status_code == 200
+        library_papers = papers_payload.json()["data"]["papers"]
         assert any(paper["paper_id"] == paper_id for paper in library_papers)
 
 
@@ -654,3 +745,24 @@ def test_batch_deleted_after_last_pending_candidate_is_resolved(tmp_path: Path) 
     assert response.status_code == 200
     assert response.json()["data"]["decision"] == "keep"
     assert batch_dir.exists() is False
+
+
+def test_create_library_folder_endpoint(tmp_path: Path) -> None:
+    with isolated_client(tmp_path) as test_client:
+        response = test_client.post(
+            "/api/papers/library-folders",
+            json={"path": "Computer-Vision/Video-Understanding/New-Topic"},
+        )
+        outside_response = test_client.post(
+            "/api/papers/library-folders",
+            json={"path": "../outside"},
+        )
+        dashboard_response = test_client.get("/api/dashboard/papers")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["relative_path"] == "Computer-Vision/Video-Understanding/New-Topic"
+    assert Path(data["path"]).exists()
+    assert outside_response.status_code == 400
+    assert dashboard_response.status_code == 200
+    assert "Computer-Vision/Video-Understanding/New-Topic" in dashboard_response.json()["data"]["folders"]

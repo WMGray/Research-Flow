@@ -24,13 +24,7 @@ class DiscoverDashboardData(BaseModel):
     batches: list[BatchResponse]
     candidates: list[CandidateResponse]
 
-
-class AcquireDashboardData(BaseModel):
-    summary: dict[str, int]
-    queue: list[PaperResponse]
-
-
-class LibraryDashboardData(BaseModel):
+class PapersDashboardData(BaseModel):
     summary: dict[str, int]
     papers: list[PaperResponse]
     paths: dict[str, str]

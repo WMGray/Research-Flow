@@ -1,6 +1,6 @@
 # Frontend
 
-前端采用 React + TypeScript + Vite，当前只落地 HomePage、基础布局与占位路由。
+前端采用 React + TypeScript + Vite，当前主工作流已经收敛为 `Home -> Discover -> Papers`。
 
 ## 运行
 
@@ -24,5 +24,9 @@ cmd /c npm run lint
 
 ## 当前页面
 
-- `/`：HomePage，展示总览统计、研究信息、待处理队列、Dashboard 跳转与 Recent Batches
-- `/overview`、`/discover`、`/acquire`、`/library`、`/runtime`、`/logs`：占位页
+- `/`：HomePage，展示总览统计、研究信息、待处理队列与最近 batch
+- `/discover`：候选论文发现与筛选
+- `/papers`、`/papers/:paperId`：论文库工作台与详情面板
+- `/uncategorized`：未分类论文视图
+- `/archive`：归档只读视图
+- `/settings`：配置页

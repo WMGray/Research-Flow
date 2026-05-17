@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Download,
   FileText,
   FolderOpen,
   Image,
@@ -26,7 +25,6 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PaperRecord } from "@/lib/api";
-import { paperSummary } from "@/lib/format";
 import { derivePaperStatus, type ClassificationOptionSet } from "@/lib/libraryView";
 import { cn } from "@/lib/utils";
 
@@ -152,7 +150,11 @@ export function PaperDetailContent({ classificationOptions, onGenerateNote, onMe
           </Section>
 
           <Section id="summary" icon={Sparkles} open={openSections.has("summary")} title="AI Summary" onToggle={toggle}>
-            <p className="text-sm leading-6 text-muted-foreground">{paperSummary(paper)}. The current dashboard payload does not include a full AI summary; generated note and refined artifacts can be opened from the paths above.</p>
+            <p className="text-sm leading-6 text-muted-foreground">{paper.summary || "暂无真实 summary。请生成 note/refined 或手动补充 metadata.summary。"}</p>
+          </Section>
+
+          <Section id="abstract" icon={FileText} open={openSections.has("summary")} title="Abstract" onToggle={toggle}>
+            <p className="text-sm leading-6 text-muted-foreground">{paper.abstract || "暂无真实 abstract。请刷新元数据或手动补充。"}</p>
           </Section>
 
           <Section id="notes" icon={StickyNote} open={openSections.has("notes")} title="Notes" onToggle={toggle}>
@@ -168,7 +170,7 @@ export function PaperDetailContent({ classificationOptions, onGenerateNote, onMe
           </Section>
 
           <Section id="related" icon={Network} open={openSections.has("related")} title="Related Papers" onToggle={toggle}>
-            <EmptyCopy text="Related paper links are not connected yet." />
+            <EmptyCopy text="暂无本地相关论文推荐数据。" />
           </Section>
         </div>
       </div>
@@ -189,7 +191,6 @@ function DetailActions({
 }) {
   const parseReason = parseDisabledReason(paper, onParsePdf);
   const noteReason = noteDisabledReason(paper, onGenerateNote);
-  const downloadReason = downloadDisabledReason(paper);
   const folderReason = folderDisabledReason(paper, onOpenFolder);
 
   return (
@@ -210,12 +211,6 @@ function DetailActions({
         <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled={Boolean(folderReason)} onClick={() => void onOpenFolder?.(paper)}>
           <FolderOpen className="h-3.5 w-3.5" />
           Open
-        </Button>
-      </DisabledReasonTooltip>
-      <DisabledReasonTooltip reason={downloadReason}>
-        <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled>
-          <Download className="h-3.5 w-3.5" />
-          Download PDF
         </Button>
       </DisabledReasonTooltip>
     </div>
@@ -314,11 +309,6 @@ function noteDisabledReason(paper: PaperRecord, handler?: (paper: PaperRecord) =
   if (paper.parser_status !== "parsed") return "Parse the PDF before generating a note.";
   if (!paper.capabilities.generate_note) return paper.note_path ? "A note already exists." : "The current workflow state does not allow note generation.";
   return undefined;
-}
-
-function downloadDisabledReason(paper: PaperRecord): string {
-  if (paper.paper_path) return "The local PDF is already bound; direct download is not available yet.";
-  return "The backend does not expose a PDF download endpoint yet.";
 }
 
 function Section({

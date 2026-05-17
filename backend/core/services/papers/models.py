@@ -20,6 +20,24 @@ class IngestPaperInput:
 
 
 @dataclass(frozen=True, slots=True)
+class ImportPaperInput:
+    title: str
+    source: Path | None = None
+    domain: str = ""
+    area: str = ""
+    topic: str = ""
+    authors: list[str] = field(default_factory=list)
+    year: int | None = None
+    venue: str = ""
+    doi: str = ""
+    arxiv_id: str = ""
+    url: str = ""
+    abstract: str = ""
+    summary: str = ""
+    tags: list[str] = field(default_factory=default_tags)
+
+
+@dataclass(frozen=True, slots=True)
 class GenerateNoteInput:
     title: str = ""
     year: int | str | None = None
@@ -105,6 +123,11 @@ class CandidateRecord:
     quality: int
     relevance: int
     recommendation_reason: str
+    abstract: str
+    url: str
+    doi: str
+    arxiv_id: str
+    pdf_url: str
     landing_status: str
     result_path: str
     updated_at: str
@@ -185,6 +208,12 @@ class PaperRecord:
     year: int | None
     venue: str
     doi: str
+    authors: list[str]
+    abstract: str
+    summary: str
+    url: str
+    arxiv_id: str
+    starred: bool
     tags: list[str]
     path: str
     paper_path: str

@@ -44,7 +44,7 @@ export function matchesLibraryFolderNode(paper: PaperRecord, node: LibraryFolder
     return true;
   }
   const folderPath = relativeLibraryFolderPath(paper, libraryRoot);
-  return folderPath === node.path || folderPath.startsWith(`${node.path}/`);
+  return folderPath === node.path;
 }
 
 export function relativeLibraryFolderPath(paper: Pick<PaperRecord, "path">, libraryRoot = ""): string {

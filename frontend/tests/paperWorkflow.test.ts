@@ -3,12 +3,36 @@ import test from "node:test";
 
 import type { CandidateRecord } from "../src/lib/api.js";
 import { buildClassificationOptions, derivePaperStatus, filterCandidates, filterPapersByClassification, getClassificationChoices } from "../src/lib/libraryView.js";
-import { getAcquireActionState, isPaperParsed, matchesLibraryFilter } from "../src/lib/paperWorkflow.js";
 
-type TestPaper = Parameters<typeof getAcquireActionState>[0] & {
+type TestPaper = {
+  stage: string;
+  asset_status: string;
+  parser_status: string;
+  review_status: string;
+  note_path: string;
+  paper_path: string;
+  capabilities: {
+    parse: boolean;
+    accept: boolean;
+    generate_note: boolean;
+    review_refined: boolean;
+    review_note: boolean;
+    delete: boolean;
+  };
+  parser_artifacts: {
+    text_path: string;
+    sections_path: string;
+    refined_path: string;
+  };
   paper_id: string;
   title: string;
   slug: string;
+  authors: string[];
+  abstract: string;
+  summary: string;
+  url: string;
+  arxiv_id: string;
+  starred: boolean;
   status: string;
   workflow_status: string;
   domain: string;
@@ -43,6 +67,12 @@ function createPaper(overrides: Partial<TestPaper> = {}): TestPaper {
     paper_id: "Acquire__curated__sample",
     title: "Sample Paper",
     slug: "sample-paper",
+    authors: [],
+    abstract: "",
+    summary: "",
+    url: "",
+    arxiv_id: "",
+    starred: false,
     stage: "acquire",
     status: "parse-pending",
     workflow_status: "not_started",
@@ -108,71 +138,17 @@ function createCandidate(overrides: Partial<CandidateRecord> = {}): CandidateRec
     quality: 80,
     relevance: 90,
     recommendation_reason: "Relevant.",
+    abstract: "",
+    url: "",
+    doi: "",
+    arxiv_id: "",
+    pdf_url: "",
     landing_status: "downloaded",
     result_path: "C:/tmp/candidate",
     updated_at: "2026-05-15T00:00:00Z",
     ...overrides,
   };
 }
-
-test("capabilities drive acquire actions", () => {
-  const paper = createPaper({
-    parser_status: "failed",
-    capabilities: {
-      parse: true,
-      accept: true,
-      generate_note: false,
-      review_refined: true,
-      review_note: false,
-      delete: true,
-    },
-  });
-
-  const state = getAcquireActionState(paper);
-
-  assert.equal(state.parseLabel, "Retry Parse");
-  assert.equal(state.canParse, true);
-  assert.equal(state.canAccept, true);
-  assert.equal(state.canGenerateNote, false);
-  assert.equal(state.canDelete, true);
-});
-
-test("parsed state does not depend on refined artifact path", () => {
-  const paper = createPaper({
-    parser_status: "parsed",
-    parser_artifacts: {
-      text_path: "C:/tmp/Sample/parsed/text.md",
-      sections_path: "C:/tmp/Sample/parsed/sections.json",
-      refined_path: "",
-    },
-  });
-
-  const state = getAcquireActionState(paper);
-
-  assert.equal(isPaperParsed(paper), true);
-  assert.equal(state.parsed, true);
-  assert.equal(state.hasRefinedArtifact, false);
-});
-
-test("library filters use new workflow fields instead of compat status", () => {
-  const pendingReviewPaper = createPaper({
-    stage: "library",
-    status: "parse-pending",
-    parser_status: "parsed",
-    review_status: "pending",
-  });
-  const acceptedPaper = createPaper({
-    stage: "library",
-    status: "needs-review",
-    parser_status: "parsed",
-    review_status: "accepted",
-  });
-
-  assert.equal(matchesLibraryFilter(pendingReviewPaper, "pending-review"), true);
-  assert.equal(matchesLibraryFilter(pendingReviewPaper, "accepted"), false);
-  assert.equal(matchesLibraryFilter(acceptedPaper, "accepted"), true);
-  assert.equal(matchesLibraryFilter(acceptedPaper, "pending-review"), false);
-});
 
 test("derive paper status prefers workflow_status", () => {
   const paper = createPaper({

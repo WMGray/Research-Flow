@@ -142,19 +142,16 @@ def test_research_vault_accept_moves_curated_into_01_papers(tmp_path: Path) -> N
     assert not (vault / "02_Inbox" / "02_Curated" / "curated-paper").exists()
 
 
-def test_research_vault_reject_archives_without_deleting(tmp_path: Path) -> None:
+def test_research_vault_reject_deletes_without_archive_restore(tmp_path: Path) -> None:
     vault = create_research_vault(tmp_path)
     library = PaperLibrary(vault, data_layout="research_vault")
     record = next(paper for paper in library.list_papers() if paper.title == "Curated Paper")
 
     rejected = library.reject_paper(record.paper_id)
 
-    archive_dir = vault / "06_Archives" / "curated-paper"
     assert rejected.status == "rejected"
     assert rejected.rejected is True
-    assert Path(rejected.path) == archive_dir
-    assert archive_dir.exists()
-    assert (archive_dir / "paper.pdf").exists()
+    assert not (vault / "06_Archives" / "curated-paper").exists()
     assert not Path(record.path).exists()
 
 
@@ -174,16 +171,14 @@ def test_research_vault_api_config_and_dashboards(tmp_path: Path) -> None:
     with research_vault_client(vault) as test_client:
         config = test_client.get("/api/config")
         discover = test_client.get("/api/dashboard/discover")
-        acquire = test_client.get("/api/dashboard/acquire")
-        library_payload = test_client.get("/api/dashboard/library")
+        papers_payload = test_client.get("/api/dashboard/papers")
 
     assert config.status_code == 200
     config_data = config.json()["data"]
     assert config_data["data_layout"] == "research_vault"
-    assert config_data["write_policy"] == "direct-archive-reject"
+    assert config_data["write_policy"] == "direct-delete-reject"
     assert config_data["paths"]["search_batches_root"]["exists"] is True
     assert config_data["paths"]["curated_root"]["exists"] is True
-    assert config_data["paths"]["archive_root"]["exists"] is True
+    assert "archive_root" in config_data["paths"]
     assert discover.json()["data"]["summary"]["batch_total"] == 1
-    assert acquire.json()["data"]["summary"]["curated_total"] == 1
-    assert library_payload.json()["data"]["summary"]["library_total"] == 1
+    assert papers_payload.json()["data"]["summary"]["library_total"] == 1

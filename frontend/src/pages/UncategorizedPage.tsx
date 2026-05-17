@@ -11,8 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useDialog } from "@/components/ui/DialogProvider";
-import { fetchLibraryDashboard, updatePaperClassification, type PaperRecord } from "@/lib/api";
-import { formatDate, paperSummary } from "@/lib/format";
+import { fetchPapersDashboard, updatePaperClassification, type PaperRecord } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import {
   DOMAIN_TREE_SEEDS,
   type MissingField,
@@ -55,7 +55,7 @@ export function UncategorizedPage() {
   const load = async (): Promise<PaperRecord[]> => {
     setLoading(true);
     try {
-      const payload = await fetchLibraryDashboard();
+      const payload = await fetchPapersDashboard();
       const queue = payload.data.papers.filter(isTriagePaper);
       setPapers(queue);
       setError("");
@@ -139,7 +139,7 @@ export function UncategorizedPage() {
     <PageShell
       actions={
         <Button asChild size="sm" variant="outline">
-          <Link to="/library">
+          <Link to="/papers">
             Back to Library
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -263,7 +263,7 @@ function EvidencePanel({ paper }: { paper: PaperRecord | null }) {
 
           <EvidenceBlock title="Abstract">
             <p className="text-sm leading-6 text-muted-foreground">
-              {paperSummary(paper)}. The current API payload does not include abstract, so this triage view uses available metadata as evidence for now.
+              {paper.abstract || "暂无真实 abstract。请刷新元数据或手动补充。"}
             </p>
           </EvidenceBlock>
 
@@ -351,7 +351,7 @@ function EditorPanel({
             Skip
           </Button>
         </div>
-        <p className="text-xs leading-5 text-muted-foreground">Auto Suggest uses a local mock suggestedClassification until a dedicated backend suggestion endpoint exists.</p>
+        <p className="text-xs leading-5 text-muted-foreground">Auto Suggest 仅基于本地标题、标签和分类字段给出建议。</p>
       </CardContent>
     </Card>
   );

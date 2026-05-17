@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.library import PaperLibrary, slugify, write_json, write_text, write_yaml
+from backend.core.services.papers.models import ImportPaperInput
 from backend.core.services.papers import parser as paper_parser
 from backend.core.services.papers.parser import PdfParserResult
 from backend.core.services.papers.utils import read_json
@@ -157,6 +158,49 @@ def test_ingest_generates_note_and_needs_pdf_status(tmp_path: Path) -> None:
     assert (target_dir / "note.md").exists()
     assert (target_dir / "metadata.yaml").exists()
     assert not (target_dir / "paper.pdf").exists()
+
+
+def test_import_title_only_creates_metadata_only_library_record(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+
+    record = library.import_paper(
+        ImportPaperInput(
+            title="Manual Import Sample",
+            authors=["Alice", "Bob"],
+            abstract="Real abstract.",
+        )
+    )
+
+    target_dir = Path(record.path)
+    assert record.stage == "library"
+    assert record.review_status == "accepted"
+    assert record.asset_status == "missing_pdf"
+    assert record.authors == ["Alice", "Bob"]
+    assert record.abstract == "Real abstract."
+    assert (target_dir / "metadata.json").exists()
+    assert (target_dir / "metadata.yaml").exists()
+    assert (target_dir / "note.md").exists()
+    assert not (target_dir / "paper.pdf").exists()
+
+
+def test_refresh_metadata_writes_sources_and_history(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    library = PaperLibrary(data_root)
+    record = library.import_paper(
+        ImportPaperInput(
+            title="Refresh Metadata Sample",
+            url="https://arxiv.org/abs/2401.12345",
+        )
+    )
+
+    refreshed = library.refresh_metadata(record.paper_id)
+    paper_dir = Path(refreshed.path)
+    sources = read_json(paper_dir / "metadata_sources.json")
+
+    assert refreshed.arxiv_id == "2401.12345"
+    assert sources["field_provenance"]["arxiv_id"] == "local-refresh"
+    assert (paper_dir / "metadata_refresh.jsonl").read_text(encoding="utf-8").strip()
 
 
 def test_generate_note_for_paper_does_not_overwrite_by_default(tmp_path: Path) -> None:

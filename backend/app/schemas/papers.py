@@ -3,6 +3,24 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class ImportPaperRequest(BaseModel):
+    title: str
+    source: str | None = None
+    domain: str = ""
+    area: str = ""
+    topic: str = ""
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    venue: str = ""
+    doi: str = ""
+    arxiv_id: str = ""
+    url: str = ""
+    abstract: str = ""
+    summary: str = ""
+    tags: list[str] = Field(default_factory=lambda: ["paper"])
+    refresh_metadata: bool = False
+
+
 class IngestRequest(BaseModel):
     source: str
     domain: str | None = None
@@ -32,10 +50,6 @@ class ParsePdfRequest(BaseModel):
     parser: str = "auto"
 
 
-class AcceptPaperRequest(BaseModel):
-    pass
-
-
 class ReviewDecisionRequest(BaseModel):
     decision: str
     comment: str = ""
@@ -53,6 +67,71 @@ class UpdateClassificationRequest(BaseModel):
     paper_path: str | None = None
     note_path: str | None = None
     refined_path: str | None = None
+
+
+class UpdateMetadataRequest(BaseModel):
+    title: str | None = None
+    authors: list[str] | None = None
+    year: int | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    url: str | None = None
+    abstract: str | None = None
+    summary: str | None = None
+    domain: str | None = None
+    area: str | None = None
+    topic: str | None = None
+    tags: list[str] | None = None
+
+
+class RefreshMetadataRequest(BaseModel):
+    title: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    url: str | None = None
+    force: bool = False
+
+
+class UpdateStarRequest(BaseModel):
+    starred: bool
+
+
+class BindAssetsRequest(BaseModel):
+    source: str
+    move: bool = False
+
+
+class ResearchLogRequest(BaseModel):
+    title: str = "阅读记录"
+    bullets: list[str] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+    tasks: list[dict[str, str | bool]] = Field(default_factory=list)
+
+
+class SearchAgentSettingsRequest(BaseModel):
+    command_template: str | None = None
+    prompt_template: str | None = None
+    max_results: int | None = None
+    default_source: str | None = None
+
+
+class CreateSearchBatchRequest(BaseModel):
+    keywords: str
+    venue: str = ""
+    year_start: int | None = None
+    year_end: int | None = None
+    source: str = ""
+    max_results: int | None = None
+
+
+class BatchCandidateDecisionRequest(BaseModel):
+    decision: str
+    candidate_ids: list[str] = Field(default_factory=list)
+
+
+class CreateLibraryFolderRequest(BaseModel):
+    path: str
 
 
 class CandidateDecisionRequest(BaseModel):
@@ -84,6 +163,12 @@ class CandidateResponse(BaseModel):
     quality: int
     relevance: int
     landing_status: str
+    recommendation_reason: str
+    abstract: str
+    url: str
+    doi: str
+    arxiv_id: str
+    pdf_url: str
     result_path: str
     updated_at: str
 
@@ -128,6 +213,12 @@ class PaperResponse(BaseModel):
     year: int | None
     venue: str
     doi: str
+    authors: list[str]
+    abstract: str
+    summary: str
+    url: str
+    arxiv_id: str
+    starred: bool
     tags: list[str]
     path: str
     paper_path: str

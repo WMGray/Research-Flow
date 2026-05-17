@@ -86,8 +86,8 @@ export function HomePage() {
   const overviewMetrics = [
     { key: "papers", label: "论文总量", icon: FileText, value: totals.papers ?? stats.total },
     { key: "batches", label: "检索批次", icon: Search, value: totals.batches ?? 0 },
-    { key: "curated", label: "待处理", icon: Inbox, value: totals.curated ?? queueItems.length },
-    { key: "library", label: "已入库", icon: BookOpen, value: totals.library ?? 0 },
+    { key: "queued", label: "待处理", icon: Inbox, value: totals.queued ?? queueItems.length },
+    { key: "indexed", label: "已收录", icon: BookOpen, value: totals.library ?? 0 },
     { key: "needs_review", label: "待审阅", icon: Clock, value: totals.needs_review ?? 0 },
     { key: "parse_failed", label: "解析失败", icon: AlertCircle, value: totals.parse_failed ?? stats.parseFailed },
     { key: "unclassified", label: "未分类", icon: Tags, value: stats.unclassified, to: "/uncategorized" },
@@ -104,7 +104,7 @@ export function HomePage() {
             <Link to="/discover">发现论文</Link>
           </Button>
           <Button asChild size="sm">
-            <Link to="/library">打开文库</Link>
+            <Link to="/papers">打开 Papers</Link>
           </Button>
         </>
       }
@@ -144,7 +144,7 @@ export function HomePage() {
           <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 pb-3">
             <CardTitle className="text-base">最近导入</CardTitle>
             <Button asChild size="sm" variant="ghost">
-              <Link to="/library">
+              <Link to="/papers">
                 查看全部
                 <ArrowRight className="h-4 w-4" />
               </Link>
@@ -238,7 +238,7 @@ function PaperRow({ busyId, onQuickAction, paper }: { paper: PaperRecord; busyId
   return (
     <div className="grid gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/60">
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <Link className="truncate text-sm font-medium hover:underline" to={`/library/${encodeURIComponent(paper.paper_id)}`}>
+        <Link className="truncate text-sm font-medium hover:underline" to={`/papers/${encodeURIComponent(paper.paper_id)}`}>
           {paper.title}
         </Link>
         <StatusBadge className="shrink-0" status={derivePaperStatus(paper)} />
@@ -249,7 +249,7 @@ function PaperRow({ busyId, onQuickAction, paper }: { paper: PaperRecord; busyId
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Button asChild size="sm" variant="outline">
-          <Link to={`/library/${encodeURIComponent(paper.paper_id)}`}>查看详情</Link>
+          <Link to={`/papers/${encodeURIComponent(paper.paper_id)}`}>查看详情</Link>
         </Button>
         <Button size="sm" variant="outline" disabled={parseBusy || !paper.paper_path} onClick={() => void onQuickAction(paper, "parse")}>
           解析 PDF
@@ -268,7 +268,7 @@ function PaperRow({ busyId, onQuickAction, paper }: { paper: PaperRecord; busyId
 
 function CompactPaperRow({ paper }: { paper: PaperRecord }) {
   return (
-    <Link className="flex min-w-0 items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/60" to={`/library/${encodeURIComponent(paper.paper_id)}`}>
+    <Link className="flex min-w-0 items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/60" to={`/papers/${encodeURIComponent(paper.paper_id)}`}>
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{paper.title}</div>
         <div className="truncate text-xs text-muted-foreground">{paperSummary(paper)}</div>
@@ -295,7 +295,7 @@ function ProgressCard({ readProgress, stats, totals }: { readProgress: number; s
           <div className="h-full rounded-full bg-emerald-600" style={{ width: `${readProgress}%` }} />
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-          <span>已解析 {stats.parsed} / 已收录 {totals.library ?? 0}</span>
+          <span>已解析 {stats.parsed} / 已收录 {totals.library ?? stats.total}</span>
           <span>已生成 Note {stats.notes} / 已解析 {stats.parsed}</span>
         </div>
       </CardContent>
@@ -305,7 +305,7 @@ function ProgressCard({ readProgress, stats, totals }: { readProgress: number; s
 
 function WorkflowFunnel({ stats, totals }: { stats: ReturnType<typeof libraryOverviewStats>; totals: Record<string, number> }) {
   const rows = [
-    ["Discover 候选", totals.curated ?? 0],
+    ["待处理", totals.queued ?? 0],
     ["已收录", totals.library ?? 0],
     ["已绑定 PDF", Math.max(stats.total - stats.missingPdf, 0)],
     ["已解析", stats.parsed],

@@ -1,4 +1,4 @@
-import { Archive, BookOpen, Check, Filter, Inbox, Search, Sparkles, Tag, Trash2, X } from "lucide-react";
+import { Archive, BookOpen, Check, Filter, Inbox, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/app/EmptyState";
@@ -20,12 +20,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDialog } from "@/components/ui/DialogProvider";
 import {
-  fetchAcquireDashboard,
   fetchDiscoverDashboard,
+  createSearchBatch,
+  setCandidateBatchDecision,
   setCandidateDecision,
   type CandidateRecord,
+  type CreateSearchBatchPayload,
   type DiscoverDashboardData,
-  type PaperRecord,
 } from "@/lib/api";
 import { filterCandidates } from "@/lib/libraryView";
 
@@ -38,7 +39,6 @@ const defaultFilters: DiscoverFilterState = {
 export function WorkflowPage() {
   const { confirm, notify } = useDialog();
   const [discoverData, setDiscoverData] = useState<DiscoverDashboardData | null>(null);
-  const [acquireQueue, setAcquireQueue] = useState<PaperRecord[]>([]);
   const [filters, setFilters] = useState<DiscoverFilterState>(defaultFilters);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
@@ -49,9 +49,8 @@ export function WorkflowPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [discoverPayload, acquirePayload] = await Promise.all([fetchDiscoverDashboard(), fetchAcquireDashboard()]);
+      const discoverPayload = await fetchDiscoverDashboard();
       setDiscoverData(discoverPayload.data);
-      setAcquireQueue(acquirePayload.data.queue);
       setError("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "加载发现数据失败");
@@ -86,7 +85,7 @@ export function WorkflowPage() {
           }
         : {
             title: "物理删除这篇候选论文？",
-            message: "将删除候选记录和已下载的候选产物，此操作不可恢复。",
+            message: "将删除候选记录和已保存的候选产物，此操作不可恢复。",
             confirmLabel: "物理删除",
             cancelLabel: "取消",
             danger: true,
@@ -110,15 +109,21 @@ export function WorkflowPage() {
       title: decision === "keep" ? "批量收录候选论文？" : "批量物理删除候选论文？",
       message: decision === "keep"
         ? `将 ${selectedCandidates.length} 篇候选论文直接写入文库。`
-        : `将物理删除 ${selectedCandidates.length} 篇候选论文及其候选产物，此操作不可恢复。`,
+        : `将物理删除 ${selectedCandidates.length} 篇候选论文及其已保存的候选产物，此操作不可恢复。`,
       confirmLabel: "确认",
       cancelLabel: "取消",
       danger: decision === "reject",
     });
     if (!accepted) return;
 
+    const candidatesByBatch = new Map<string, CandidateRecord[]>();
     for (const candidate of selectedCandidates) {
-      await setCandidateDecision(candidate.batch_id, candidate.candidate_id, decision);
+      const rows = candidatesByBatch.get(candidate.batch_id) ?? [];
+      rows.push(candidate);
+      candidatesByBatch.set(candidate.batch_id, rows);
+    }
+    for (const [batchId, rows] of candidatesByBatch.entries()) {
+      await setCandidateBatchDecision(batchId, rows.map((candidate) => candidate.candidate_id), decision);
     }
     setSelectedIds(new Set());
     await load();
@@ -127,10 +132,6 @@ export function WorkflowPage() {
   const batchActions: BatchAction[] = [
     { id: "keep", label: "批量收录", icon: <Check className="h-3.5 w-3.5" />, onClick: () => void batchDecision("keep") },
     { id: "delete", label: "批量物理删除", icon: <Trash2 className="h-3.5 w-3.5" />, variant: "destructive", onClick: () => void batchDecision("reject") },
-    { id: "ignore", label: "标记为忽略", icon: <X className="h-3.5 w-3.5" />, disabledReason: "当前后端没有单独的 ignore 状态；请使用物理删除。", onClick: () => undefined },
-    { id: "domain", label: "设置 Domain", icon: <Tag className="h-3.5 w-3.5" />, disabledReason: "候选论文 Domain 持久化接口尚未接入。", onClick: () => undefined },
-    { id: "topic", label: "设置 Topic", disabledReason: "候选论文 Topic 持久化接口尚未接入。", onClick: () => undefined },
-    { id: "priority", label: "设置优先级", icon: <Sparkles className="h-3.5 w-3.5" />, disabledReason: "后端尚未提供优先级字段。", onClick: () => undefined },
   ];
 
   return (
@@ -152,7 +153,7 @@ export function WorkflowPage() {
           <SummaryTile icon={Search} label="检索批次" value={discoverData?.summary.batch_total ?? 0} />
           <SummaryTile icon={Inbox} label={activeBatch ? "当前 Batch 候选" : "候选论文"} value={activeBatchCandidates.length} />
           <SummaryTile icon={Check} label={activeBatch ? "当前 Batch 已收录" : "已收录"} value={activeBatch?.keep_total ?? discoverData?.summary.keep_total ?? 0} />
-          <SummaryTile icon={BookOpen} label={activeBatch ? "当前 Batch 已剔除" : "待处理队列"} value={activeBatch?.reject_total ?? acquireQueue.length} />
+          <SummaryTile icon={BookOpen} label={activeBatch ? "当前 Batch 已剔除" : "已剔除"} value={activeBatch?.reject_total ?? discoverData?.summary.reject_total ?? 0} />
         </section>
 
         <DiscoverFilters
@@ -199,12 +200,22 @@ export function WorkflowPage() {
       <NewSearchDialog
         open={searchDialogOpen}
         onOpenChange={setSearchDialogOpen}
-        onSubmit={() => {
-          setSearchDialogOpen(false);
-          notify({
-            title: "新建检索暂未接入",
-            message: "检索配置 UI 已就绪，后端 search batch 创建接口接入后即可提交。",
-          });
+        onSubmit={async (payload) => {
+          try {
+            const response = await createSearchBatch(payload);
+            setSearchDialogOpen(false);
+            setFilters((current) => ({ ...current, batchId: response.data.batch.batch_id }));
+            await load();
+            notify({
+              title: "检索 Batch 已创建",
+              message: response.data.batch.batch_id,
+            });
+          } catch (err: unknown) {
+            notify({
+              title: "创建检索失败",
+              message: err instanceof Error ? err.message : "请检查关键词和 Settings prompt。",
+            });
+          }
         }}
       />
     </div>
@@ -225,22 +236,56 @@ function SummaryTile({ icon: Icon, label, value }: { icon: typeof Search; label:
   );
 }
 
-function NewSearchDialog({ onOpenChange, onSubmit, open }: { open: boolean; onOpenChange: (open: boolean) => void; onSubmit: () => void }) {
+function NewSearchDialog({
+  onOpenChange,
+  onSubmit,
+  open,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (payload: CreateSearchBatchPayload) => Promise<void>;
+}) {
+  const [keywords, setKeywords] = useState("");
+  const [venue, setVenue] = useState("");
+  const [yearStart, setYearStart] = useState("");
+  const [yearEnd, setYearEnd] = useState("");
+  const [source, setSource] = useState("arxiv");
+  const [maxResults, setMaxResults] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    const cleanKeywords = keywords.trim();
+    if (!cleanKeywords) return;
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        keywords: cleanKeywords,
+        venue: venue.trim(),
+        year_start: yearStart ? Number(yearStart) : null,
+        year_end: yearEnd ? Number(yearEnd) : null,
+        source,
+        max_results: maxResults ? Number(maxResults) : null,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>新建检索</DialogTitle>
-          <DialogDescription>配置关键词、venue、年份范围和来源。提交能力等待后端接口接入。</DialogDescription>
+          <DialogDescription>提交关键词后，后端会读取 Settings 中的 prompt template，并写出 search batch/job/candidates。</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <Input placeholder="关键词，例如 representation learning" />
-          <Input placeholder="Venue，例如 NeurIPS, ICML, ICLR" />
+          <Input autoFocus placeholder="关键词，例如 representation learning" value={keywords} onChange={(event) => setKeywords(event.target.value)} />
+          <Input placeholder="Venue，例如 NeurIPS, ICML, ICLR" value={venue} onChange={(event) => setVenue(event.target.value)} />
           <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="起始年份" type="number" />
-            <Input placeholder="结束年份" type="number" />
+            <Input placeholder="起始年份" type="number" value={yearStart} onChange={(event) => setYearStart(event.target.value)} />
+            <Input placeholder="结束年份" type="number" value={yearEnd} onChange={(event) => setYearEnd(event.target.value)} />
           </div>
-          <Select defaultValue="arxiv">
+          <Select value={source} onValueChange={setSource}>
             <SelectTrigger>
               <SelectValue placeholder="来源" />
             </SelectTrigger>
@@ -250,21 +295,15 @@ function NewSearchDialog({ onOpenChange, onSubmit, open }: { open: boolean; onOp
               <SelectItem value="local">Local</SelectItem>
             </SelectContent>
           </Select>
-          <Input placeholder="最大数量" type="number" />
-          <label className="flex items-center gap-2 text-sm">
-            <input className="h-4 w-4" type="checkbox" />
-            自动收录
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input className="h-4 w-4" type="checkbox" />
-            自动分类
-          </label>
+          <Input placeholder="最大数量" type="number" value={maxResults} onChange={(event) => setMaxResults(event.target.value)} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={onSubmit}>创建检索</Button>
+          <Button disabled={!keywords.trim() || submitting} onClick={() => void submit()}>
+            {submitting ? "创建中" : "创建检索"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

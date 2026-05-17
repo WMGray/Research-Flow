@@ -57,7 +57,7 @@ def resolve_data_layout(data_root: Path, data_layout: str = "native") -> PaperDa
             acquire_root=root / "Acquire",
             curated_root=root / "Acquire" / "curated",
             library_root=root / "01_Papers",
-            legacy_library_roots=(root / "Papers", root / "Library"),
+            legacy_library_roots=(),
             archive_root=root / "Archives",
             template_root=root / "templates",
             reject_policy="delete",
@@ -76,8 +76,8 @@ def resolve_data_layout(data_root: Path, data_layout: str = "native") -> PaperDa
             legacy_library_roots=(root / "03_Papers", root / "Papers"),
             archive_root=root / "06_Archives",
             template_root=root / "02_Inbox" / "03_Template",
-            reject_policy="archive",
-            write_policy="direct-archive-reject",
+            reject_policy="delete",
+            write_policy="direct-delete-reject",
         )
 
     raise ValueError(f"Unsupported data layout: {data_layout}")

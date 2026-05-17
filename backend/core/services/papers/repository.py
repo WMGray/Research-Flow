@@ -14,6 +14,7 @@ from backend.core.services.papers.models import (
     BatchRecord,
     CandidateRecord,
     GenerateNoteInput,
+    ImportPaperInput,
     IngestPaperInput,
     PaperCapabilities,
     PaperEventRecord,
@@ -25,7 +26,7 @@ from backend.core.services.papers.models import (
 )
 from backend.core.services.papers.layouts import PaperDataLayout, resolve_data_layout
 from backend.core.services.papers.parser import PdfParserResult
-from backend.core.services.papers.utils import load_markdown_front_matter, merge_metadata, read_json, read_text, read_yaml, slugify, utc_now, write_json, write_text, write_yaml
+from backend.core.services.papers.utils import load_markdown_front_matter, merge_metadata, read_json, read_text, read_yaml, slugify, split_front_matter, utc_now, write_json, write_text, write_yaml
 
 
 DEFAULT_NOTE_TEMPLATE = """---
@@ -57,6 +58,21 @@ $tags
 """
 
 
+DEFAULT_SEARCH_AGENT_SETTINGS = {
+    "command_template": "",
+    "prompt_template": (
+        "请围绕 {keywords} 检索候选论文。\n"
+        "Venue: {venue}\n"
+        "Year range: {year_start}-{year_end}\n"
+        "Source: {source}\n"
+        "Max results: {max_results}\n\n"
+        "请输出结构化 candidates.json，字段至少包含 title、authors、year、venue、doi、arxiv_id、url、abstract、relevance。"
+    ),
+    "max_results": 20,
+    "default_source": "manual",
+}
+
+
 class PaperRepository:
     def __init__(self, data_root: Path, data_layout: str = "native") -> None:
         self.layout: PaperDataLayout = resolve_data_layout(data_root, data_layout)
@@ -78,7 +94,7 @@ class PaperRepository:
 
     def list_papers(self) -> list[PaperRecord]:
         paper_dirs: set[Path] = set()
-        for root in (self.curated_root, self.library_root, *self.legacy_library_roots):
+        for root in self._active_paper_roots():
             if not root.exists():
                 continue
             for name in ("metadata.yaml", "metadata.json", "state.json", "paper.pdf", "note.md"):
@@ -192,6 +208,9 @@ class PaperRepository:
         for paper in self.list_papers():
             if paper.paper_id == paper_id or paper.slug == paper_id:
                 return Path(paper.path)
+        candidate = self._paper_dir_from_id(paper_id)
+        if candidate is not None:
+            return candidate
         return None
 
     def ingest(self, request: IngestPaperInput) -> PaperRecord:
@@ -256,6 +275,89 @@ class PaperRepository:
     def migrate(self, request: IngestPaperInput) -> PaperRecord:
         return self.ingest(IngestPaperInput(source=request.source, domain=request.domain, area=request.area, topic=request.topic, target_path=request.target_path, move=True))
 
+    def import_paper(self, request: ImportPaperInput) -> PaperRecord:
+        title = request.title.strip()
+        if not title:
+            raise ValueError("Title is required")
+
+        source = request.source.expanduser().resolve(strict=False) if request.source else None
+        if source is not None and not source.exists():
+            raise FileNotFoundError(source)
+
+        source_metadata = self._source_metadata(source) if source else {}
+        metadata = merge_metadata(
+            source_metadata,
+            {
+                "title": title,
+                "authors": [author.strip() for author in request.authors if author.strip()],
+                "year": request.year,
+                "venue": request.venue.strip(),
+                "doi": request.doi.strip(),
+                "arxiv_id": request.arxiv_id.strip(),
+                "url": request.url.strip(),
+                "abstract": request.abstract.strip(),
+                "summary": request.summary.strip(),
+                "domain": request.domain.strip(),
+                "area": request.area.strip(),
+                "topic": request.topic.strip(),
+                "tags": request.tags or ["paper"],
+            },
+        )
+        slug = slugify(title, fallback="paper")
+        target_dir = self._unique_library_target(self._resolve_target_path(metadata, slug))
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        if source is not None:
+            self._copy_source_assets(source, target_dir, move=False)
+
+        note_path = target_dir / "note.md"
+        if not note_path.exists():
+            write_text(note_path, self._render_note_template(metadata))
+
+        paper_path = target_dir / "paper.pdf"
+        asset_status = "pdf_ready" if paper_path.exists() else "missing_pdf"
+        classification_status = "accepted" if metadata.get("domain") and metadata.get("area") and metadata.get("topic") else "pending"
+        payload = merge_metadata(
+            metadata,
+            {
+                "updated_at": utc_now(),
+                "path": str(target_dir),
+                "paper_path": str(paper_path) if paper_path.exists() else "",
+                "note_path": str(note_path),
+                "asset_status": asset_status,
+                "parser_status": "not_started",
+                "review_status": "accepted",
+                "note_status": "template" if note_path.exists() else "missing",
+                "read_status": "unread",
+                "classification_status": classification_status,
+                "metadata_import_mode": "manual",
+            },
+        )
+        write_yaml(target_dir / "metadata.yaml", payload)
+        self.update_paper_state(
+            target_dir,
+            {
+                "asset_status": asset_status,
+                "parser_status": "not_started",
+                "review_status": "accepted",
+                "note_status": "template" if note_path.exists() else "missing",
+                "read_status": "unread",
+                "classification_status": classification_status,
+                "metadata_import_mode": "manual",
+                "error": "",
+            },
+        )
+        self._append_event(
+            target_dir,
+            "paper_imported",
+            actor="user",
+            result="success",
+            message="论文已手动导入文库。",
+            technical_detail=f"title={title}; source={source or ''}",
+            next_action="可按需刷新元数据或绑定 PDF。",
+        )
+        return self._paper_record_from_dir(target_dir)
+
     def generate_note_template(self, request: GenerateNoteInput) -> str:
         return self._render_note_template(request.to_metadata())
 
@@ -317,6 +419,275 @@ class PaperRepository:
             yaml_payload = self._apply_explicit_clears(yaml_payload, updates)
             write_yaml(paper_dir / "metadata.yaml", yaml_payload)
         return payload
+
+    def update_metadata(self, paper_id: str, updates: dict[str, Any]) -> PaperRecord:
+        paper_dir = self._require_paper_dir(paper_id)
+        clean_updates = self._metadata_payload(updates)
+        if any(key in clean_updates for key in ("domain", "area", "topic")):
+            clean_updates["classification_status"] = "classified" if str(clean_updates.get("domain") or "").strip() else "pending"
+        record = self._paper_record_from_dir(paper_dir)
+        should_move = record.stage == "library" and any(key in clean_updates for key in ("title", "domain", "area", "topic"))
+        if should_move:
+            metadata = self._apply_explicit_clears(merge_metadata(self._paper_metadata(paper_dir), clean_updates), clean_updates)
+            slug = slugify(str(metadata.get("title") or paper_dir.name), fallback=paper_dir.name)
+            target_dir = self._resolve_target_path(metadata, slug)
+            if target_dir.resolve(strict=False) != paper_dir.resolve(strict=False):
+                if target_dir.exists():
+                    target_dir = self._unique_library_target(target_dir)
+                source_parent = paper_dir.parent
+                self._transfer_tree(paper_dir, target_dir, move=True)
+                self._prune_empty_parents(source_parent, stop_at=self.library_root)
+                paper_dir = target_dir
+
+        self.update_paper_state(paper_dir, self._apply_explicit_clears(merge_metadata(clean_updates, {"error": ""}), clean_updates))
+        self._append_event(
+            paper_dir,
+            "metadata_updated",
+            actor="user",
+            result="success",
+            message="元数据已更新。",
+            technical_detail=", ".join(sorted(clean_updates.keys())),
+            next_action="检查文库显示与分类路径是否符合预期。",
+        )
+        return self._paper_record_from_dir(paper_dir)
+
+    def refresh_metadata(self, paper_id: str, query: dict[str, Any] | None = None) -> PaperRecord:
+        paper_dir = self._require_paper_dir(paper_id)
+        metadata = self._paper_metadata(paper_dir)
+        query = self._metadata_payload(query or {})
+        title = str(query.get("title") or metadata.get("title") or paper_dir.name).strip()
+        doi = str(query.get("doi") or metadata.get("doi") or "").strip()
+        arxiv_id = str(query.get("arxiv_id") or metadata.get("arxiv_id") or "").strip()
+        url = str(query.get("url") or metadata.get("url") or metadata.get("paper_url") or "").strip()
+        now = utc_now()
+
+        inferred = self._infer_metadata_fields(
+            {
+                "title": title,
+                "doi": doi,
+                "arxiv_id": arxiv_id,
+                "url": url,
+                "authors": metadata.get("authors"),
+                "abstract": metadata.get("abstract"),
+                "summary": metadata.get("summary"),
+                "venue": metadata.get("venue"),
+                "year": metadata.get("year"),
+            }
+        )
+        updates = self._metadata_payload(inferred)
+        payload = self.update_paper_state(paper_dir, updates)
+
+        sources_payload = {
+            "updated_at": now,
+            "query": {
+                "title": title,
+                "doi": doi,
+                "arxiv_id": arxiv_id,
+                "url": url,
+            },
+            "sources": [
+                {
+                    "provider": "local-refresh",
+                    "confidence": 0.55 if title else 0.0,
+                    "raw": {
+                        "title": title,
+                        "doi": doi,
+                        "arxiv_id": arxiv_id,
+                        "url": url,
+                    },
+                }
+            ],
+            "field_provenance": {
+                key: "local-refresh"
+                for key, value in updates.items()
+                if value not in (None, "", [], {})
+            },
+        }
+        write_json(paper_dir / "metadata_sources.json", sources_payload)
+        self._append_jsonl(
+            paper_dir / "metadata_refresh.jsonl",
+            {
+                "timestamp": now,
+                "query": sources_payload["query"],
+                "updated_fields": sorted(updates.keys()),
+                "confidence": sources_payload["sources"][0]["confidence"],
+            },
+        )
+        self._append_event(
+            paper_dir,
+            "metadata_refreshed",
+            actor="system",
+            result="success",
+            message="元数据刷新记录已写入。",
+            technical_detail=f"updated_fields={','.join(sorted(updates.keys()))}",
+            next_action="检查 metadata_sources.json 中的字段来源。",
+        )
+        return self._paper_record_from_dir(Path(str(payload.get("path") or paper_dir)))
+
+    def metadata_sources(self, paper_id: str) -> dict[str, Any]:
+        paper_dir = self._require_paper_dir(paper_id)
+        return self._safe_json_object(paper_dir / "metadata_sources.json")
+
+    def paper_content(self, paper_id: str, *, max_chars: int = 4000) -> dict[str, Any]:
+        paper_dir = self._require_paper_dir(paper_id)
+        metadata = self._paper_metadata(paper_dir)
+        note_text = self._read_artifact_body(paper_dir / "note.md", max_chars=max_chars)
+        refined_text = self._read_artifact_body(paper_dir / "refined.md", max_chars=max_chars)
+        parsed_text = self._read_artifact_body(paper_dir / "parsed" / "text.md", max_chars=max_chars)
+        summary = str(metadata.get("summary") or "")
+        abstract = str(metadata.get("abstract") or metadata.get("abstract_zh") or "")
+        return {
+            "paper_id": self._relative_id(paper_dir),
+            "abstract": abstract,
+            "summary": summary,
+            "note_preview": note_text,
+            "refined_preview": refined_text,
+            "parsed_preview": parsed_text,
+            "sources": {
+                "abstract": "metadata.json" if abstract else "",
+                "summary": "metadata.json" if summary else "",
+                "note_preview": "note.md" if note_text else "",
+                "refined_preview": "refined.md" if refined_text else "",
+                "parsed_preview": "parsed/text.md" if parsed_text else "",
+            },
+        }
+
+    def set_starred(self, paper_id: str, starred: bool) -> PaperRecord:
+        paper_dir = self._require_paper_dir(paper_id)
+        self.update_paper_state(paper_dir, {"starred": bool(starred)})
+        return self._paper_record_from_dir(paper_dir)
+
+    def list_research_logs(self, paper_id: str) -> list[dict[str, Any]]:
+        paper_dir = self._require_paper_dir(paper_id)
+        logs = self._read_jsonl(paper_dir / "research_logs.jsonl")
+        return sorted(logs, key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+
+    def create_research_log(self, paper_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        paper_dir = self._require_paper_dir(paper_id)
+        now = utc_now()
+        log_id = slugify(str(payload.get("title") or "research-log"), fallback="research-log")
+        existing_ids = {str(item.get("id") or "") for item in self.list_research_logs(paper_id)}
+        if log_id in existing_ids:
+            log_id = f"{log_id}-{len(existing_ids) + 1}"
+        log = self._normalize_research_log(merge_metadata(payload, {"id": log_id, "timestamp": now, "updated_at": now}))
+        self._append_jsonl(paper_dir / "research_logs.jsonl", log)
+        self.update_paper_state(paper_dir, {"research_log_status": "ready"})
+        return log
+
+    def update_research_log(self, paper_id: str, log_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        paper_dir = self._require_paper_dir(paper_id)
+        logs = self.list_research_logs(paper_id)
+        updated: dict[str, Any] | None = None
+        next_logs: list[dict[str, Any]] = []
+        for log in logs:
+            if str(log.get("id") or "") == log_id:
+                updated = self._normalize_research_log(merge_metadata(log, payload, {"id": log_id, "updated_at": utc_now()}))
+                next_logs.append(updated)
+            else:
+                next_logs.append(log)
+        if updated is None:
+            raise FileNotFoundError(log_id)
+        self._write_jsonl(paper_dir / "research_logs.jsonl", sorted(next_logs, key=lambda item: str(item.get("timestamp") or "")))
+        return updated
+
+    def delete_research_log(self, paper_id: str, log_id: str) -> None:
+        paper_dir = self._require_paper_dir(paper_id)
+        logs = self.list_research_logs(paper_id)
+        next_logs = [log for log in logs if str(log.get("id") or "") != log_id]
+        if len(next_logs) == len(logs):
+            raise FileNotFoundError(log_id)
+        self._write_jsonl(paper_dir / "research_logs.jsonl", sorted(next_logs, key=lambda item: str(item.get("timestamp") or "")))
+
+    def bind_assets(self, paper_id: str, source: Path, *, move: bool = False) -> PaperRecord:
+        paper_dir = self._require_paper_dir(paper_id)
+        resolved = source.expanduser().resolve(strict=False)
+        if not resolved.exists():
+            raise FileNotFoundError(resolved)
+        self._copy_source_assets(resolved, paper_dir, move=move)
+        asset_status = "pdf_ready" if (paper_dir / "paper.pdf").exists() else "missing_pdf"
+        self.update_paper_state(paper_dir, {"asset_status": asset_status, "error": ""})
+        return self._paper_record_from_dir(paper_dir)
+
+    def get_search_agent_settings(self) -> dict[str, Any]:
+        path = self._settings_root() / "search_agent.json"
+        stored = self._safe_json_object(path)
+        return merge_metadata(DEFAULT_SEARCH_AGENT_SETTINGS, stored)
+
+    def update_search_agent_settings(self, updates: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_search_agent_settings()
+        next_payload = merge_metadata(current, self._search_settings_payload(updates), {"updated_at": utc_now()})
+        prompt = str(next_payload.get("prompt_template") or "")
+        if "{keywords}" not in prompt:
+            raise ValueError("prompt_template must include {keywords}")
+        if int(next_payload.get("max_results") or 0) <= 0:
+            raise ValueError("max_results must be positive")
+        write_json(self._settings_root() / "search_agent.json", next_payload)
+        return next_payload
+
+    def create_search_batch(self, request: dict[str, Any]) -> dict[str, Any]:
+        keywords = str(request.get("keywords") or "").strip()
+        if not keywords:
+            raise ValueError("keywords is required")
+        settings = self.get_search_agent_settings()
+        max_results = self._int_or_none(request.get("max_results")) or int(settings.get("max_results") or 20)
+        source = str(request.get("source") or settings.get("default_source") or "manual")
+        batch_id = self._unique_search_batch_id(slugify(keywords, fallback="search"))
+        batch_dir = self.search_batches_root / batch_id
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        variables = {
+            "keywords": keywords,
+            "venue": str(request.get("venue") or ""),
+            "year_start": str(request.get("year_start") or ""),
+            "year_end": str(request.get("year_end") or ""),
+            "source": source,
+            "max_results": str(max_results),
+        }
+        prompt = self._render_prompt_template(str(settings.get("prompt_template") or ""), variables)
+        command = self._render_prompt_template(str(settings.get("command_template") or ""), variables)
+        candidates = self._seed_candidates_from_keywords(batch_id, keywords, variables, max_results)
+        job = {
+            "job_id": batch_id,
+            "batch_id": batch_id,
+            "status": "created",
+            "keywords": keywords,
+            "source": source,
+            "command_template": settings.get("command_template") or "",
+            "rendered_command": command,
+            "prompt_template": settings.get("prompt_template") or "",
+            "rendered_prompt": prompt,
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+        }
+        write_text(batch_dir / "search.md", prompt)
+        write_json(batch_dir / "job.json", job)
+        write_json(batch_dir / "candidates.json", {"candidates": candidates})
+        return {
+            "job": job,
+            "batch": self._batch_record_from_dir(batch_dir).to_dict(),
+            "candidates": [self._candidate_record(batch_id, index, row, job["updated_at"]).to_dict() for index, row in enumerate(candidates)],
+        }
+
+    def get_search_job(self, job_id: str) -> dict[str, Any]:
+        batch_dir = self.search_batches_root / job_id
+        if not batch_dir.exists():
+            raise FileNotFoundError(job_id)
+        job = self._safe_json_object(batch_dir / "job.json")
+        if not job:
+            job = {
+                "job_id": job_id,
+                "batch_id": job_id,
+                "status": "unknown",
+                "updated_at": self._mtime(batch_dir),
+            }
+        return job
+
+    def set_candidate_batch_decision(self, batch_id: str, candidate_ids: list[str], decision: str) -> list[CandidateRecord]:
+        if not candidate_ids:
+            candidate_ids = [candidate.candidate_id for candidate in self.list_candidates(batch_id) if candidate.decision == "pending"]
+        records: list[CandidateRecord] = []
+        for candidate_id in candidate_ids:
+            records.append(self.set_candidate_decision(batch_id, candidate_id, decision))
+        return records
 
     def mark_status(self, paper_id: str, status: str) -> PaperRecord:
         paper_dir = self._require_paper_dir(paper_id)
@@ -390,6 +761,19 @@ class PaperRepository:
             next_action="检查文献是否已就绪。",
         )
         return self._paper_record_from_dir(paper_dir)
+
+    def create_library_folder(self, relative_path: str) -> Path:
+        clean_parts = [part.strip() for part in relative_path.replace("\\", "/").split("/") if part.strip()]
+        if not clean_parts:
+            raise ValueError("Folder path is required")
+        if len(clean_parts) > 3:
+            raise ValueError("Library folders support Domain / Area / Topic only")
+        if any(part in {".", ".."} for part in clean_parts):
+            raise ValueError("Folder path cannot contain relative segments")
+
+        target = self._resolve_library_target_path("/".join(clean_parts))
+        target.mkdir(parents=True, exist_ok=True)
+        return target
 
     def reject_paper(self, paper_id: str) -> PaperRecord:
         paper_dir = self._require_paper_dir(paper_id)
@@ -554,12 +938,13 @@ class PaperRepository:
             "data_root": self.data_root,
             "discover_root": self.discover_root,
             "search_batches_root": self.search_batches_root,
-            "acquire_root": self.acquire_root,
-            "curated_root": self.curated_root,
             "library_root": self.library_root,
             "archive_root": self.archive_root,
             "template_root": self.template_root,
         }
+        if self.data_layout != "native":
+            paths["acquire_root"] = self.acquire_root
+            paths["curated_root"] = self.curated_root
         return {
             "data_layout": self.data_layout,
             "data_root": str(self.data_root),
@@ -629,6 +1014,12 @@ class PaperRepository:
             year=year,
             venue=str(metadata.get("venue") or ""),
             doi=str(metadata.get("doi") or ""),
+            authors=self._string_list(metadata.get("authors")),
+            abstract=str(metadata.get("abstract") or metadata.get("abstract_zh") or ""),
+            summary=str(metadata.get("summary") or metadata.get("ai_summary") or ""),
+            url=str(metadata.get("url") or metadata.get("paper_url") or ""),
+            arxiv_id=str(metadata.get("arxiv_id") or metadata.get("arxiv") or ""),
+            starred=bool(metadata.get("starred") or False),
             tags=[str(tag) for tag in metadata.get("tags", []) if tag] or ["paper"],
             path=str(paper_dir),
             paper_path=str(paper_path) if paper_path.exists() else "",
@@ -692,6 +1083,11 @@ class PaperRepository:
                 or row.get("abstract_zh")
                 or ""
             ),
+            abstract=str(row.get("abstract") or row.get("abstract_zh") or ""),
+            url=str(row.get("url") or row.get("paper_url") or ""),
+            doi=str(row.get("doi") or ""),
+            arxiv_id=str(row.get("arxiv_id") or row.get("arxiv") or ""),
+            pdf_url=str(row.get("pdf_url") or ""),
             landing_status=str(row.get("landing_status") or row.get("pdf_status") or ""),
             result_path=str(row.get("result_path") or row.get("landing_path") or ""),
             updated_at=str(row.get("gate1_updated_at") or updated_at),
@@ -1476,6 +1872,224 @@ class PaperRepository:
                 updates[key] = value
         return updates
 
+    def _metadata_payload(self, updates: dict[str, Any]) -> dict[str, Any]:
+        allowed = {
+            "title",
+            "authors",
+            "year",
+            "venue",
+            "doi",
+            "arxiv_id",
+            "url",
+            "paper_url",
+            "pdf_url",
+            "abstract",
+            "summary",
+            "domain",
+            "area",
+            "topic",
+            "tags",
+            "paper_path",
+            "note_path",
+            "refined_path",
+            "classification_status",
+        }
+        payload: dict[str, Any] = {}
+        for key, value in updates.items():
+            if key not in allowed:
+                continue
+            if key in {"authors", "tags"}:
+                payload[key] = self._string_list(value)
+                continue
+            if key == "year":
+                payload[key] = self._int_or_none(value)
+                continue
+            payload[key] = value.strip() if isinstance(value, str) else value
+        return payload
+
+    def _search_settings_payload(self, updates: dict[str, Any]) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if "command_template" in updates and updates["command_template"] is not None:
+            payload["command_template"] = str(updates["command_template"])
+        if "prompt_template" in updates and updates["prompt_template"] is not None:
+            payload["prompt_template"] = str(updates["prompt_template"])
+        if "default_source" in updates and updates["default_source"] is not None:
+            payload["default_source"] = str(updates["default_source"])
+        if "max_results" in updates and updates["max_results"] is not None:
+            payload["max_results"] = int(updates["max_results"])
+        return payload
+
+    def _infer_metadata_fields(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        title = str(metadata.get("title") or "").strip()
+        doi = str(metadata.get("doi") or "").strip()
+        arxiv_id = str(metadata.get("arxiv_id") or "").strip()
+        url = str(metadata.get("url") or "").strip()
+        updates: dict[str, Any] = {
+            "title": title,
+            "doi": doi,
+            "arxiv_id": arxiv_id or self._arxiv_id_from_text(url),
+            "url": url,
+            "authors": self._string_list(metadata.get("authors")),
+            "abstract": str(metadata.get("abstract") or "").strip(),
+            "summary": str(metadata.get("summary") or "").strip(),
+            "venue": str(metadata.get("venue") or "").strip(),
+            "year": self._int_or_none(metadata.get("year")),
+        }
+        if not updates["url"] and updates["arxiv_id"]:
+            updates["url"] = f"https://arxiv.org/abs/{updates['arxiv_id']}"
+        if not updates["summary"] and updates["abstract"]:
+            updates["summary"] = str(updates["abstract"])[:500]
+        if not updates["venue"] and updates["arxiv_id"]:
+            updates["venue"] = "arXiv"
+        if not updates["abstract"] and title:
+            updates["abstract"] = ""
+        return {key: value for key, value in updates.items() if value not in (None, [], {})}
+
+    def _arxiv_id_from_text(self, value: str) -> str:
+        match = re.search(r"arxiv\.org/(?:abs|pdf)/([^/?#]+)", value, flags=re.IGNORECASE)
+        return match.group(1).replace(".pdf", "") if match else ""
+
+    def _settings_root(self) -> Path:
+        path = self.data_root / "settings"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _render_prompt_template(self, template: str, variables: dict[str, str]) -> str:
+        try:
+            return template.format(**variables)
+        except (KeyError, ValueError):
+            rendered = template
+            for key, value in variables.items():
+                rendered = rendered.replace(f"{{{key}}}", value)
+            return rendered
+
+    def _seed_candidates_from_keywords(self, batch_id: str, keywords: str, variables: dict[str, str], max_results: int) -> list[dict[str, Any]]:
+        title = keywords.strip()
+        return [
+            {
+                "id": "P001",
+                "candidate_id": "P001",
+                "title": title,
+                "authors": [],
+                "year": self._int_or_none(variables.get("year_end")) or self._int_or_none(variables.get("year_start")),
+                "venue": variables.get("venue") or "",
+                "source_type": variables.get("source") or "manual",
+                "collection_role": "seed",
+                "paper_type": "metadata-only",
+                "quality": 50,
+                "relevance": 50,
+                "relevance_reason_zh": "由新建检索关键词生成的待补全候选。后续可由 Codex CLI job 覆盖 candidates.json。",
+                "landing_status": "metadata-only",
+                "result_path": f"Discover/search_batches/{batch_id}/results/P001",
+                "abstract": "",
+                "url": "",
+                "doi": "",
+                "arxiv_id": "",
+                "pdf_url": "",
+                "max_results": max_results,
+            }
+        ]
+
+    def _unique_search_batch_id(self, slug: str) -> str:
+        date_prefix = datetime.now(timezone.utc).strftime("%Y%m%d")
+        base = f"{date_prefix}-{slug}"
+        candidate = base
+        index = 2
+        while (self.search_batches_root / candidate).exists():
+            candidate = f"{base}-{index}"
+            index += 1
+        return candidate
+
+    def _batch_record_from_dir(self, batch_dir: Path) -> BatchRecord:
+        candidates = self._candidate_rows(batch_dir / "candidates.json")
+        return BatchRecord(
+            batch_id=batch_dir.name,
+            title=batch_dir.name.replace("-", " "),
+            candidate_total=len(candidates),
+            keep_total=len([row for row in candidates if self._candidate_decision(row) == "keep"]),
+            reject_total=len([row for row in candidates if self._candidate_decision(row) == "reject"]),
+            review_status="reviewed" if (batch_dir / "review.md").exists() else "pending",
+            path=str(batch_dir),
+            updated_at=self._mtime(batch_dir),
+        )
+
+    def _read_artifact_body(self, path: Path, *, max_chars: int) -> str:
+        if not path.exists():
+            return ""
+        try:
+            content = read_text(path)
+        except OSError:
+            return ""
+        _, body = split_front_matter(content)
+        return body.strip()[:max_chars]
+
+    def _normalize_research_log(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(payload.get("id") or slugify(str(payload.get("title") or "research-log"), fallback="research-log")),
+            "timestamp": str(payload.get("timestamp") or utc_now()),
+            "updated_at": str(payload.get("updated_at") or utc_now()),
+            "title": str(payload.get("title") or "阅读记录"),
+            "bullets": self._string_list(payload.get("bullets")),
+            "next_steps": self._string_list(payload.get("next_steps") or payload.get("nextSteps")),
+            "tasks": self._task_list(payload.get("tasks")),
+        }
+
+    def _task_list(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        tasks: list[dict[str, Any]] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label:
+                continue
+            tasks.append(
+                {
+                    "id": str(item.get("id") or slugify(label, fallback=f"task-{index}")),
+                    "label": label,
+                    "checked": bool(item.get("checked") or False),
+                }
+            )
+        return tasks
+
+    def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(payload, dict):
+                rows.append(payload)
+        return rows
+
+    def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def _write_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+        path.write_text(content, encoding="utf-8", newline="\n")
+
+    def _string_list(self, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return []
+
+    def _active_paper_roots(self) -> tuple[Path, ...]:
+        if self.data_layout == "native":
+            return (self.library_root,)
+        return (self.curated_root, self.library_root, *self.legacy_library_roots)
+
     def _capabilities_for(
         self,
         *,
@@ -1509,12 +2123,31 @@ class PaperRepository:
     def _relative_id(self, path: Path) -> str:
         return str(path.relative_to(self.data_root)).replace("\\", "__").replace("/", "__")
 
+    def _paper_dir_from_id(self, paper_id: str) -> Path | None:
+        relative = Path(*[part for part in paper_id.split("__") if part])
+        if not relative.parts:
+            return None
+        candidate = (self.data_root / relative).resolve(strict=False)
+        if not candidate.exists() or not candidate.is_dir():
+            return None
+        try:
+            candidate.relative_to(self.data_root.resolve(strict=False))
+        except ValueError:
+            return None
+        return candidate
+
     def _paper_stage(self, path: Path, metadata: dict[str, Any] | None = None) -> str:
         if path == self.curated_root or self.curated_root in path.parents:
             return "acquire"
         if path == self.library_root or self.library_root in path.parents:
             return "library"
         if any(path == root or root in path.parents for root in self.legacy_library_roots):
+            return "library"
+        try:
+            relative = path.resolve(strict=False).relative_to(self.data_root.resolve(strict=False))
+        except ValueError:
+            relative = None
+        if relative and relative.parts and relative.parts[0] in {"Library", "Papers"}:
             return "library"
         if metadata:
             status = str(metadata.get("status") or metadata.get("ingest_status") or "").strip()
