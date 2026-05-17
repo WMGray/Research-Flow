@@ -90,7 +90,6 @@ export function LibraryPage() {
 
   const selectedPaper = filtered.find((paper) => paper.paper_id === selectedPaperId)
     ?? papers.find((paper) => paper.paper_id === selectedPaperId)
-    ?? filtered[0]
     ?? null;
 
   useEffect(() => {

@@ -14,8 +14,9 @@ import {
   Quote,
   Sparkles,
   StickyNote,
+  Tags,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { DisabledReasonTooltip } from "@/components/common/DisabledReasonTooltip";
 import { EditableMetadata, type EditableMetadataValue } from "@/components/papers/EditableMetadata";
@@ -25,7 +26,7 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PaperRecord } from "@/lib/api";
-import { formatDate, paperSummary } from "@/lib/format";
+import { paperSummary } from "@/lib/format";
 import { derivePaperStatus, type ClassificationOptionSet } from "@/lib/libraryView";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +43,7 @@ type PaperDetailPanelProps = {
   onOpenFolder?: (paper: PaperRecord) => Promise<void> | void;
 };
 
-const defaultOpen = new Set(["metadata", "summary", "notes"]);
+const defaultOpen = new Set(["metadata", "status", "paths", "tags"]);
 
 export function PaperDetailPanel({
   className,
@@ -61,7 +62,7 @@ export function PaperDetailPanel({
       <aside className={cn("hidden w-12 shrink-0 border-l bg-card xl:flex xl:flex-col xl:items-center xl:py-3", className)}>
         <Button size="icon" variant="ghost" onClick={onToggleCollapsed}>
           <PanelRightOpen className="h-4 w-4" />
-          <span className="sr-only">展开详情栏</span>
+          <span className="sr-only">Expand detail panel</span>
         </Button>
       </aside>
     );
@@ -102,8 +103,8 @@ export function PaperDetailContent({ classificationOptions, onGenerateNote, onMe
       <div className="grid h-full place-items-center p-6 text-center">
         <div>
           <BookOpen className="mx-auto h-5 w-5 text-muted-foreground" />
-          <p className="mt-2 text-sm font-medium">选择一篇论文</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">元数据、AI summary、notes、figures 和 citation 会显示在这里。</p>
+          <p className="mt-2 text-sm font-medium">Select a paper</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">Metadata, paths, tags, status, and actions will appear here.</p>
         </div>
       </div>
     );
@@ -120,13 +121,14 @@ export function PaperDetailContent({ classificationOptions, onGenerateNote, onMe
           {onToggleCollapsed ? (
             <Button size="icon" variant="ghost" onClick={onToggleCollapsed}>
               <PanelRightClose className="h-4 w-4" />
-              <span className="sr-only">折叠详情栏</span>
+              <span className="sr-only">Collapse detail panel</span>
             </Button>
           ) : null}
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <StatusBadge status={derivePaperStatus(paper)} />
-          <StatusBadge status={paper.parser_status} />
+          <LabeledStatus label="PDF" status={pdfStatusForPaper(paper)} />
+          <LabeledStatus label="Refine" status={paper.refined_review_status || "not_started"} />
+          <LabeledStatus label="Classify" status={paper.classification_status || derivePaperStatus(paper)} />
         </div>
         <DetailActions paper={paper} onGenerateNote={onGenerateNote} onOpenFolder={onOpenFolder} onParsePdf={onParsePdf} />
       </div>
@@ -137,24 +139,36 @@ export function PaperDetailContent({ classificationOptions, onGenerateNote, onMe
             <EditableMetadata compact classificationOptions={classificationOptions} paper={paper} onSave={onMetadataSave} />
           </Section>
 
+          <Section id="status" icon={Sparkles} open={openSections.has("status")} title="Status" onToggle={toggle}>
+            <StatusGrid paper={paper} />
+          </Section>
+
+          <Section id="tags" icon={Tags} open={openSections.has("tags")} title="Tags" onToggle={toggle}>
+            <TagBlock tags={paper.tags} />
+          </Section>
+
+          <Section id="paths" icon={LinkIcon} open={openSections.has("paths")} title="Paths" onToggle={toggle}>
+            <PathList paper={paper} />
+          </Section>
+
           <Section id="summary" icon={Sparkles} open={openSections.has("summary")} title="AI Summary" onToggle={toggle}>
-            <p className="text-sm leading-6 text-muted-foreground">{paperSummary(paper)}。当前接口未返回完整 AI summary，解析完成后可在 note 或 refined 文档中扩展展示。</p>
+            <p className="text-sm leading-6 text-muted-foreground">{paperSummary(paper)}. The current dashboard payload does not include a full AI summary; generated note and refined artifacts can be opened from the paths above.</p>
           </Section>
 
           <Section id="notes" icon={StickyNote} open={openSections.has("notes")} title="Notes" onToggle={toggle}>
-            {paper.note_path ? <PathText value={paper.note_path} /> : <EmptyCopy text="尚未生成 note。" />}
+            {paper.note_path ? <PathText value={paper.note_path} /> : <EmptyCopy text="No note has been generated yet." />}
           </Section>
 
           <Section id="figures" icon={Image} open={openSections.has("figures")} title="Figures" onToggle={toggle}>
-            {paper.images_path ? <PathText value={paper.images_path} /> : <EmptyCopy text="暂无 figures 路径。" />}
+            {paper.images_path ? <PathText value={paper.images_path} /> : <EmptyCopy text="No figures path is available." />}
           </Section>
 
           <Section id="citation" icon={Quote} open={openSections.has("citation")} title="Citation" onToggle={toggle}>
-            {paper.doi ? <PathText value={paper.doi} /> : <EmptyCopy text="暂无 DOI 或引用信息。" />}
+            {paper.doi ? <PathText value={paper.doi} /> : <EmptyCopy text="No DOI or citation metadata is available." />}
           </Section>
 
           <Section id="related" icon={Network} open={openSections.has("related")} title="Related Papers" onToggle={toggle}>
-            <EmptyCopy text="相关论文关系暂未接入。" />
+            <EmptyCopy text="Related paper links are not connected yet." />
           </Section>
         </div>
       </div>
@@ -183,54 +197,128 @@ function DetailActions({
       <DisabledReasonTooltip reason={parseReason}>
         <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled={Boolean(parseReason)} onClick={() => void onParsePdf?.(paper)}>
           <FileText className="h-3.5 w-3.5" />
-          {paper.parser_status === "failed" ? "重试解析" : "解析 PDF"}
+          {paper.parser_status === "failed" ? "Retry Parse" : "Parse PDF"}
         </Button>
       </DisabledReasonTooltip>
       <DisabledReasonTooltip reason={noteReason}>
         <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled={Boolean(noteReason)} onClick={() => void onGenerateNote?.(paper)}>
           <Sparkles className="h-3.5 w-3.5" />
-          生成 Note
+          Generate Note
         </Button>
       </DisabledReasonTooltip>
       <DisabledReasonTooltip reason={folderReason}>
         <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled={Boolean(folderReason)} onClick={() => void onOpenFolder?.(paper)}>
           <FolderOpen className="h-3.5 w-3.5" />
-          打开
+          Open
         </Button>
       </DisabledReasonTooltip>
       <DisabledReasonTooltip reason={downloadReason}>
         <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled>
           <Download className="h-3.5 w-3.5" />
-          下载 PDF
+          Download PDF
         </Button>
       </DisabledReasonTooltip>
     </div>
   );
 }
 
+function StatusGrid({ paper }: { paper: PaperRecord }) {
+  const rows: Array<[string, string]> = [
+    ["PDF", pdfStatusForPaper(paper)],
+    ["Parser", paper.parser_status || "not_started"],
+    ["Refine", paper.refined_review_status || "not_started"],
+    ["Classify", paper.classification_status || derivePaperStatus(paper)],
+    ["Note", paper.note_status || "missing"],
+    ["Note Review", paper.note_review_status || "pending"],
+    ["Workflow", paper.workflow_status || derivePaperStatus(paper)],
+  ];
+
+  return (
+    <div className="grid gap-2">
+      {rows.map(([label, status]) => (
+        <div className="flex items-center justify-between gap-3" key={label}>
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <StatusBadge status={status} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TagBlock({ tags }: { tags: string[] }) {
+  if (tags.length === 0) {
+    return <Badge variant="muted">No tags</Badge>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {tags.map((tag) => (
+        <Badge key={tag} variant="muted">
+          {tag}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function PathList({ paper }: { paper: PaperRecord }) {
+  const rows: Array<[string, string]> = [
+    ["Folder", paper.path],
+    ["PDF", paper.paper_path],
+    ["Note", paper.note_path],
+    ["Refined", paper.parser_artifacts.refined_path || paper.refined_path],
+    ["Metadata YAML", paper.metadata_path],
+    ["Metadata JSON", paper.metadata_json_path],
+    ["State", paper.state_path],
+  ];
+
+  return (
+    <div className="grid gap-2">
+      {rows.map(([label, value]) => (
+        <div className="grid gap-1" key={label}>
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          {value ? <PathText value={value} /> : <Badge variant="muted">Missing</Badge>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LabeledStatus({ label, status }: { label: string; status: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="text-[10px] font-medium uppercase text-muted-foreground">{label}</span>
+      <StatusBadge className="px-1.5" status={status} />
+    </span>
+  );
+}
+
+function pdfStatusForPaper(paper: PaperRecord): string {
+  return paper.asset_status === "missing_pdf" || !paper.paper_path ? "missing_pdf" : "pdf_ready";
+}
+
 function folderDisabledReason(paper: PaperRecord, handler?: (paper: PaperRecord) => Promise<void> | void): string | undefined {
-  if (!handler) return "当前页面尚未接入打开文件夹动作。";
-  if (!paper.path && !paper.paper_path) return "当前论文缺少本地路径。";
+  if (!handler) return "Open folder is not available on this page.";
+  if (!paper.path && !paper.paper_path) return "This paper has no local path.";
   return undefined;
 }
 
 function parseDisabledReason(paper: PaperRecord, handler?: (paper: PaperRecord) => Promise<void> | void): string | undefined {
-  if (!handler) return "当前页面尚未接入解析动作。";
-  if (!paper.paper_path) return "当前论文缺少 PDF，请先下载或在 Metadata 中绑定 PDF Path。";
-  if (!paper.capabilities.parse) return "当前论文状态不允许解析，可能正在解析或不在可解析阶段。";
+  if (!handler) return "Parse action is not connected on this page.";
+  if (!paper.paper_path) return "This paper is missing a PDF path.";
+  if (!paper.capabilities.parse) return "The current workflow state does not allow parsing.";
   return undefined;
 }
 
 function noteDisabledReason(paper: PaperRecord, handler?: (paper: PaperRecord) => Promise<void> | void): string | undefined {
-  if (!handler) return "当前页面尚未接入生成 Note 动作。";
-  if (paper.parser_status !== "parsed") return "请先完成 PDF 解析。";
-  if (!paper.capabilities.generate_note) return paper.note_path ? "当前论文已存在 Note。" : "当前论文状态不允许生成 Note。";
+  if (!handler) return "Generate note action is not connected on this page.";
+  if (paper.parser_status !== "parsed") return "Parse the PDF before generating a note.";
+  if (!paper.capabilities.generate_note) return paper.note_path ? "A note already exists." : "The current workflow state does not allow note generation.";
   return undefined;
 }
 
 function downloadDisabledReason(paper: PaperRecord): string {
-  if (paper.paper_path) return "本地已绑定 PDF；下载/重新下载需要后端下载接口或 Electron 本地桥接。";
-  return "后端尚未提供下载 PDF 接口；请先通过导入或 Metadata 绑定 PDF Path。";
+  if (paper.paper_path) return "The local PDF is already bound; direct download is not available yet.";
+  return "The backend does not expose a PDF download endpoint yet.";
 }
 
 function Section({
@@ -241,7 +329,7 @@ function Section({
   open,
   title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   icon: typeof FileText;
   id: string;
   open: boolean;
@@ -273,7 +361,7 @@ function PathText({ value }: { value: string }) {
       <span className="min-w-0 flex-1 break-all">{value}</span>
       <Button className="h-6 w-6 shrink-0" size="icon" variant="ghost" onClick={copy}>
         <Copy className="h-3.5 w-3.5" />
-        <span className="sr-only">复制</span>
+        <span className="sr-only">Copy</span>
       </Button>
     </div>
   );
